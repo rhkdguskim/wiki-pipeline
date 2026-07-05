@@ -24,6 +24,10 @@ status: active
 - [[question-code-index-query-surface]] answered — MCP 서빙 확정에 이어 cross-repo=후순위, tool 표면은 어댑터 정책 따름
 - [[question-code-index-store]] answered — 별도 서비스 평면 + 버전 스냅샷([[decision-code-index-versioning]])
 
+## 선행 요약
+
+- [[summary-code-index-pipeline]] → [[summary-code-index-followup]] → (이 요약) — 코드 인덱스 세션 3부작의 마지막.
+
 ## 계보 (코드 인덱스 결정 전목)
 
 1. 도입·트리거 — [[decision-code-index-pipeline]]

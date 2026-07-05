@@ -128,7 +128,7 @@ commit 수준 신선도를 가진다(쓰기 경로) — pull 메커니즘(compar
 
 ## 공통 — 실시간 모니터링
 
-세 파이프라인(과 앞으로 추가될 것들)은 모두 실행 진행상황을 관리 서버 대시보드에 **실시간으로** 보고한다 — 이기종이라도 공통 관측성 계약을 따르며, 모니터링은 파이프라인 설계의 1급 제약이다 → [[decision-pipeline-observability]] · [[concept-observability-contract]].
+세 파이프라인(과 앞으로 추가될 것들)은 모두 실행 진행상황을 관리 서버 대시보드에 **실시간으로** 보고한다 — 이기종이라도 공통 관측성 계약을 따르며, 모니터링은 파이프라인 설계의 1급 제약이다 → [[decision-pipeline-observability]] · [[concept-observability-contract]]. 진행 이벤트의 구체형은 **표준 스키마 + 가변 단위 + webhook push**로 확정됐다 → [[decision-observability-event-contract]].
 
 ## 더 보기
 

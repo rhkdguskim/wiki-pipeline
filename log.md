@@ -212,3 +212,17 @@
   doc-qa-rag(Phase 3+ 도입)·secret-storage-security(운영 단계 연기)
 - 충돌 해결: 코드 인덱스 3건(query-dual·incremental·store 보탬)은 다른 세션의 기존 decision(mcp-serving·runner-git-clone·store-plane)과 모순 → 사용자 판단으로 기존 decision 유지, 내가 만든 2개 decision 삭제 + versioning 보탠 내용 되돌림
 - 인덱스 갱신: decision-index(신규 8 + incremental 항목 제거), question-index(11건 ✅ + 방침 명시), overview(Phase 1/2 결정 요약 추가)
+
+## [2026-07-06] lint | 전체 위키 건강 점검 (71 페이지)
+- 리포트: [[lint-report-2026-07-06]] (wiki/meta/)
+- 통과: 깨진 링크 0 · frontmatter 4필드 71/71 · type↔폴더·접두사 전부 일치 · 폴더 인덱스 등재 정합 · stale 인덱스 0 · 상대경로 링크 0 · count 정합(71 페이지, question 16 answered)
+- 발견 3건(승인 대기, 미수정): HIGH 1 · MEDIUM 1 · LOW 1
+  - H1: question-progress-event-contract(answered)가 답 decision-observability-event-contract를 본문 역링크 안 함 → schema 위반 + 해당 decision이 약한 고아
+  - M1: overview 모니터링 절이 decision-observability-event-contract 미언급(드리프트)
+  - L1: 코드인덱스 summary 계보 미연결(약한 고아, 설계상 허용 — 개선 제안)
+- 오탐 아님 처리: question-runner-ai-network(답이 entity로 귀결, decision 불요) · open question 7건(인바운드 부재 정상)
+- 수정 완료(2026-07-06, 사용자 승인 자동 수정 3건):
+  - H1: question-progress-event-contract에 "✅ 답" 블록 + [[decision-observability-event-contract]] 역링크 → 고아 해소
+  - M1: overview 모니터링 절에 [[decision-observability-event-contract]] 문장 추가
+  - L1: 코드인덱스 summary 3부작 시간순 계보 상호연결(pipeline↔followup↔finalization)
+  - 재검증: 깨진 링크 0 · 고아 해소 · answered 링크 정합. runner-ai-network는 답이 entity 귀결로 정상.

@@ -19,3 +19,8 @@ status: active
 - [[decision-runner-git-clone]] — checkout은 러너 직접, 커넥터는 3책임 유지 ([[question-scm-checkout]] answered)
 - [[decision-code-index-versioning]] — sha 결부 버전 스냅샷·원자 교체·직전 버전 서빙
 - 갱신: [[question-code-index-query-surface]](서빙 형태 확정, 연산 목록 open) · [[question-code-index-store]](버저닝 확정, 소유·보존 open)
+
+## 계보
+
+- 선행: [[summary-code-index-pipeline]] — 파이프라인 설계 논의 (도입·프로바이더 추상화·traversal)
+- 후속: [[summary-code-index-finalization]] — 마지막 열린 질문 3건 확정 (어댑터·질의 범위·저장소 평면)
