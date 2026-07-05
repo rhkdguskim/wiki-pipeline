@@ -7,7 +7,7 @@ status: active
 
 # 설계 논의 기록 요약
 
-> 원본: `../raw/2026-07-05-design-session.md`
+> 원본: `../../raw/2026-07-05-design-session.md`
 
 wiki-pipeline의 설계가 확정되기까지의 논의 기록. 대안 3개를 검토했고 마지막 안이 채택됐다.
 

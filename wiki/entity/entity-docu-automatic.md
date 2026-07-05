@@ -34,4 +34,4 @@ Main CLI (Level 0): task-pipeline 스킬 — 테마 루프 + 재시도 + 저장
 | diff 입력 | 직전 커밋 | 누적 구간(sha~HEAD) → [[concept-idempotent-sha]] |
 | 실행 | CLI 대화형 | headless `claude -p` — 미검증 ⛔ → [[question-headless-claude-auth]] |
 
-소스 요약: [[summary-docu-automatic]] · 전체 그림: [[overview]] · 상세: `../docs/features/generation.md`
+소스 요약: [[summary-docu-automatic]] · 전체 그림: [[overview]] · 상세: `../../docs/features/generation.md`

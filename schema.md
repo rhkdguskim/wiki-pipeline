@@ -16,16 +16,18 @@
 
 ## 페이지 유형 라우팅 — 어디에 무엇을 넣는가
 
-| 유형 | 무엇을 넣나 | 파일명 |
-|------|------------|--------|
-| overview | 위키 진입 허브 — 시스템 전체 그림. 페이지 추가·삭제 시 **함께 갱신** | `wiki/overview.md` (고정) |
-| summary | raw 소스 1건의 요약 — ingest의 1차 산출물 | `wiki/summary-<slug>.md` |
-| entity | 시스템·제품·조직 등 실재하는 대상 | `wiki/entity-<slug>.md` |
-| concept | 개념·패턴·원리 — 재사용 가능한 지식 | `wiki/concept-<slug>.md` |
-| decision | 내려진 결정 + 근거 + 기각 대안 | `wiki/decision-<slug>.md` |
-| question | 미해결 질문 — **1질문 1페이지** | `wiki/question-<slug>.md` |
+wiki/는 **유형별 하위 폴더**로 나뉜다. 폴더명 = frontmatter `type`. 파일명 접두사는 폴더와 중복되지만 **유지한다** — 파일명이 전역 유일해야 `[[링크]]`가 모호해지지 않고, 본문 속 링크가 자기 유형을 설명한다.
 
-새 유형이 필요하면 이 표에 먼저 추가한 뒤 사용한다 (schema 변경 → log 기록).
+| 유형 | 무엇을 넣나 | 경로 |
+|------|------------|------|
+| overview | 위키 진입 허브 — 시스템 전체 그림. 페이지 추가·삭제 시 **함께 갱신** | `wiki/overview.md` (고정, 루트 유일 파일) |
+| summary | raw 소스 1건의 요약 — ingest의 1차 산출물 | `wiki/summary/summary-<slug>.md` |
+| entity | 시스템·제품·조직 등 실재하는 대상 | `wiki/entity/entity-<slug>.md` |
+| concept | 개념·패턴·원리 — 재사용 가능한 지식 | `wiki/concept/concept-<slug>.md` |
+| decision | 내려진 결정 + 근거 + 기각 대안 | `wiki/decision/decision-<slug>.md` |
+| question | 미해결 질문 — **1질문 1페이지** | `wiki/question/question-<slug>.md` |
+
+새 유형이 필요하면 이 표에 먼저 추가하고 폴더를 만든 뒤 사용한다 (schema 변경 → log 기록).
 
 ## frontmatter (경량 — 필수 4필드)
 
@@ -42,8 +44,8 @@ status: active            # active | open | answered | superseded
 
 ## 링크 규약
 
-- wiki 페이지 간: `[[파일명]]` (확장자 없이, 예: `[[decision-pull-model]]`)
-- raw·docs 참조: 상대경로 마크다운 링크 (예: `../raw/2026-07-05-design-session.md`, `../docs/architecture.md`)
+- wiki 페이지 간: `[[파일명]]` (확장자·경로 없이, 예: `[[decision-pull-model]]`) — 하위 폴더와 무관하게 파일명만으로 참조
+- raw·docs 참조: 상대경로 마크다운 링크. **깊이 주의** — 하위 폴더 페이지는 `../../raw/…`·`../../docs/…`, 루트의 overview.md만 `../docs/…`
 - 모든 wiki 페이지는 `index.md`에 등재되고, 최소 1개의 inbound `[[링크]]`를 가져야 한다 (고아 금지)
 
 ## 워크플로우
@@ -51,7 +53,7 @@ status: active            # active | open | answered | superseded
 ### Ingest — 새 지식 반영
 
 1. 소스를 `raw/YYYY-MM-DD-<slug>.md`로 저장 (원문 보존, 이후 불변)
-2. 소스를 읽고 `wiki/summary-<slug>.md` 작성 (요지 + 파생 페이지 링크)
+2. 소스를 읽고 `wiki/summary/summary-<slug>.md` 작성 (요지 + 파생 페이지 링크)
 3. 소스가 건드리는 entity/concept/decision/question 페이지를 생성 또는 갱신 (한 소스가 여러 페이지를 건드릴 수 있음)
 4. `wiki/overview.md` 갱신 (필요 시), `index.md` 갱신 (필수)
 5. `log.md`에 append: `## [YYYY-MM-DD] ingest | <소스 제목>` + 건드린 페이지 목록
@@ -64,7 +66,7 @@ status: active            # active | open | answered | superseded
 
 ### Lint — 건강 점검
 
-검사 항목: 깨진 `[[링크]]` / 고아 페이지 / index 누락·불일치 / frontmatter 필수 필드 누락 / 파일명↔type 접두사 불일치 / overview 드리프트(새 페이지 미반영) / 모순·중복 페이지 / `answered` question에 답 링크 부재.
+검사 항목: 깨진 `[[링크]]` / 고아 페이지 / index 누락·불일치 / frontmatter 필수 필드 누락 / 파일명↔type 접두사 불일치 / **type↔폴더 불일치** (페이지가 자기 type 폴더 밖에 있음) / raw·docs 상대경로 깊이 오류 / overview 드리프트(새 페이지 미반영) / 모순·중복 페이지 / `answered` question에 답 링크 부재.
 결과를 `log.md`에 `## [YYYY-MM-DD] lint | 결과 요약`으로 기록한다.
 
 ## 콘텐츠 규칙

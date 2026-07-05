@@ -31,4 +31,4 @@ status: active
 - **baseline**: 신규 소스 등록 시 초기값 = 등록 시점 HEAD (비우면 첫 배치가 전체 히스토리 처리 사고)
 - **sha 무효화**(force-push/rebase): 조상 여부 검증 → 무효 시 "최근 N일" fallback + 경고. 예방: main protect
 
-전체 그림: [[overview]] · 상세: `../docs/features/mr.md`, `../docs/features/change-detection.md`
+전체 그림: [[overview]] · 상세: `../../docs/features/mr.md`, `../../docs/features/change-detection.md`

@@ -27,4 +27,4 @@ X-LAB · ROC · Smart-ROS · SW-RCS — 개별 레포, C++/C#/JS/Python 혼재, 
 group access token 최소 권한(소스 read + docs-hub write), 토큰·API 키는 CI masked variable로만,
 서버 API는 사내망 한정 (인증 방식 → [[question-server-deploy-auth]]).
 
-전체 그림: [[overview]] · 상세: `../docs/tech-stack.md`, `../docs/nfr.md`
+전체 그림: [[overview]] · 상세: `../../docs/tech-stack.md`, `../../docs/nfr.md`
