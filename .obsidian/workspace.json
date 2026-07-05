@@ -1,0 +1,218 @@
+{
+  "main": {
+    "id": "37987f63bb6578a4",
+    "type": "split",
+    "children": [
+      {
+        "id": "e7439785e3094499",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "e4e84e68a675b6c8",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "wiki/overview.md",
+                "mode": "preview",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "overview"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "acd08cd8f977d2cd",
+    "type": "split",
+    "children": [
+      {
+        "id": "3981f3ef9241403e",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "f4539b1ca9ea6e25",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "파일 탐색기"
+            }
+          },
+          {
+            "id": "9f3948e728b69a70",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "검색"
+            }
+          },
+          {
+            "id": "f06e49c72f1eb31f",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "북마크"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "right": {
+    "id": "a8ff65b9be8e12c3",
+    "type": "split",
+    "children": [
+      {
+        "id": "2556131e6901dd93",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "33641115e8186444",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "wiki/overview.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "overview 의 백링크"
+            }
+          },
+          {
+            "id": "4bd931a269252971",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "wiki/overview.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "overview 의 나가는 링크"
+            }
+          },
+          {
+            "id": "7f5a82609793f0e6",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "태그"
+            }
+          },
+          {
+            "id": "b85194b9e57ee5ba",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "모든 속성"
+            }
+          },
+          {
+            "id": "66f044ad1681a64f",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "wiki/overview.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "overview 의 개요"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:빠른 전환기 열기": false,
+      "graph:그래프 뷰 열기": false,
+      "canvas:새 캔버스 만들기": false,
+      "daily-notes:오늘의 일일 노트 열기": false,
+      "templates:템플릿 삽입": false,
+      "command-palette:명령어 팔레트 열기": false,
+      "bases:새 베이스 생성하기": false
+    }
+  },
+  "active": "e4e84e68a675b6c8",
+  "lastOpenFiles": [
+    "index.md",
+    "CLAUDE.md",
+    "wiki/concept-idempotent-sha.md",
+    "raw/2026-07-05-design-session.md",
+    "log.md",
+    "raw/2026-07-05-docu-automatic-notes.md",
+    "wiki/summary-docu-automatic.md",
+    "wiki/summary-design-session.md",
+    "wiki/question-theme-expansion.md",
+    "wiki/question-server-stack-db.md",
+    "wiki/question-server-deploy-auth.md",
+    "wiki/question-runner-ai-network.md",
+    "wiki/question-mr-vs-docs-auto.md",
+    "wiki/question-headless-claude-auth.md",
+    "wiki/question-existing-site-relation.md",
+    "wiki/question-cost-estimation.md",
+    "docs/features/api.md",
+    "docs/features/change-detection.md",
+    "wiki/question-schedule-policy.md",
+    "wiki/decision-mr-review-gate.md",
+    "wiki/decision-db-source-of-truth.md",
+    "wiki/decision-nightly-batch.md",
+    "wiki/decision-pull-model.md",
+    "wiki/entity-mirero-gitlab.md",
+    "wiki/entity-docs-hub.md",
+    "wiki/entity-docu-automatic.md",
+    "wiki",
+    "raw"
+  ]
+}

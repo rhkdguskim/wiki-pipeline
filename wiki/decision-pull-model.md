@@ -1,0 +1,26 @@
+---
+type: decision
+title: pull 모델 채택 (push 기각)
+tags: [trigger, compare-api]
+status: active
+---
+
+# 결정: pull 모델 채택
+
+docs-hub가 구독 목록을 보유하고, 밤에 각 소스 레포를 compare API로 직접 조회한다.
+소스 레포는 아무것도 하지 않는다.
+
+## 기각된 대안
+
+| 대안 | 기각 이유 |
+|------|----------|
+| push 즉시 실행 (커밋마다 trigger job) | 커밋마다 AI 호출 → 비용·부하·리뷰 폭주 |
+| push 수집 + 야간 배치 (큐) | 큐 인프라의 push 충돌·유실·완료표시 관리 부담. 소스 레포마다 CI 수정 = 과제 담당자 협조 필요 |
+
+## 채택 근거
+
+- **소스 레포 무수정** — 온보딩 = 서버에 등록 1건
+- **큐 불필요** — 커밋 히스토리 자체가 큐. compare API가 커밋 N개를 변경 파일 집합 1개로 병합 → [[concept-idempotent-sha]]
+- 야간 배치라 실시간성 포기는 트레이드오프가 아님 → [[decision-nightly-batch]]
+
+결정 과정: [[summary-design-session]] · 전체 그림: [[overview]]
