@@ -2,7 +2,7 @@
 type: question
 title: 생성 엔진 런타임 — Claude Code 재사용 vs 자체 에이전트 구축
 tags: [engine, claude-code, agents, abstraction, phase-1]
-status: open
+status: answered
 ---
 
 # ❓ 생성 엔진을 Claude Code로 계속 호출할까, 자체 에이전트로 만들까?
@@ -36,5 +36,9 @@ status: open
 3. **자체 에이전트(B)는 driver 발생 시** 그 인터페이스 뒤에 삽입: headless 인증 막힘 / Claude Code 제약(중첩·병렬) 탈출 필요 / 비용 통제 이슈 / LLM Wiki 서비스화가 균질 엔진 요구.
 
 → "B로 갈아탄다"가 아니라 **"인터페이스 + 당분간 A, 필요 시 B"** (사실상 C의 사고방식). 결정되면 decision 페이지 신설 + 본 question `answered` 전환.
+
+## ✅ 답 (2026-07-05)
+
+**하이브리드**로 확정 → [[decision-engine-hybrid]]. 엔진 인터페이스를 지금 정의하고, 당분간 `claude -p` headless(A), driver 발생 시 자체 에이전트(B)로 교체. headless 검증([[question-headless-claude-auth]])이 A의 첫 관문.
 
 관련: [[question-headless-claude-auth]] · [[decision-control-data-plane-split]] · [[decision-scm-connector-abstraction]] · [[entity-docu-automatic]] · [[overview]]

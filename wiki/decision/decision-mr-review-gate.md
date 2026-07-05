@@ -9,11 +9,11 @@ status: active
 
 AI 산출물은 docs-hub에 브랜치 + MR로만 제출한다. AI가 main에 직접 쓰지 않는다.
 
-## 기존 docs-auto 브랜치 방식을 대체
+## 기존 docs-auto 브랜치 방식을 대체 (확정)
 
 Docu-Automatic 원 설계(v4)는 각 레포의 docs-auto 브랜치에 push 후 중앙 배치가 pull하는 방식.
-MR 방식이 권장되는 이유: 사람 리뷰 게이트 확보 + 원 레포의 미결 사항("인간 리뷰 프로세스",
-"docs-auto 브랜치 관리")이 함께 해소. 단 **최종 확정 필요** → [[question-mr-vs-docs-auto]]
+**MR 방식으로 최종 확정** — 사람 리뷰 게이트 확보 + 원 레포의 미결 사항("인간 리뷰 프로세스",
+"docs-auto 브랜치 관리")이 함께 해소 → [[question-mr-vs-docs-auto]] 답변(2026-07-05).
 
 SCM 커넥터에 따라 제출 수단이 다르다: GitLab은 **MR**, GitHub은 **PR** — 사람 리뷰 게이트는 동일하다 → [[decision-scm-connector-abstraction]]
 

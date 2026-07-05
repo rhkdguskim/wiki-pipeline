@@ -21,6 +21,7 @@ status: active
 
 - 소스 레포는 서버 DB에 `scm: gitlab | github` 타입과 함께 등록되고, 그 타입으로 커넥터가 선택된다 → [[decision-db-source-of-truth]]
 - 커넥터는 SCM 세부(엔드포인트·리뷰요청 명칭·인증)만 바꾸고, 파이프라인 상위 로직은 공유한다.
+- 코드 인덱스 파이프라인이 요구하는 소스 전체 확보(checkout)를 4번째 책임으로 넣을지는 미확정 → [[question-scm-checkout]]
 
 ## 변하지 않는 것 (커넥터 무관)
 
@@ -28,4 +29,4 @@ status: active
 - **sha 포인터 멱등성** — sha 전진은 submit 성공 후에만. SCM 무관 → [[concept-idempotent-sha]]
 - **사람 리뷰 게이트** — GitLab MR = GitHub PR, 둘 다 사람이 머지 (AI 자동 머지 금지) → [[decision-mr-review-gate]]
 
-관련: [[entity-mirero-gitlab]] · [[overview]] · 소스: [[2026-07-05-multi-scm-connector]]
+관련: [[entity-mirero-gitlab]] · [[concept-port-adapter]] · [[overview]] · 소스: [[2026-07-05-multi-scm-connector]]

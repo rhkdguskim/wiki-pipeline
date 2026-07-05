@@ -2,18 +2,35 @@
 
 > question 페이지 카탈로그. 허브: [[index]] · 규약: [[schema]]
 
-- [[question-runner-ai-network]] ⛔ — 러너→AI API 네트워크 경로 (Phase 1 블로킹)
-- [[question-headless-claude-auth]] ⛔ — headless Claude Code 인증/동작 검증 (Phase 1 블로킹)
-- [[question-engine-runtime]] — 생성 엔진: Claude Code 재사용 vs 자체 에이전트 (엔진 인터페이스 추상화)
-- [[question-mr-vs-docs-auto]] ⛔ — MR 방식 최종 확정 (Phase 1 블로킹)
-- [[question-server-deploy-auth]] — 배포 위치·API 인증 (Phase 2)
-- [[question-schedule-policy]] — 스케줄 시각/상한 정책 (Phase 2)
-- [[question-theme-expansion]] — 테마 2차 확장 시점 (Phase 3+)
-- [[question-cost-estimation]] — 비용 예측 (Phase 1 실측 후)
+- [[question-runner-ai-network]] ✅ — 러너→AI API 네트워크 경로 (answered: 뚫려 있음)
+- [[question-headless-claude-auth]] ⛔ — headless Claude Code 인증/동작 검증 (유일 남은 Phase 1 블로킹; 엔진 하이브리드 방침 → [[decision-engine-hybrid]])
+- [[question-engine-runtime]] ✅ — 생성 엔진: Claude Code 재사용 vs 자체 에이전트 (answered: 하이브리드 → [[decision-engine-hybrid]])
+- [[question-mr-vs-docs-auto]] ✅ — MR 방식 최종 확정 (answered: docs-hub 직접 MR → [[decision-mr-review-gate]])
+- [[question-server-deploy-auth]] ✅ — 배포 위치·API 인증 (answered: 사내 VM + 자체 토큰 → [[decision-server-vm-self-token]])
+- [[question-schedule-policy]] ✅ — 스케줄 시각/상한 정책 (answered: 과제별 대시보드 설정 → [[decision-schedule-per-source]])
+- [[question-theme-expansion]] — 테마 2차 확장 시점 (Phase 3+, 실측 후 우선순위)
+- [[question-cost-estimation]] — 비용 예측 (Phase 1 PoC 실측 후)
 
 ### 향후 기능 후보 (브레인스토밍 2026-07-05)
 
-- [[question-batch-observability]] — 배치 관측성·알림 (아침 리포트·실패 알림·대시보드, Phase 2)
-- [[question-change-significance-filter]] — 사소한 변경 재생성 스킵 (비용 최적화, Phase 2)
-- [[question-review-feedback-loop]] — 리뷰 피드백 되먹임 (품질 복리, Phase 3)
-- [[question-doc-qa-rag]] — 생성 문서 위 Q&A/RAG (활용·LLM Wiki 통합, Phase 3+)
+- [[question-batch-observability]] — 배치 알림/리포트 (대시보드는 확정 → [[decision-pipeline-observability]]; daily digest·실패 알림·운영 대시보드 방침)
+- [[question-progress-event-contract]] ✅ — 진행 이벤트 형태·granularity (answered: 표준 스키마 + 가변 단위 + webhook push → [[decision-observability-event-contract]])
+- [[question-change-significance-filter]] ✅ — 사소한 변경 재생성 스킵 (answered: 규칙 기반 먼저 → [[decision-change-filter-rule-based]])
+- [[question-review-feedback-loop]] — 리뷰 피드백 되먹임 (Phase 3, 사람 큐레이션 후 반영 방침)
+- [[question-doc-qa-rag]] — 생성 문서 위 Q&A/RAG (Phase 3+ 도입 방침)
+
+### 매뉴얼 추출 파이프라인 (2026-07-05)
+
+- [[question-app-exec-environment]] ✅ — 앱 실행 환경 (답함: 별도 호스트·IP/port·시크릿 저장 → [[decision-app-host-connection]])
+- [[question-mcp-auth-network]] ✅ — MCP·앱·AI 네트워크 (answered: MCP=IP/port, AI 뚫림)
+- [[question-secret-storage-security]] — 등록 시크릿 저장 보안 (우선순위 낮음, 운영 단계로 연기)
+- [[question-ui-coverage-completeness]] ✅ — "모든 기능" 완전 순회 보장·측정 (answered: 커버리지 지표 + 누락 표시 → [[decision-coverage-metric-gap]])
+- [[question-manual-delete-safety]] ✅ — 매뉴얼 삭제 판정 안전성 (answered: deprecated 유예 후 삭제 → [[decision-manual-delete-grace]])
+- [[question-scenario-set-ownership]] ✅ — 시나리오 세트 소유·유지 (answered: 과제 담당자 대시보드 정의 → [[decision-scenario-owner-dashboard]])
+- [[question-manual-theme-taxonomy]] ✅ — 사용자/엔지니어 매뉴얼 분류 체계 (answered: 사용자/운영파트 2축 → [[decision-manual-taxonomy-two-reader]])
+
+### 코드 인덱스 파이프라인 (2026-07-05)
+
+- [[question-code-index-query-surface]] ✅ — 질의 표면·서빙 경계 (answered: MCP 서빙·단일 레포 우선 → [[decision-code-index-single-repo-scope]])
+- [[question-scm-checkout]] ✅ — SCM 커넥터 4번째 책임(checkout) 추가 여부 (answered: 러너 git clone → [[decision-runner-git-clone]])
+- [[question-code-index-store]] ✅ — 인덱스 저장소 소유 (answered: 별도 질의 서비스 평면 → [[decision-code-index-store-plane]])

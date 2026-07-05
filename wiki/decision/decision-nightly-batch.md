@@ -22,4 +22,10 @@ status: active
 - 수동 트리거 병행: 특정 소스만 즉시 실행, full 재생성 옵션, 실행 중 중복 트리거 락
 - 시각/요일·과제별 개별 스케줄은 미확정 → [[question-schedule-policy]]
 
+## 적용 범위 (2026-07-05 한정)
+
+야간 배치는 시스템 전역 속성이 아니라 **AI 문서 파이프라인의 속성**이다 — 근거(AI 비용·리뷰 폭주)가
+비-AI 워크로드엔 적용되지 않는다. 코드 인덱스 파이프라인은 짧은 주기 폴링으로 별도 주기를 쓴다
+→ [[decision-code-index-pipeline]]
+
 관련: [[decision-pull-model]] · [[summary-design-session]]

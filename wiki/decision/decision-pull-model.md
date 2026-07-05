@@ -23,4 +23,10 @@ docs-hub가 구독 목록을 보유하고, 밤에 각 소스 레포를 compare A
 - **큐 불필요** — 커밋 히스토리 자체가 큐. compare API가 커밋 N개를 변경 파일 집합 1개로 병합 → [[concept-idempotent-sha]]. compare는 SCM 커넥터가 제공(GitLab·GitHub 공통) → [[decision-scm-connector-abstraction]]
 - 야간 배치라 실시간성 포기는 트레이드오프가 아님 → [[decision-nightly-batch]]
 
+## 적용 범위 (2026-07-05 한정)
+
+push 기각 근거(커밋마다 AI 호출 → 비용·리뷰 폭주)는 **AI 문서 파이프라인 전제**다.
+비-AI인 코드 인덱스 파이프라인은 같은 pull 메커니즘(compare + sha 포인터)을 **짧은 주기 폴링**으로
+재사용한다 — pull 모델 자체는 유지, 주기만 파이프라인별 정책 → [[decision-code-index-pipeline]]
+
 결정 과정: [[summary-design-session]] · 전체 그림: [[overview]]

@@ -21,7 +21,7 @@ status: active
 
 ## 변하지 않는 것 (평면 간 계약)
 
-- **① 트리거** (Control → Data) / **④ 완료 보고·webhook** (Data → Control) — 두 평면은 이 계약으로만 대화 → [[overview]]
+- **① 트리거** (Control → Data) / **④ 완료 보고·webhook** (Data → Control) — 두 평면은 이 계약으로만 대화 → [[overview]]. ④는 완료뿐 아니라 **실시간 진행**도 실어 대시보드로 보낸다 → [[decision-pipeline-observability]]
 - 러너는 pull 모델로 소스를 직접 조회한다 (소스 레포 무수정) → [[decision-pull-model]]
 
 ## 열린 부분
