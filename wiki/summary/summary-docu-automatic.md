@@ -7,7 +7,7 @@ status: active
 
 # Docu-Automatic 레포 분석 요약
 
-> 원본: `../../raw/2026-07-05-docu-automatic-notes.md` · 레포: https://github.com/jaeCheon8587/Docu-Automatic
+> 원본: [[2026-07-05-docu-automatic-notes]] · 레포: https://github.com/jaeCheon8587/Docu-Automatic
 
 기존에 구축 완료된 **문서 생성 엔진**의 분석 기록 요약. wiki-pipeline은 이 엔진의 자동 운영 계층이다.
 

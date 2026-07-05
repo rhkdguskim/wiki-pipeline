@@ -8,4 +8,4 @@
 ## 위키 유지 규칙
 
 위키 관련 작업(지식 추가/조회/점검)을 하기 전에 **반드시 `schema.md`를 읽고 그 워크플로우(ingest/query/lint)를 따른다.**
-raw/는 불변이며, wiki/ 갱신 시 index.md·log.md를 함께 갱신한다.
+raw/는 불변이며, wiki/ 갱신 시 폴더 인덱스(`wiki/<type>/<type>-index.md`)·log.md를 함께 갱신한다(인덱스는 허브 `wiki/index.md` + 폴더별 2계층).

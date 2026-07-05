@@ -11,7 +11,7 @@
 | The wiki | `wiki/` | LLM이 생성·유지하는 지식 페이지 | ingest/query/lint 워크플로우로만 갱신 |
 | The schema | `schema.md` (이 문서) | 구조·규약·워크플로우의 단일 기준 | 규약 변경 시에만, log에 기록 |
 
-보조 파일: `index.md`(전 페이지 카탈로그), `log.md`(append-only 연산 기록).
+보조 파일: **lazy-loading 2계층 인덱스** — 허브 `wiki/index.md`(유형별 폴더 인덱스로 드릴다운) + 폴더별 `wiki/<type>/<type>-index.md`(그 폴더 페이지만 나열). `log.md`(append-only 연산 기록).
 제품 스펙(`PRD.md`·`docs/`)은 **아직 작성하지 않는다** (2026-07-05 삭제, 추후 재작성 예정 — git 이력에 보존). 현재는 raw/ + 위키가 유일한 지식 소스이며, PRD가 재작성되면 위키 페이지가 상세를 docs/ 링크로 위임한다.
 
 ## 페이지 유형 라우팅 — 어디에 무엇을 넣는가
@@ -20,7 +20,7 @@ wiki/는 **유형별 하위 폴더**로 나뉜다. 폴더명 = frontmatter `type
 
 | 유형 | 무엇을 넣나 | 경로 |
 |------|------------|------|
-| overview | 위키 진입 허브 — 시스템 전체 그림. 페이지 추가·삭제 시 **함께 갱신** | `wiki/overview.md` (고정, 루트 유일 파일) |
+| overview | 위키 진입 허브 — 시스템 전체 그림·다이어그램·실행 흐름 (**서사 중심**; 전체 페이지 카탈로그는 [[index]]에 위임). 시스템 구조가 바뀔 때 갱신 | `wiki/overview.md` (고정, 루트 유일 파일) |
 | summary | raw 소스 1건의 요약 — ingest의 1차 산출물 | `wiki/summary/summary-<slug>.md` |
 | entity | 시스템·제품·조직 등 실재하는 대상 | `wiki/entity/entity-<slug>.md` |
 | concept | 개념·패턴·원리 — 재사용 가능한 지식 | `wiki/concept/concept-<slug>.md` |
@@ -28,6 +28,21 @@ wiki/는 **유형별 하위 폴더**로 나뉜다. 폴더명 = frontmatter `type
 | question | 미해결 질문 — **1질문 1페이지** | `wiki/question/question-<slug>.md` |
 
 새 유형이 필요하면 이 표에 먼저 추가하고 폴더를 만든 뒤 사용한다 (schema 변경 → log 기록).
+
+**카탈로그 파일** (네비게이션 전용, 지식 페이지 아님): 허브 `wiki/index.md` + 각 폴더 `<type>-index.md`. 파일명이 `index.md`/`*-index.md`인 것으로 식별하며, frontmatter·type↔폴더·고아 검사에서 제외된다. 새 유형 폴더를 만들면 그 폴더의 `<type>-index.md`도 함께 만들고 허브에 링크한다.
+
+### concept vs decision — 헷갈릴 때
+
+decision은 대개 concept을 **실체화(instantiate)** 한다 (예: [[decision-pull-model]]이 [[concept-idempotent-sha]]를 쓴다) → 겹쳐 보이지만 아래 3축으로 가른다.
+
+| 축 | decision | concept |
+|----|----------|---------|
+| **번복** | 다르게 택하면 `superseded` 됨 | 번복이 아니라 "정정"의 대상 (대안으로 교체 불가) |
+| **이식성** | 우리 맥락에서만 참 (예: 야간 20:00 배치) | 프로젝트 밖에서도 참 (예: 멱등성은 어디서나 멱등성) |
+| **기각 대안** | 버린 대안이 있다 | 없다 — 선택이 아니라 설명이므로 |
+
+- concept 페이지엔 **"우리가 택했다" 문장 금지** — 그건 decision으로 간다.
+- decision 페이지는 메커니즘 설명을 **concept 링크로 위임**하고, 선택·근거·기각 대안에 집중한다.
 
 ## frontmatter (경량 — 필수 4필드)
 
@@ -45,8 +60,8 @@ status: active            # active | open | answered | superseded
 ## 링크 규약
 
 - wiki 페이지 간: `[[파일명]]` (확장자·경로 없이, 예: `[[decision-pull-model]]`) — 하위 폴더와 무관하게 파일명만으로 참조
-- raw 참조: 상대경로 마크다운 링크. **깊이 주의** — 하위 폴더 페이지는 `../../raw/…`, 루트의 overview.md만 `../raw/…` (docs/ 재작성 시 동일 규칙)
-- 모든 wiki 페이지는 `index.md`에 등재되고, 최소 1개의 inbound `[[링크]]`를 가져야 한다 (고아 금지)
+- raw 참조: wiki 페이지와 똑같이 `[[파일명]]` wikilink 사용 (예: `[[2026-07-05-design-session]]`). raw 파일명이 전역 유일하므로 폴더 깊이·상대경로를 신경 쓸 필요 없이 Obsidian이 해석하고 백링크를 잡는다. **상대경로 마크다운 링크(`](../…)`)는 금지**
+- 모든 지식 페이지는 **자기 유형의 폴더 인덱스**(`<type>-index.md`)에 등재되고, 폴더 인덱스는 허브 [[index]]에 링크된다. 각 페이지는 최소 1개의 inbound `[[링크]]`를 가져야 한다 (고아 금지)
 
 ## 워크플로우
 
@@ -55,18 +70,18 @@ status: active            # active | open | answered | superseded
 1. 소스를 `raw/YYYY-MM-DD-<slug>.md`로 저장 (원문 보존, 이후 불변)
 2. 소스를 읽고 `wiki/summary/summary-<slug>.md` 작성 (요지 + 파생 페이지 링크)
 3. 소스가 건드리는 entity/concept/decision/question 페이지를 생성 또는 갱신 (한 소스가 여러 페이지를 건드릴 수 있음)
-4. `wiki/overview.md` 갱신 (필요 시), `index.md` 갱신 (필수)
+4. `wiki/overview.md` 갱신 (필요 시), **해당 폴더 인덱스**(`<type>-index.md`) 갱신 (필수). 새 유형/폴더면 허브 [[index]]도 갱신
 5. `log.md`에 append: `## [YYYY-MM-DD] ingest | <소스 제목>` + 건드린 페이지 목록
 
 ### Query — 질문에 답하기
 
-1. `index.md`를 먼저 읽어 관련 페이지를 찾는다
+1. 허브 [[index]]에서 유형을 고르고 **해당 폴더 인덱스만** 열어 관련 페이지를 찾는다 (lazy-loading — 전체 카탈로그를 로드하지 않음)
 2. 해당 페이지들(+필요 시 raw·docs)을 읽고 답을 합성한다
 3. 유용한 합성 결과(비교·분석)는 새 wiki 페이지로 파일링한다 (복리 축적) → index/log 갱신
 
 ### Lint — 건강 점검
 
-검사 항목: 깨진 `[[링크]]` / 고아 페이지 / index 누락·불일치 / frontmatter 필수 필드 누락 / 파일명↔type 접두사 불일치 / **type↔폴더 불일치** (페이지가 자기 type 폴더 밖에 있음) / raw·docs 상대경로 깊이 오류 / overview 드리프트(새 페이지 미반영) / 모순·중복 페이지 / `answered` question에 답 링크 부재.
+검사 항목: 깨진 `[[링크]]` / 고아 페이지 / **폴더 인덱스 누락·불일치**(지식 페이지가 자기 `<type>-index.md`에 없음 / 폴더 인덱스가 허브 [[index]]에 없음) / frontmatter 필수 필드 누락 / 파일명↔type 접두사 불일치 / **type↔폴더 불일치** (페이지가 자기 type 폴더 밖에 있음) / 상대경로 마크다운 링크 잔존(`](../…)`·`](./…)` — raw·wiki 참조 모두 `[[wikilink]]`여야 함) / overview 드리프트(새 페이지 미반영) / 모순·중복 페이지 / `answered` question에 답 링크 부재. (카탈로그 파일 `index.md`/`*-index.md`은 frontmatter·접두사·고아 검사 제외)
 결과를 `log.md`에 `## [YYYY-MM-DD] lint | 결과 요약`으로 기록한다.
 
 ## 콘텐츠 규칙
@@ -80,7 +95,7 @@ status: active            # active | open | answered | superseded
 
 ```
 ## [2026-07-05] ingest | 설계 논의 기록
-- raw: raw/2026-07-05-design-session.md
+- raw: [[2026-07-05-design-session]]
 - 생성: summary-design-session, decision-pull-model, …
 ```
 

@@ -7,7 +7,7 @@ status: active
 
 # 결정: 서버 DB가 source of truth
 
-구독 목록·`last_processed_sha`·실행 이력은 관리 서버의 DB에 저장한다 (SQLite 시작 → 필요시 Postgres, [[question-server-stack-db]]).
+구독 목록·`last_processed_sha`·실행 이력은 관리 서버의 DB에 저장한다.
 
 ## 기각된 대안: sources.yml을 레포에 커밋
 

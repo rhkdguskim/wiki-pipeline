@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "wiki/decision/decision-nightly-batch.md",
-                "mode": "preview",
+                "file": "wiki/question/question-cost-estimation.md",
+                "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "decision-nightly-batch"
+              "title": "question-cost-estimation"
             }
           }
         ]
@@ -94,7 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "wiki/decision/decision-nightly-batch.md",
+                "file": "wiki/question/question-cost-estimation.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "decision-nightly-batch 의 백링크"
+              "title": "question-cost-estimation 의 백링크"
             }
           },
           {
@@ -113,12 +113,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "wiki/decision/decision-nightly-batch.md",
+                "file": "wiki/question/question-cost-estimation.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "decision-nightly-batch 의 나가는 링크"
+              "title": "question-cost-estimation 의 나가는 링크"
             }
           },
           {
@@ -156,13 +156,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "wiki/decision/decision-nightly-batch.md",
+                "file": "wiki/question/question-cost-estimation.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "decision-nightly-batch 의 개요"
+              "title": "question-cost-estimation 의 개요"
             }
           }
         ]
@@ -185,37 +185,38 @@
   },
   "active": "e4e84e68a675b6c8",
   "lastOpenFiles": [
-    "wiki/decision/decision-mr-review-gate.md",
-    "wiki/decision/decision-db-source-of-truth.md",
-    "wiki/concept/concept-idempotent-sha.md",
+    "wiki/question/question-change-significance-filter.md",
+    "wiki/question/question-doc-qa-rag.md",
+    "wiki/question/question-review-feedback-loop.md",
+    "wiki/question/question-batch-observability.md",
+    "wiki/question/question-engine-runtime.md",
+    "wiki/index.md",
     "wiki/overview.md",
-    "schema.md.tmp.23376.ccd06421cde5",
+    "index.md",
+    "wiki/question/question-index.md",
+    "wiki/decision/decision-index.md",
+    "wiki/concept/concept-index.md",
+    "wiki/entity/entity-index.md",
+    "wiki/summary/summary-index.md",
+    "wiki/decision/decision-control-data-plane-split.md",
+    "raw/2026-07-05-design-session.md",
+    "raw/2026-07-05-docu-automatic-notes.md",
+    "raw/2026-07-05-multi-scm-connector.md",
+    "log.md",
+    "schema.md",
+    "CLAUDE.md",
+    "wiki/summary/summary-docu-automatic.md",
+    "wiki/summary/summary-design-session.md",
     "wiki/question/question-theme-expansion.md",
     "wiki/question/question-server-stack-db.md",
     "wiki/question/question-server-deploy-auth.md",
     "wiki/question/question-schedule-policy.md",
-    "wiki/question/question-runner-ai-network.md",
-    "wiki/question/question-mr-vs-docs-auto.md",
-    "wiki/question/question-headless-claude-auth.md",
-    "wiki/question/question-existing-site-relation.md",
-    "wiki/question/question-cost-estimation.md",
-    "wiki/decision/decision-pull-model.md",
-    "wiki/decision/decision-nightly-batch.md",
+    "schema.md.tmp.23376.ccd06421cde5",
     "wiki/question",
     "wiki/decision",
     "wiki/concept",
-    "wiki/entity/entity-mirero-gitlab.md",
-    "wiki/entity/entity-docu-automatic.md",
-    "wiki/entity/entity-docs-hub.md",
     "wiki/entity",
-    "wiki/summary/summary-docu-automatic.md",
-    "wiki/summary/summary-design-session.md",
     "wiki/summary",
-    "wiki/entity-mirero-gitlab.md",
-    "docs/features/api.md",
-    "docs/features/change-detection.md",
-    "docs/02-PRD.md",
-    "docs/architecture.md",
     "wiki",
     "raw"
   ]

@@ -37,8 +37,8 @@
                                 ▼               │
                         ┌───────────────────────┴────────┐
                         │   docs-hub CI 러너 (Data Plane)  │
-                        │  fetch_changes → analyze_impact │
-                        │  → regenerate_docs → create_mr  │
+                        │  변경 조회 → 영향 분석 → 재생성   │
+                        │  → 제출 (브랜치 + MR/PR 생성)     │
                         └───┬──────────────────┬─────────┘
                 ② compare API│                  │ ③ AI API 호출
                              ▼                  ▼
@@ -66,25 +66,17 @@
 - `last_processed_sha`가 매일 갱신되어 포인터 변경 커밋이 매일 쌓임
 - 사용자 등록 시점과 야간 배치의 sha 갱신 시점이 겹치면 push 충돌
 
-→ 구독 목록·SHA·실행 이력은 **서버의 DB(SQLite → 필요시 Postgres)가 source of truth**.
+→ 구독 목록·SHA·실행 이력은 **서버의 DB가 source of truth**.
 `sources.yml`은 필요시 읽기 전용 스냅샷 export(git 이력·리뷰용)로만 사용.
 
 ### docs-hub 레포 구조
 
-```
-docs-hub/
-├── docs-xlab/            # Docusaurus multi-instance: 과제별 분리, 사이트는 하나
-├── docs-roc/
-├── docs-smart-ros/
-├── docs-sw-rcs/
-├── pipeline/
-│   ├── fetch_changes.py   # compare API로 변경분 조회
-│   ├── analyze_impact.py  # 경로 ↔ 문서 매핑 대조
-│   ├── regenerate_docs.py # 문서당 1회 AI 호출
-│   └── create_mr.py       # 브랜치 push + MR 생성
-├── docusaurus.config.js
-└── .gitlab-ci.yml
-```
+- **과제별 문서 instance** — docs-xlab / docs-roc / docs-smart-ros / docs-sw-rcs … 과제마다 문서 묶음을 분리하되 사이트는 하나 (Docusaurus multi-instance).
+- **파이프라인** — 이 레포 한 곳에서 4단계 실행:
+  1. 변경 조회 — SCM 커넥터의 compare로 변경 파일 집합 수신
+  2. 영향 분석 — 변경 경로 ↔ 문서 매핑 대조
+  3. 재생성 — 문서당 1회 AI 호출 (생성 엔진 headless)
+  4. 제출 — 브랜치 + MR/PR 생성
 
 ## 4. 핵심 설계 결정 요약
 
@@ -118,26 +110,16 @@ POST   /hooks/pipeline   # GitLab pipeline 이벤트 수신 (실시간 모니터
 
 → 합쳐서 "지금 어느 과제가 돌고 있고, 어젯밤 뭐가 실패했나"를 대시보드에 실시간으로 표시.
 
-## 7. 기술 스택 (제안, 미확정)
-
-| 구성요소 | 제안 | 비고 |
-|----------|------|------|
-| 관리 서버 | ASP.NET Core Minimal API + BackgroundService(cron) + SignalR | 사용자 익숙 스택 (DDL Service 경험) |
-| DB | SQLite 시작 → 규모 커지면 Postgres | 초기 인프라 최소화 |
-| 파이프라인 스크립트 | Python | GitLab API + AI SDK 호출 |
-| 문서 사이트 | Docusaurus (multi-instance) | 과제별 문서 분리, 사이트 하나 |
-
-## 8. 미확정 / 확인 필요 사항
+## 7. 미확정 / 확인 필요 사항
 
 1. **러너 → AI API 네트워크 경로**: 폐쇄망/프록시 여부, AI 도메인 화이트리스트 또는 사내 LLM 게이트웨이 존재 여부 → **인프라팀 확인이 선행 과제**
 2. **AI 제공자/모델 및 예산**: Anthropic/OpenAI/사내 게이트웨이 중 무엇을, 월 호출량 상한은
 3. **서버 배포 위치·인증**: 사내 VM/컨테이너, 사내 SSO 연동 여부
-4. **경로 ↔ 문서 매핑 규약**: Docu-Automatic의 frontmatter `source_files`/`theme` 필드로 상당 부분 해결됨 (섹션 9 참조). glob 패턴 지원 여부만 추가 결정
+4. **경로 ↔ 문서 매핑 규약**: Docu-Automatic의 frontmatter `source_files`/`theme` 필드로 상당 부분 해결됨 (섹션 8 참조). glob 패턴 지원 여부만 추가 결정
 5. **스케줄 정책**: 실행 시각/요일, 과제별 개별 스케줄 필요 여부
 6. **MR 정책**: 리뷰어 자동 지정, 소스별 MR vs 하루치 통합 MR
-7. **기술 스택 최종 확정**
 
-## 9. 기존 자산: Docu-Automatic (Claude 문서 생성 에이전트)
+## 8. 기존 자산: Docu-Automatic (Claude 문서 생성 에이전트)
 
 > 레포: https://github.com/jaeCheon8587/Docu-Automatic
 
