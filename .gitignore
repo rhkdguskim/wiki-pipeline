@@ -1,2 +1,6 @@
 .omc/
 .DS_Store
+
+# Obsidian 개인 UI 상태 (세션마다 바뀜 — 공유 대상 아님)
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
