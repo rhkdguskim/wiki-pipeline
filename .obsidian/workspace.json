@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "wiki/overview.md",
+                "file": "wiki/concept/concept-idempotent-sha.md",
                 "mode": "preview",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "overview"
+              "title": "concept-idempotent-sha"
             }
           }
         ]
@@ -78,8 +78,7 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300,
-    "collapsed": true
+    "width": 300
   },
   "right": {
     "id": "a8ff65b9be8e12c3",
@@ -95,7 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "wiki/overview.md",
+                "file": "wiki/concept/concept-idempotent-sha.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -105,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "overview 의 백링크"
+              "title": "concept-idempotent-sha 의 백링크"
             }
           },
           {
@@ -114,12 +113,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "wiki/overview.md",
+                "file": "wiki/concept/concept-idempotent-sha.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "overview 의 나가는 링크"
+              "title": "concept-idempotent-sha 의 나가는 링크"
             }
           },
           {
@@ -157,13 +156,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "wiki/overview.md",
+                "file": "wiki/concept/concept-idempotent-sha.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "overview 의 개요"
+              "title": "concept-idempotent-sha 의 개요"
             }
           }
         ]
@@ -186,6 +185,7 @@
   },
   "active": "e4e84e68a675b6c8",
   "lastOpenFiles": [
+    "wiki/overview.md",
     "schema.md.tmp.23376.ccd06421cde5",
     "wiki/question/question-theme-expansion.md",
     "wiki/question/question-server-stack-db.md",
@@ -212,7 +212,6 @@
     "wiki/summary/summary-design-session.md",
     "wiki/summary",
     "wiki/entity-mirero-gitlab.md",
-    "wiki/overview.md",
     "docs/features/api.md",
     "docs/features/change-detection.md",
     "docs/02-PRD.md",

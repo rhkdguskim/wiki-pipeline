@@ -26,3 +26,7 @@
 
 ## [2026-07-05] lint | 폴더 구조 마이그레이션 검증
 - wiki 20페이지 + raw 2건: 깨진 링크 0 / 고아 0 / index 누락 0 / frontmatter 누락 0 / 접두사·폴더 불일치 0 / 상대경로 깨짐 0 (PASS)
+
+## [2026-07-05] query | concept-idempotent-sha 설명 요청
+- 질문: "패턴이 감이 안 온다" → 책갈피 비유 + 3일 시나리오 표로 답변
+- 갱신: concept-idempotent-sha (한 줄 요약·시나리오 표 추가, 규칙·방어 로직은 유지)
