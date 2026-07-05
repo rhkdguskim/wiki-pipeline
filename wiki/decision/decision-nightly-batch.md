@@ -22,4 +22,4 @@ status: active
 - 수동 트리거 병행: 특정 소스만 즉시 실행, full 재생성 옵션, 실행 중 중복 트리거 락
 - 시각/요일·과제별 개별 스케줄은 미확정 → [[question-schedule-policy]]
 
-관련: [[decision-pull-model]] · [[summary-design-session]] · 상세: `../../docs/features/scheduling.md`
+관련: [[decision-pull-model]] · [[summary-design-session]]

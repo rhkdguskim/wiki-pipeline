@@ -11,4 +11,4 @@ status: open
 러너용 엔드포인트(plan/report)는 서비스 토큰으로 가닥은 잡혀 있다.
 
 - 블로킹 대상: Phase 2
-- 관련: [[entity-mirero-gitlab]] · 상세: `../../docs/features/api.md`
+- 관련: [[entity-mirero-gitlab]]

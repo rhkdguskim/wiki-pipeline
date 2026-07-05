@@ -41,4 +41,4 @@
 - [[question-cost-estimation]] — 비용 예측 (Phase 1 실측 후)
 
 ---
-페이지 20 · raw 소스 2 · 최종 갱신 2026-07-05 · PRD: [PRD.md](./PRD.md) → [docs/README.md](./docs/README.md)
+페이지 20 · raw 소스 2 · 최종 갱신 2026-07-05

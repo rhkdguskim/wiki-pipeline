@@ -23,4 +23,4 @@ status: active
 - run_items는 삭제하지 않음 (비활성화 후에도 이력 보존)
 - 필요 시 sources.yml은 읽기 전용 스냅샷 export만
 
-관련: [[summary-design-session]] · [[overview]] · 상세: `../../docs/data-model.md`
+관련: [[summary-design-session]] · [[overview]]

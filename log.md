@@ -30,3 +30,8 @@
 ## [2026-07-05] query | concept-idempotent-sha 설명 요청
 - 질문: "패턴이 감이 안 온다" → 책갈피 비유 + 3일 시나리오 표로 답변
 - 갱신: concept-idempotent-sha (한 줄 요약·시나리오 표 추가, 규칙·방어 로직은 유지)
+
+## [2026-07-05] schema | PRD·docs 계층 제거 (사용자 지시: 아직 작성하지 않음)
+- 삭제: PRD.md + docs/ 19파일 (git 이력에 보존, 추후 위키 기반 재작성 예정)
+- 갱신: wiki 8페이지의 docs 상세 링크 제거, overview·index·schema.md·CLAUDE.md의 PRD 참조 정리
+- 현재 지식 소스는 raw/ + wiki/가 유일

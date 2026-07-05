@@ -12,7 +12,7 @@
 | The schema | `schema.md` (이 문서) | 구조·규약·워크플로우의 단일 기준 | 규약 변경 시에만, log에 기록 |
 
 보조 파일: `index.md`(전 페이지 카탈로그), `log.md`(append-only 연산 기록).
-`PRD.md`·`docs/`는 위키가 아니라 **정제된 제품 스펙**이다 — 위키 페이지는 상세를 docs/ 링크로 위임한다.
+제품 스펙(`PRD.md`·`docs/`)은 **아직 작성하지 않는다** (2026-07-05 삭제, 추후 재작성 예정 — git 이력에 보존). 현재는 raw/ + 위키가 유일한 지식 소스이며, PRD가 재작성되면 위키 페이지가 상세를 docs/ 링크로 위임한다.
 
 ## 페이지 유형 라우팅 — 어디에 무엇을 넣는가
 
@@ -45,7 +45,7 @@ status: active            # active | open | answered | superseded
 ## 링크 규약
 
 - wiki 페이지 간: `[[파일명]]` (확장자·경로 없이, 예: `[[decision-pull-model]]`) — 하위 폴더와 무관하게 파일명만으로 참조
-- raw·docs 참조: 상대경로 마크다운 링크. **깊이 주의** — 하위 폴더 페이지는 `../../raw/…`·`../../docs/…`, 루트의 overview.md만 `../docs/…`
+- raw 참조: 상대경로 마크다운 링크. **깊이 주의** — 하위 폴더 페이지는 `../../raw/…`, 루트의 overview.md만 `../raw/…` (docs/ 재작성 시 동일 규칙)
 - 모든 wiki 페이지는 `index.md`에 등재되고, 최소 1개의 inbound `[[링크]]`를 가져야 한다 (고아 금지)
 
 ## 워크플로우
@@ -71,7 +71,7 @@ status: active            # active | open | answered | superseded
 
 ## 콘텐츠 규칙
 
-- **1페이지 = 1관심사.** 문서 통째 붙여넣기 금지. 상세는 docs/(PRD) 링크로 위임
+- **1페이지 = 1관심사.** 문서 통째 붙여넣기 금지. 페이지는 자체 완결로 유지 (PRD 재작성 후에는 상세를 docs/ 링크로 위임)
 - **question 라이프사이클**: `status: open` → 답이 확정되면 decision 페이지 생성 + question 본문에 답 페이지 링크 + `status: answered` (question 삭제 금지)
 - **결정 번복**: 기존 decision을 덮어쓰지 않는다. 새 decision 페이지 생성 + 옛 페이지 `status: superseded` + 상호 링크
 - **raw 불변**: raw/ 파일은 절대 수정하지 않는다. 정정이 필요하면 새 raw 파일을 추가하고 wiki에서 갱신

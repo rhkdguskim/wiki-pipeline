@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "wiki/concept/concept-idempotent-sha.md",
+                "file": "wiki/decision/decision-nightly-batch.md",
                 "mode": "preview",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "concept-idempotent-sha"
+              "title": "decision-nightly-batch"
             }
           }
         ]
@@ -94,7 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "wiki/concept/concept-idempotent-sha.md",
+                "file": "wiki/decision/decision-nightly-batch.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "concept-idempotent-sha 의 백링크"
+              "title": "decision-nightly-batch 의 백링크"
             }
           },
           {
@@ -113,12 +113,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "wiki/concept/concept-idempotent-sha.md",
+                "file": "wiki/decision/decision-nightly-batch.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "concept-idempotent-sha 의 나가는 링크"
+              "title": "decision-nightly-batch 의 나가는 링크"
             }
           },
           {
@@ -156,13 +156,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "wiki/concept/concept-idempotent-sha.md",
+                "file": "wiki/decision/decision-nightly-batch.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "concept-idempotent-sha 의 개요"
+              "title": "decision-nightly-batch 의 개요"
             }
           }
         ]
@@ -185,6 +185,9 @@
   },
   "active": "e4e84e68a675b6c8",
   "lastOpenFiles": [
+    "wiki/decision/decision-mr-review-gate.md",
+    "wiki/decision/decision-db-source-of-truth.md",
+    "wiki/concept/concept-idempotent-sha.md",
     "wiki/overview.md",
     "schema.md.tmp.23376.ccd06421cde5",
     "wiki/question/question-theme-expansion.md",
@@ -199,10 +202,7 @@
     "wiki/decision/decision-pull-model.md",
     "wiki/decision/decision-nightly-batch.md",
     "wiki/question",
-    "wiki/decision/decision-mr-review-gate.md",
-    "wiki/decision/decision-db-source-of-truth.md",
     "wiki/decision",
-    "wiki/concept/concept-idempotent-sha.md",
     "wiki/concept",
     "wiki/entity/entity-mirero-gitlab.md",
     "wiki/entity/entity-docu-automatic.md",

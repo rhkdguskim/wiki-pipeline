@@ -42,4 +42,4 @@ compare API는 `from=책갈피&to=HEAD` 구간의 **최종 변경 파일 집합*
 - **신규 등록**: 초기 책갈피 = 등록 시점 HEAD (비우면 첫 배치가 레포 전체 히스토리를 "밀린 것"으로 오인)
 - **force-push/rebase**: 책갈피가 현재 브랜치 조상인지 검증 → 무효면 "최근 N일" fallback + 경고. 예방: main protect
 
-전체 그림: [[overview]] · 상세: `../../docs/features/mr.md`, `../../docs/features/change-detection.md`
+전체 그림: [[overview]]

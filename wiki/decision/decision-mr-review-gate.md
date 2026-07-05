@@ -22,4 +22,4 @@ MR 방식이 권장되는 이유: 사람 리뷰 게이트 확보 + 원 레포의
 - critic 2회 초과 fail 문서는 `auto_generated_warning` 태그 + MR에 표시 → 리뷰어가 판단
 - 품질 추적 지표: 자동 MR 머지율
 
-관련: [[entity-docu-automatic]] · [[summary-design-session]] · 상세: `../../docs/features/mr.md`
+관련: [[entity-docu-automatic]] · [[summary-design-session]]

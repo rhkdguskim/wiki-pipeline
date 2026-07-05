@@ -25,4 +25,4 @@ docs-hub/
 - 산출물은 이 레포에 MR로 제출 → [[decision-mr-review-gate]]
 - 기존 문서 사이트(110.110.10.70:8080)와의 관계는 미확정 → [[question-existing-site-relation]]
 
-전체 그림: [[overview]] · 상세: `../../docs/architecture.md`
+전체 그림: [[overview]]
