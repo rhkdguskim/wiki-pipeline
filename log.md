@@ -332,3 +332,10 @@
 - 갱신: entity-remote-control-mcp — "소스 실측(2026-07-06)" 절 추가(서버 2종·도구 세트·전송·모드·OmniParser·배포·동시성·실행 실증). "sw-rcs-session-mcp"의 실체를 이 계열로 명시, remote 모드가 decision-app-host-connection의 IP/port 연결에 해당함을 연결
 - 허브 index(raw 11→12·페이지 84 불변)
 - 판단: 실측 사실이라 신규 결정·번복 아님 — 기존 entity에 fact 보강(직전 wish-gitlab-survey와 동형). raw가 단일 컴포넌트 조사라 summary 생략(entity 갱신이 곧 증류, raw는 entity에서 2회 inbound 확보). raw 무수정
+
+## [2026-07-06] schema | 폴더 인덱스 기능(파이프라인) 그룹핑 규약 명문화
+- 사용자 요청: "decision 안에서도 기능별로 구분 필요, 다른 폴더도 마찬가지" → 확인: 물리 하위 폴더가 아니라 인덱스 그룹핑 강화(폴더명=type 규약 유지)
+- schema.md: "폴더 인덱스 안의 기능 그룹핑" 절 추가 — 파일은 유형 폴더 평면 유지, `<type>-index.md`를 파이프라인 축 `###` 소제목으로 드릴다운. 표준 그룹 축 표(공통·정적[+등록 하위 #### ]·매뉴얼·코드인덱스·향후/실측). 그룹 소제목은 네비게이션이라 링크·고아 검사 제외 명시
+- 재구성: decision-index(34) → 공통 7 / 정적 5 + 등록하위 4 / 매뉴얼 10 / 코드인덱스 8. question-index(30) → 공통 7 / 정적 3 + 등록하위 6 / 매뉴얼 7 / 코드인덱스 4 / 향후 3. summary-index(8) → 정적·공통 3 / 매뉴얼 1 / 코드인덱스 3 / 실측 1
+- entity(6)·concept(5)는 규모 작아 평면 유지
+- 검증: 세 인덱스 모두 파일↔링크 완전 정합(decision 34=34·question 30=30·summary 8=8), 중복·유령 0. 파일 이동 없음 → 링크·카운트 불변(페이지 84·raw 12)
