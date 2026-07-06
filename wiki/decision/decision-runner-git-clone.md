@@ -20,4 +20,11 @@ status: active
 - **커넥터 4번째 책임(checkout) 추가** — 모든 SCM 접근이 커넥터로 일원화되는 일관성은 있으나,
   SCM 간 차이가 없는 동작까지 추상화해 인터페이스만 무거워진다
 
-[[question-scm-checkout]]의 답. 관련: [[decision-code-index-pipeline]] · 소스: [[2026-07-05-code-index-followup]]
+## 실측 근거 (2026-07-06)
+
+[[2026-07-06-wish-gitlab-api-survey]]에서 러너/체크아웃 환경이 확인됐다: `http_url_to_repo`(clone)·
+`repository/archive.zip` 모두 200이고, ros-sw-rcs는 **git LFS를 사용**한다(clone 시 `git lfs` 필요). CI가
+PowerShell(`.ps1`)·msbuild·windows_build_base를 쓰므로 **러너는 Windows**다 — 인덱싱용 clone/fetch도 Windows
+러너에서 LFS 포함해 수행해야 한다.
+
+[[question-scm-checkout]]의 답. 관련: [[decision-code-index-pipeline]] · [[entity-mirero-gitlab]] · 소스: [[2026-07-05-code-index-followup]] · [[2026-07-06-wish-gitlab-api-survey]]

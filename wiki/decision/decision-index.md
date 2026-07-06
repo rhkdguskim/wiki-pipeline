@@ -13,6 +13,7 @@
 ### 정적 파이프라인 상세
 
 - [[decision-schedule-per-source]] — 스케줄 = 과제별 개별, 대시보드 설정
+- [[decision-repo-registration-flow]] — 레포 등록 = 레포별 project access token + 브랜치 1개 스코프 (PAT·그룹토큰·프로젝트선택·다중브랜치 기각)
 - [[decision-change-filter-rule-based]] — 사소한 변경(주석·포맷) 재생성 스킵 = 규칙 기반 먼저 (LLM 판단 후순위)
 - [[decision-server-vm-self-token]] — 관리 서버 = 사내 VM + 자체 토큰 인증
 - [[decision-engine-hybrid]] — 생성 엔진 = 하이브리드 (엔진 인터페이스 + 점진적 교체)

@@ -45,4 +45,11 @@ status: active
 pull 메커니즘(compare + sha 포인터)은 그대로 쓰되 **주기가 파이프라인별 정책**으로 분리된다 —
 야간 배치는 문서 파이프라인의 속성으로 한정.
 
-관련: [[decision-code-index-provider-abstraction]] · [[question-code-index-query-surface]] · 소스: [[2026-07-05-code-index-pipeline]]
+## 실측 배경 (2026-07-06) — 기존 검색·분석 실물과의 경계
+
+[[2026-07-06-wish-gitlab-api-survey]]에서 인덱스 파이프라인 주변의 기존 실물이 드러났다: GitLab 내장 blob 검색
+(`search?scope=blobs` 200, 단 CE라 Elasticsearch 미탑재 = 텍스트 매치 수준), CodeScene 정적분석 그룹(26개 프로젝트).
+이 둘과 codegraph traversal의 역할 중복/보완 정리는 미해결 → [[question-blob-vs-code-index-overlap]]. 또한 웹훅·스케줄
+0개라 사내 이벤트 인프라가 없어 폴링(pull) 전제가 실측으로 뒷받침된다.
+
+관련: [[decision-code-index-provider-abstraction]] · [[question-code-index-query-surface]] · [[entity-mirero-gitlab]] · 소스: [[2026-07-05-code-index-pipeline]] · [[2026-07-06-wish-gitlab-api-survey]]

@@ -226,3 +226,55 @@
   - M1: overview 모니터링 절에 [[decision-observability-event-contract]] 문장 추가
   - L1: 코드인덱스 summary 3부작 시간순 계보 상호연결(pipeline↔followup↔finalization)
   - 재검증: 깨진 링크 0 · 고아 해소 · answered 링크 정합. runner-ai-network는 답이 entity 귀결로 정상.
+
+## [2026-07-06] ingest | wish GitLab API 실측 조사
+- raw: [[2026-07-06-wish-gitlab-api-survey]]
+- 생성:
+  - summary-wish-gitlab-api-survey
+  - question-release-object-vs-tag-trigger (트리거 = 태그 vs Release 객체)
+  - question-ci-less-source-policy (CI/릴리스 없는 방치 소스)
+  - question-existing-ci-docs-stage (기존 CI docs stage 공존/대체)
+  - question-blob-search-vs-code-index (내장 검색·CodeScene vs 코드 인덱스)
+  - question-artifact-type-dispatch (아티팩트 타입 소스별 대응)
+  - question-group-token-provisioning (최소 권한 group access token 발급)
+- 갱신:
+  - entity-mirero-gitlab (16.3 CE·KAS·OIDC scope·610 프로젝트·API 표면표·소스별 권한·5과제 프로파일 실측 확장)
+  - entity-remote-control-mcp (MCP 컨테이너 실물 존재 근거)
+  - decision-scm-connector-abstraction (GitLab 3책임 200 실증)
+  - decision-mr-review-gate (CE approval 404 = 관례 기반 근거 보강, 모순 아님)
+  - decision-artifact-consumption (아티팩트 실체 = Generic Package Registry 확인)
+  - decision-release-tag-trigger (태그≫릴리스·규칙 4종 → Release 객체 검토 승격)
+  - decision-runner-git-clone (러너 Windows·LFS 확인)
+  - decision-code-index-pipeline (blob 검색·CodeScene 경계·웹훅 0개 배경)
+  - 인덱스: summary-index, question-index, index(허브 카운트 7/29·78페이지·raw 9·2026-07-06)
+- 판단: 사실 확정(CE approval 404·아티팩트=Generic Package·러너 Windows/LFS·MCP 컨테이너 실물·compare/MR 200)은
+  question이 아니라 entity/decision에 fact로 반영. 결정 번복 없음 — 실측이 기존 결정을 실증. 미해결 6건만 신규 question.
+  overview는 시스템 구조 무변경이라 드리프트 없음(narrative 유지).
+
+## [2026-07-06] lint | wish GitLab 실측 ingest 후 전체 점검 — clean (off-schema meta/ 1건만 보고)
+- 범위: 위키 전체(78 지식페이지 + 6 카탈로그 + raw 9). 10개 검사 항목 전부 점검.
+- 카운트 재검증(핵심): 허브 index.md 표기가 실측과 전부 일치 — summary 7·entity 6·concept 5·decision 30·question 29(answered 16)·overview 1 = 총 78, raw 9. ingestor 수동 갱신 정확, 수정 불필요.
+- 깨진 링크 0: 위키 전체 wikilink 대상(95개)이 모두 실재 파일로 해소(wiki+raw+schema). (`[[wikilink]]`는 meta 리포트 내 설명용 플레이스홀더 — 오탐 아님)
+- 고아 0: 모든 지식페이지가 최소 1 inbound(폴더 인덱스 등재 포함). 신규 question 6건은 전부 카탈로그 외 실 inbound(summary·decision·entity) 보유. summary-wish-gitlab-api-survey는 카탈로그만 inbound이나 summary 유형 특성상 정상.
+- frontmatter 4필드: 78/78 충족. type↔폴더·파일명 접두사↔type: 전부 일치. 폴더 인덱스 등재: decision 30/entity 6/concept 5/summary 7/question 29 완전 일치, stale 0.
+- 상대경로 마크다운 링크(`](../…)`·`](./…)`): 0.
+- answered question 답 링크: 16건 중 15건 답 decision 링크 보유. question-runner-ai-network는 답이 인프라 사실이라 entity-mirero-gitlab로 귀결(정상 예외).
+- 모순·중복: 없음. 실측은 기존 결정을 실증하는 성격(CE approval 404 = decision-mr-review-gate 근거 보강 등) — superseded 처리 대상 아님. entity-mirero-gitlab vs entity-docs-hub 관심사 분리 정상.
+- 보고(수정 안 함, 판단 필요):
+  - [LOW·off-schema] wiki/meta/lint-report-2026-07-06.md — schema 유형 표에 없는 meta/ 폴더·type:meta·status:developing(비표준). schema는 lint 결과를 log.md에 남기도록 규정하고 별도 리포트 파일을 정의하지 않음. 미추적(untracked) 상태. 삭제/유지는 호출자 판단.
+  - [LOW·명명] question-blob-search-vs-code-index.md 파일명이 `-index.md`로 끝나 카탈로그 글롭(`*-index.md`)과 충돌 — 실제 지식페이지가 카탈로그로 오분류될 위험. 등재·frontmatter는 정상이라 기능 영향 없음. 리네임은 링크 8곳 갱신 동반이라 판단 필요.
+  - [LOW·선택] overview가 신규 entity-mirero-gitlab/실측 summary를 서사에 미참조(파생 decision 3종은 이미 참조). 구조 무변경이라 드리프트로 보긴 약함 — 서사 보강은 선택.
+- 자동 수정: 없음(기계적 결함 0건).
+
+## [2026-07-06] ingest | 레포 등록 시나리오 decision
+- 근거 raw: [[2026-07-06-wish-gitlab-api-survey]] (불변, 앞선 실측 ingest 위에 얹는 후속)
+- 생성: decision-repo-registration-flow — 레포별 project access token(read_repository+api)으로 등록 + 브랜치 1개 스코프.
+  기각 대안 4종: 사용자 PAT(사람에 묶임)·그룹 토큰(Owner 필요·실측 401)·별도 프로젝트 선택 단계(토큰이 이미 스코프)·레포당 다중 브랜치(이번에 브랜치 1개로 기각, 변종은 등록 분리).
+  자동 조회값(project id·default_branch·scm·git URL) + 소스별 정책 입력 + compare dry-run 검증 서술. 파생효과=compare 단일 브랜치 추적·트리거 축소.
+- 갱신:
+  - question-group-token-provisioning — status **open 유지**(answered 아님). "부분 답" 블록 추가: 소스 read 발급 주체 축은 레포별 토큰으로 확정(→decision-repo-registration-flow), 그러나 docs-hub write 토큰·소스별 최소권한 조합·아티팩트 registry read 편차는 미해결로 남음. 관련 footer에 새 decision 링크.
+  - overview — 실행 흐름(정적)에 등록 서술 추가, Phase 2 인프라 결정 단락에 decision-repo-registration-flow 등재 + 실측 근거 문단(entity-mirero-gitlab·summary-wish-gitlab-api-survey 서사 참조 → 직전 lint의 LOW 드리프트 해소).
+  - decision-index(정적 파이프라인 상세에 등재), 허브 index(decision 30→31·총 78→79·날짜 2026-07-06 유지).
+- 판단(question 라이프사이클): group-token-provisioning은 **부분 답**이라 answered로 넘기지 않음 — 이 decision은 소스 read 등록만 스코프하고, question이 원래 묶은 docs-hub write·최소권한 조합·아티팩트 read 축은 그대로 열려 있음. schema의 answered 조건(답이 확정)을 충족하는 부분만 본문에 명시 링크하고 status는 open 유지.
+- concept↔decision: 이번 건은 decision(기각 대안 4종 존재·우리 대시보드 맥락 한정·다르게 택하면 supersede 가능). 신규 개념 없음.
+- 결정 번복 없음(신규 추가). raw 무수정. blob-vs-code-index 리네임 완료분·삭제된 meta/는 미접촉.

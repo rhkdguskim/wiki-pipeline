@@ -29,4 +29,11 @@ status: active
 - **sha 포인터 멱등성** — sha 전진은 submit 성공 후에만. SCM 무관 → [[concept-idempotent-sha]]
 - **사람 리뷰 게이트** — GitLab MR = GitHub PR, 둘 다 사람이 머지 (AI 자동 머지 금지) → [[decision-mr-review-gate]]
 
-관련: [[entity-mirero-gitlab]] · [[concept-port-adapter]] · [[overview]] · 소스: [[2026-07-05-multi-scm-connector]]
+## 실측 확인 (2026-07-06) — GitLab 구현이 실물 API로 실증됨
+
+[[2026-07-06-wish-gitlab-api-survey]]에서 GitLab 커넥터의 3책임이 일반 권한으로 전부 200 확인됐다:
+**compare** = `GET /projects/:id/repository/compare`(두 sha → `diffs[].new_path`), **submit** = `GET/POST /merge_requests`,
+**auth** = OAuth/PAT/프로젝트·그룹 access token. 단 **auth의 group access token 발급은 Owner 권한**이라 열린 설계점이 있고
+([[question-group-token-provisioning]]), 이 인스턴스는 CE라 MR approval rule은 부재 → 게이트는 관례 기반 → [[decision-mr-review-gate]].
+
+관련: [[entity-mirero-gitlab]] · [[concept-port-adapter]] · [[overview]] · 소스: [[2026-07-05-multi-scm-connector]] · [[2026-07-06-wish-gitlab-api-survey]]

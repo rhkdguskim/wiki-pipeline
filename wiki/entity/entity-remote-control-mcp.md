@@ -30,4 +30,10 @@ status: active
 - AI 호출 네트워크 경로(폐쇄망/프록시) → [[question-mcp-auth-network]] (MCP↔호스트 축은 IP/port로 확정)
 - 시크릿 전송·저장 보안 → [[question-secret-storage-security]]
 
-원본: [[2026-07-05-manual-extraction-pipeline]] · 전체 그림: [[overview]]
+## 실측 확인 (2026-07-06) — 이미 실물로 존재
+
+[[2026-07-06-wish-gitlab-api-survey]]에서 ros-sw-rcs registry에 MCP 서버 컨테이너 이미지가 실재함이 확인됐다:
+`mivncmcpserver`·`mivncmanagermcpserver`·`mivnc2rtspserver`. "원격 제어 MCP"는 가설이 아니라 사내에서 이미
+빌드·배포되는 실물이다. 컨테이너 아티팩트는 `GET /projects/:id/registry/repositories`로 접근한다(단 소스별 권한 상이 → [[entity-mirero-gitlab]]).
+
+원본: [[2026-07-05-manual-extraction-pipeline]] · [[2026-07-06-wish-gitlab-api-survey]] · 전체 그림: [[overview]]

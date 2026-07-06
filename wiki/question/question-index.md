@@ -34,3 +34,12 @@
 - [[question-code-index-query-surface]] ✅ — 질의 표면·서빙 경계 (answered: MCP 서빙·단일 레포 우선 → [[decision-code-index-single-repo-scope]])
 - [[question-scm-checkout]] ✅ — SCM 커넥터 4번째 책임(checkout) 추가 여부 (answered: 러너 git clone → [[decision-runner-git-clone]])
 - [[question-code-index-store]] ✅ — 인덱스 저장소 소유 (answered: 별도 질의 서비스 평면 → [[decision-code-index-store-plane]])
+
+### wish GitLab 실측 파생 (2026-07-06)
+
+- [[question-release-object-vs-tag-trigger]] — 트리거 = 태그 vs Release 객체 (태그 규칙 4종·태그≫릴리스 → [[decision-release-tag-trigger]])
+- [[question-ci-less-source-policy]] — CI/릴리스 없는 방치 소스(ros-codec류) 처리 정책
+- [[question-existing-ci-docs-stage]] — 기존 CI docs stage(ros-sw-rcs)와 우리 자동화의 공존/대체
+- [[question-blob-vs-code-index-overlap]] — 내장 blob 검색·CodeScene vs 코드 인덱스 역할 중복 (→ [[decision-code-index-pipeline]])
+- [[question-artifact-type-dispatch]] — 아티팩트 타입 소스별(exe/msi/nuget/container) 획득·기동 (→ [[decision-artifact-consumption]])
+- [[question-group-token-provisioning]] — 최소 권한 group access token 발급 (그룹 토큰=Owner 권한·소스별 멤버십 상이)
