@@ -25,5 +25,6 @@ status: open
   릴리스를 안 만드는 소스(smart-ros 33/0, pcc/ros-common 0/0)는 트리거가 영영 안 걸림.
 - 릴리스 없는 소스는 어떻게? — [[question-ci-less-source-policy]]와 겹치는 경계.
 - 소스별로 트리거 방식을 대시보드에서 고르게 할지(태그 정규식 vs Release 이벤트) → [[decision-schedule-per-source]]의 과제별 설정 사상과 정합.
+- 트리거 관찰 범위는 등록의 **배포 브랜치**로 좁혀진다 → [[decision-repo-dev-release-registration]]. 릴리스/태그 트리거는 배포 브랜치 것만 관찰(개발 브랜치는 compare 야간).
 
-관련: [[decision-release-tag-trigger]] · [[question-schedule-policy]] · [[entity-mirero-gitlab]]
+관련: [[decision-release-tag-trigger]] · [[question-schedule-policy]] · [[entity-mirero-gitlab]] · [[decision-repo-dev-release-registration]]

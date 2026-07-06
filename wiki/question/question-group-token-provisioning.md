@@ -22,7 +22,7 @@ status: open
 
 ## 부분 답 (2026-07-06) — 소스 등록은 레포별 토큰으로 확정
 
-소스 read 등록의 **토큰 발급 주체** 축은 [[decision-repo-registration-flow]]로 좁혀졌다:
+소스 read 등록의 **토큰 발급 주체** 축은 [[decision-repo-dev-release-registration]]로 좁혀졌다:
 그룹 access token(Owner 필요)이 아니라 **레포별 project access token**(`read_repository`+`api`)을
 대시보드에 입력하는 방식으로 확정 — 위 "발급 주체" 검토 항목의 *프로젝트 access token으로 대체* 갈래가 채택됐다.
 등록 시 compare API dry-run 200으로 **소스별 실제 접근 레벨을 실측·검증**하는 단계도 그 결정에 포함된다.
@@ -34,7 +34,7 @@ status: open
 
 ## 검토할 것 (open)
 
-- ~~토큰 **발급 주체**~~ → 소스 read는 레포별 project access token으로 확정([[decision-repo-registration-flow]]).
+- ~~토큰 **발급 주체**~~ → 소스 read는 레포별 project access token으로 확정([[decision-repo-dev-release-registration]]).
   docs-hub write 토큰 발급 주체는 미확정.
 - **최소 권한 조합**을 소스 역할별로 확정(소스=read, docs-hub=write, 아티팩트=read_registry).
 - 소스별 멤버십 편차를 어떻게 흡수 — 소스 read는 등록 dry-run으로 검증되나, 아티팩트 read 권한 편차는 별도.
@@ -42,4 +42,4 @@ status: open
 이 질문은 **토큰 발급·권한 프로비저닝**에 한정한다. 발급된 시크릿의 **저장 보안**(at-rest 암호화·접근 제어)은
 별개 관심사 → [[question-secret-storage-security]].
 
-관련: [[decision-repo-registration-flow]] · [[decision-scm-connector-abstraction]] · [[entity-mirero-gitlab]]
+관련: [[decision-repo-dev-release-registration]] · [[decision-scm-connector-abstraction]] · [[entity-mirero-gitlab]]

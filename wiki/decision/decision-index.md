@@ -13,7 +13,10 @@
 ### 정적 파이프라인 상세
 
 - [[decision-schedule-per-source]] — 스케줄 = 과제별 개별, 대시보드 설정
-- [[decision-repo-registration-flow]] — 레포 등록 = 레포별 project access token + 브랜치 1개 스코프 (PAT·그룹토큰·프로젝트선택·다중브랜치 기각)
+- [[decision-repo-dev-release-registration]] — 레포 1개 등록 + 개발/배포 브랜치 2개 (역할별 문서 산출). 레포×브랜치 원자단위·정책 C 대체
+- [[decision-repo-registration-flow]] — ⛔ superseded — 레포별 토큰 + 브랜치 1개 스코프 (토큰=스코프 메커니즘은 위 결정이 계승)
+- [[decision-docs-hub-folder-rule]] — docs-hub 폴더 = 레포 1폴더 + `dev/`·`release/` 하위폴더 자동 규칙 (평면 폴더·브랜치명 경로 기각)
+- [[decision-branch-loss-policy]] — 등록 브랜치 선택(개발/배포) + compare 404 자동 비활성화 + protected 분기 재활성화
 - [[decision-change-filter-rule-based]] — 사소한 변경(주석·포맷) 재생성 스킵 = 규칙 기반 먼저 (LLM 판단 후순위)
 - [[decision-server-vm-self-token]] — 관리 서버 = 사내 VM + 자체 토큰 인증
 - [[decision-engine-hybrid]] — 생성 엔진 = 하이브리드 (엔진 인터페이스 + 점진적 교체)

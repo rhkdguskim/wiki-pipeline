@@ -43,3 +43,7 @@
 - [[question-blob-vs-code-index-overlap]] — 내장 blob 검색·CodeScene vs 코드 인덱스 역할 중복 (→ [[decision-code-index-pipeline]])
 - [[question-artifact-type-dispatch]] — 아티팩트 타입 소스별(exe/msi/nuget/container) 획득·기동 (→ [[decision-artifact-consumption]])
 - [[question-group-token-provisioning]] — 최소 권한 group access token 발급 (그룹 토큰=Owner 권한·소스별 멤버십 상이)
+
+### 등록·docs-hub grilling 파생 (2026-07-06)
+
+- [[question-initial-backfill-baseline]] — 신규 등록 소스의 첫 문서화 baseline (A 전체/B HEAD/C 지정 · backfill 분리안 미확정)

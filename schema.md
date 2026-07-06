@@ -81,13 +81,13 @@ status: active            # active | open | answered | superseded
 
 ### Lint — 건강 점검
 
-검사 항목: 깨진 `[[링크]]` / 고아 페이지 / **폴더 인덱스 누락·불일치**(지식 페이지가 자기 `<type>-index.md`에 없음 / 폴더 인덱스가 허브 [[index]]에 없음) / frontmatter 필수 필드 누락 / 파일명↔type 접두사 불일치 / **type↔폴더 불일치** (페이지가 자기 type 폴더 밖에 있음) / 상대경로 마크다운 링크 잔존(`](../…)`·`](./…)` — raw·wiki 참조 모두 `[[wikilink]]`여야 함) / overview 드리프트(새 페이지 미반영) / 모순·중복 페이지 / `answered` question에 답 링크 부재. (카탈로그 파일 `index.md`/`*-index.md`은 frontmatter·접두사·고아 검사 제외)
+검사 항목: 깨진 `[[링크]]` / 고아 페이지 / **폴더 인덱스 누락·불일치**(지식 페이지가 자기 `<type>-index.md`에 없음 / 폴더 인덱스가 허브 [[index]]에 없음) / frontmatter 필수 필드 누락 / 파일명↔type 접두사 불일치 / **type↔폴더 불일치** (페이지가 자기 type 폴더 밖에 있음) / 상대경로 마크다운 링크 잔존(`](../…)`·`](./…)` — raw·wiki 참조 모두 `[[wikilink]]`여야 함) / overview 드리프트(새 페이지 미반영) / 모순·중복 페이지 / `answered` question에 답 링크 부재 / `answered` question에 `blocking` 태그 잔존. (카탈로그 파일 `index.md`/`*-index.md`은 frontmatter·접두사·고아 검사 제외)
 결과를 `log.md`에 `## [YYYY-MM-DD] lint | 결과 요약`으로 기록한다.
 
 ## 콘텐츠 규칙
 
 - **1페이지 = 1관심사.** 문서 통째 붙여넣기 금지. 페이지는 자체 완결로 유지 (PRD 재작성 후에는 상세를 docs/ 링크로 위임)
-- **question 라이프사이클**: `status: open` → 답이 확정되면 decision 페이지 생성 + question 본문에 답 페이지 링크 + `status: answered` (question 삭제 금지)
+- **question 라이프사이클**: `status: open` → 답이 확정되면 decision 페이지 생성 + question 본문에 답 페이지 링크 + `status: answered` (question 삭제 금지). **answered로 전환할 때 `blocking` 태그가 있으면 제거한다** — `blocking`은 "지금 진행을 막는 미해결 질문"의 표식이므로, 해소된 질문에 남으면 활성 블로커 조회가 오염된다.
 - **결정 번복**: 기존 decision을 덮어쓰지 않는다. 새 decision 페이지 생성 + 옛 페이지 `status: superseded` + 상호 링크
 - **raw 불변**: raw/ 파일은 절대 수정하지 않는다. 정정이 필요하면 새 raw 파일을 추가하고 wiki에서 갱신
 

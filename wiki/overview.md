@@ -55,10 +55,12 @@ flowchart TB
 
 ### 실행 흐름 (정적)
 
-소스는 대시보드에서 **레포별 project access token + 브랜치 1개** 단위로 등록되고(토큰이 프로젝트를 스코프하고
-project id·default_branch·git URL은 자동 조회, compare dry-run으로 검증), 이 등록 1건이 곧 문서화 대상 1개다 →
-[[decision-repo-registration-flow]]. 이후 트리거(스케줄/수동) → 러너가 처리 대상 수신 → 소스별 compare API로 변경 파일 집합 →
-frontmatter 매핑으로 영향 테마 산출 → 테마당 1회 엔진 호출 → MR 생성 → **성공 후에만** sha 전진.
+소스는 대시보드에서 **레포별 project access token으로 레포 1개**를 등록하고(토큰이 프로젝트를 스코프하고
+project id·default_branch·git URL은 자동 조회, compare dry-run으로 검증), 그 등록 안에 **개발 브랜치 1 + 배포 브랜치 1**을
+지정한다 → [[decision-repo-dev-release-registration]]. 두 브랜치는 역할이 다른 문서를 낳아(개발=최신 기술문서·compare 야간,
+배포=릴리스 문서·태그 트리거) docs-hub의 `full_namespace_path/{dev|release}/` 하위폴더로 갈린다 → [[decision-docs-hub-folder-rule]].
+이후 트리거(스케줄/수동) → 러너가 처리 대상 수신 → compare API로 변경 파일 집합 → frontmatter 매핑으로 영향 테마 산출 →
+테마당 1회 엔진 호출 → MR 생성 → **성공 후에만** sha 전진. compare가 404(브랜치·레포 소실)면 자동 비활성화하고 알린다 → [[decision-branch-loss-policy]].
 
 ## 구조 ② 매뉴얼 추출 파이프라인 (행위 모달리티)
 
@@ -138,6 +140,6 @@ commit 수준 신선도를 가진다(쓰기 경로) — pull 메커니즘(compar
 
 **Phase 1 핵심 결정(2026-07-05 확정)**: 산출물은 docs-hub 직접 MR([[decision-mr-review-gate]]) · 생성 엔진은 하이브리드 — 엔진 인터페이스를 정의하고 당분간 `claude -p` headless, 필요 시 자체 에이전트로 교체([[decision-engine-hybrid]]). headless 인증/동작 검증만 남음([[question-headless-claude-auth]], Phase 1 첫 스프린트에서 즉시 검증). 러너→AI 네트워크는 뚫려 있음([[question-runner-ai-network]] ✅).
 
-**Phase 2 인프라 결정**: 관리 서버 = 사내 VM + 자체 토큰([[decision-server-vm-self-token]]) · 스케줄 = 과제별 대시보드 설정([[decision-schedule-per-source]]) · 소스 등록 = 레포별 project access token + 브랜치 1개 스코프([[decision-repo-registration-flow]]). 매뉴얼 파이프라인은 앱 실행/연결([[decision-app-host-connection]])·AI 호출 경로([[question-mcp-auth-network]] ✅)가 확정됐다.
+**Phase 2 인프라 결정**: 관리 서버 = 사내 VM + 자체 토큰([[decision-server-vm-self-token]]) · 스케줄 = 과제별 대시보드 설정([[decision-schedule-per-source]]) · 소스 등록 = 레포 1개 + 개발/배포 브랜치 2개([[decision-repo-dev-release-registration]]). 매뉴얼 파이프라인은 앱 실행/연결([[decision-app-host-connection]])·AI 호출 경로([[question-mcp-auth-network]] ✅)가 확정됐다.
 
 이 인프라·등록 결정은 사내 GitLab을 실제로 로그인해 API 표면을 실측한 근거 위에 얹혀 있다 — 실측 환경은 [[entity-mirero-gitlab]](GitLab 16.3 CE·610 프로젝트·커넥터 3책임 200 실증), 조사 기록은 [[summary-wish-gitlab-api-survey]]. 등록이 project access token으로 완결되는 것도, 브랜치를 API 조회로 채우는 것도 이 실측(그룹 토큰 Owner 필요·default_branch master/main 혼재)에서 나왔다.

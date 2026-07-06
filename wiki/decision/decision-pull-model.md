@@ -22,6 +22,7 @@ docs-hub가 구독 목록을 보유하고, 밤에 각 소스 레포를 compare A
 - **소스 레포 무수정** — 온보딩 = 서버에 등록 1건
 - **큐 불필요** — 커밋 히스토리 자체가 큐. compare API가 커밋 N개를 변경 파일 집합 1개로 병합 → [[concept-idempotent-sha]]. compare는 SCM 커넥터가 제공(GitLab·GitHub 공통) → [[decision-scm-connector-abstraction]]
 - 야간 배치라 실시간성 포기는 트레이드오프가 아님 → [[decision-nightly-batch]]
+- **compare가 404를 만나면**(브랜치·레포 소실) 소스를 자동 비활성화하고 알린다(재활성화는 protected 분기) → [[decision-branch-loss-policy]]
 
 ## 적용 범위 (2026-07-05 한정)
 

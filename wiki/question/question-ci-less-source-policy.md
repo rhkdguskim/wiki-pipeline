@@ -21,6 +21,8 @@ status: open
 - 방치/CI-less 소스를 **등록 대상에서 제외**할지, 아니면 정적 파이프라인만 적용(문서만, 매뉴얼 제외)할지.
 - 릴리스가 없어도 태그/커밋으로 대체 트리거를 허용할지 → [[question-release-object-vs-tag-trigger]]와 연결.
 - "이 소스는 어느 파이프라인 대상인가"를 등록 시 대시보드에서 명시하는 모델([[decision-db-source-of-truth]]).
-- 활성/방치 판정 기준(마지막 커밋·릴리스 시점)을 자동 감지할지.
+- 활성/방치 판정 기준(마지막 커밋·릴리스 시점)을 자동 감지할지. 브랜치·레포 **소실**(compare 404)은
+  이미 자동 비활성화로 처리되나([[decision-branch-loss-policy]]), **방치**(소실은 아니나 오래 정체)는
+  별개 판정이라 여전히 열려 있다.
 
-관련: [[entity-mirero-gitlab]] · [[decision-scm-connector-abstraction]]
+관련: [[entity-mirero-gitlab]] · [[decision-scm-connector-abstraction]] · [[decision-branch-loss-policy]]

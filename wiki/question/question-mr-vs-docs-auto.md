@@ -1,7 +1,7 @@
 ---
 type: question
 title: 산출물 저장 — MR 방식 최종 확정?
-tags: [blocking, phase-1, mr]
+tags: [phase-1, mr]
 status: answered
 ---
 

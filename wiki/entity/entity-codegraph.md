@@ -38,10 +38,11 @@ status: active
 | MCP | `codegraph serve --mcp`. 기본 = `codegraph_explore` 단일 tool(철학). 환경변수로 search/node/callers/callees/impact/files/status 개별 노출 가능 |
 | 멀티 레포 | 프로젝트별 독립 `.codegraph/` (`CODEGRAPH_DIR` 오버라이드, monorepo 부분 색인 지원) |
 
-**어댑터 적합성**: 거의 1:1 매핑 — `index`(init/index/sync+와처) · `query`(MCP explore 또는 GraphTraverser 직접) ·
-`manage`(install/uninstall/status). traversal 요구 초과 충족. 주의점: 저장소가 레포 내부라 어댑터 `manage`가
-격리 정책(`CODEGRAPH_DIR`·WSL 분리)을 노출해야 하고, MCP 기본 노출이 단일 tool로 고정돼 다중 tool 표면을
-원하면 환경변수 토글 또는 라이브러리 경로로 가야 함.
+**어댑터 매핑(사실)**: 세 동작에 거의 1:1 — `index`(init/index/sync+와처) · `query`(MCP explore 또는
+GraphTraverser 직접) · `manage`(install/uninstall/status). 제약: 저장소가 레포 내부라 어댑터 `manage`가
+격리 정책(`CODEGRAPH_DIR`·WSL 분리)을 노출해야 하고, MCP 기본 노출이 단일 tool로 고정된다(다중 tool은
+환경변수 토글·라이브러리 경로). 이 사실들이 왜 A를 첫 어댑터로 택하게 했는지(선택·기각 근거)는
+[[decision-code-index-adapter-cg-colby]]가 소유한다.
 
 ## 후보 B — CodeGraphContext (`CodeGraphContext/CodeGraphContext`, 일명 cgc)
 
@@ -61,20 +62,26 @@ status: active
 | MCP | `cgc mcp start`. tool 25개(add_code_to_graph/watch/find_code/analyze_code_relationships/list_indexed_repositories/delete_repository/switch_context/execute_cypher_query/…) |
 | 멀티 레포 | global(기본, 한 DB에 섞임)·per-repo(독립 DB)·named 모드. 진정한 격리는 per-repo/named로 고정 운영 시에만 |
 
-**어댑터 적합성**: traversal 기능성은 후보 최상급. 단 (a) 임베디드라 해도 falkordb/kuzu/ladybug/neo4j 클라이언트와
-redis-py가 **전부 강제 설치**돼 의존이 heavy, (b) global 모드 기본값이라 멀티 레포 격리 보장이 어댑터 운영 책임,
-(c) Alpha 버전(0.5.1)에 도구 개수 문서 불일치(21 vs 25)가 있어 어댑터 뒤에서도 내부 버전 드리프트 리스크.
+**어댑터 매핑(사실)**: traversal 기능성은 후보 최상급. 제약(사실): 임베디드라도 그래프 DB 클라이언트
+다수 + redis-py를 함께 설치하고, 격리는 global 모드가 기본이며, 버전은 0.5.1 Alpha다(위 표 참조).
+이 사실들을 근거로 B를 기각한 판단은 [[decision-code-index-adapter-cg-colby]]가 소유한다.
 
-## 비교 — 어댑터 설계에 미치는 차이
+## 비교 — 두 도구의 스펙 대조 (사실)
 
-| 축 | cg-colby (A) | cgc (B) | 파이프라인 영향 |
-|----|--------------|---------|----------------|
-| 저장 형식 | 단일 SQLite 파일 (레포 내부) | 그래프 DB (글로벌 홈, 멀티 백엔드) | A는 sha별 스냅샷([[decision-code-index-versioning]])이 파일 복사로 단순; B는 DB 덤프/컨텍스트 분리 필요 |
-| 외부 의존 | Node 런타임만 | 그래프 DB 클라이언트 다수 + (운영 시) Neo4j 서버 | A가 Data Plane(Windows CI)에 가볍게 올라감 |
-| 격리 기본값 | 레포별 물리 분리 (자동) | global 모드(섞임) — per-repo로 고정해야 | A가 멀티 레포 정합성에 안전 |
-| MCP 표면 | 단일 tool 기본(환경변수로 다중) | 25개 tool | 우리 MCP 질의 표면([[question-code-index-query-surface]]) 설계 입력 |
-| 성숙도 | 1.2.0 (안정) | 0.5.1 Alpha | 어댑터 안정성·문서 정합성은 A 우위 |
-| 트리거 적합성 | 와처+증분 기본 — 우리 폴링 트리거와 정합 | 와처는 옵션 — 폴링 주도 시 어댑터가 index 명령을 풀 스캔으로 부를 수 있음 | A가 짧은 주기 폴링([[decision-code-index-pipeline]])과 더 자연스럽게 맞음 |
+두 후보의 객관 스펙 대조다. 이 대조를 근거로 **cg-colby(A)를 택한 선택·기각 판단**은
+[[decision-code-index-adapter-cg-colby]]가 소유한다(우열 결론은 여기 두지 않는다).
+
+| 축 | cg-colby (A) | cgc (B) |
+|----|--------------|---------|
+| 저장 형식 | 단일 SQLite 파일 (레포 내부) | 그래프 DB (글로벌 홈, 멀티 백엔드) |
+| 외부 의존 | Node 런타임만 | 그래프 DB 클라이언트 다수 + (운영 시) Neo4j 서버 |
+| 격리 기본값 | 레포별 물리 분리 (자동) | global 모드(섞임) — per-repo로 고정해야 |
+| MCP 표면 | 단일 tool 기본(환경변수로 다중) | 25개 tool |
+| 성숙도 | 1.2.0 (안정) | 0.5.1 Alpha |
+| 증분/와처 | 와처+증분 기본 | 와처는 옵션 — 일회성 index는 풀 스캔 |
+
+관련 설계 입력: 저장 형식은 sha 스냅샷 형상관리([[decision-code-index-versioning]]),
+MCP 표면은 질의 표면([[question-code-index-query-surface]]), 증분은 폴링 주기([[decision-code-index-pipeline]]).
 
 ## 열린 부분 (어댑터 설계 입력)
 

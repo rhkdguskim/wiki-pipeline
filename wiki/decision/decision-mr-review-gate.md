@@ -31,4 +31,4 @@ SCM 커넥터에 따라 제출 수단이 다르다: GitLab은 **MR**, GitHub은 
 "AI가 main에 직접 쓰지 않고 MR로만 제출, 사람이 머지"라는 **관례·프로세스 기반**이라 이 사실과 모순되지 않는다(오히려 근거 보강).
 `POST /merge_requests`는 200으로 확인돼 MR 제출 경로 자체는 실증됐다 → [[decision-scm-connector-abstraction]].
 
-관련: [[entity-docu-automatic]] · [[entity-mirero-gitlab]] · [[summary-design-session]] · 원본: [[2026-07-06-wish-gitlab-api-survey]]
+관련: [[entity-docu-automatic]] · [[entity-mirero-gitlab]] · [[summary-design-session]] · 머지율 지표를 되먹임에 쓰는 후속 질문 [[question-review-feedback-loop]] · 원본: [[2026-07-06-wish-gitlab-api-survey]]

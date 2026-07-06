@@ -17,8 +17,9 @@ status: active
 |------|------|-------------|-------------|
 | **compare** | 두 sha 사이 변경 파일 집합 조회 | compare API | compare API |
 | **submit** | 문서 변경을 브랜치+리뷰요청으로 제출·갱신 | Merge Request | Pull Request |
-| **auth** | 소스 read + docs-hub write 최소 권한 토큰 | group access token | GitHub 토큰(PAT) |
+| **auth** | 소스 read + docs-hub write 최소 권한 토큰 | 소스 read = 레포별 project access token(확정) / docs-hub write = 미확정 | GitHub 토큰(PAT) |
 
+- **auth 두 축**: 소스 read는 레포별 project access token으로 확정(그룹 토큰은 Owner 권한이라 기각) → [[decision-repo-dev-release-registration]]. docs-hub write 토큰의 발급 주체는 여전히 열림 → [[question-group-token-provisioning]].
 - 소스 레포는 서버 DB에 `scm: gitlab | github` 타입과 함께 등록되고, 그 타입으로 커넥터가 선택된다 → [[decision-db-source-of-truth]]
 - 커넥터는 SCM 세부(엔드포인트·리뷰요청 명칭·인증)만 바꾸고, 파이프라인 상위 로직은 공유한다.
 - 코드 인덱스 파이프라인이 요구하는 소스 전체 확보(checkout)를 4번째 책임으로 넣을지는 미확정 → [[question-scm-checkout]]

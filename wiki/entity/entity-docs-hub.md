@@ -12,7 +12,10 @@ status: active
 
 ## 구성
 
-- **과제별 문서 instance** — 과제(X-LAB/ROC/Smart-ROS/SW-RCS…)마다 문서 묶음을 분리하되 사이트는 하나 (Docusaurus multi-instance).
+- **레포별 폴더 + 역할 하위폴더** — 등록 레포마다 docs-hub 안에서 한 폴더로 모으고, 그 아래를
+  개발/배포 역할 하위폴더(`dev/`·`release/`)로 가른다. 경로는 `full_namespace_path/{dev|release}/`
+  규칙으로 자동 생성된다(사람 입력 없음) → [[decision-docs-hub-folder-rule]] · [[decision-repo-dev-release-registration]].
+  과제(X-LAB/ROC/Smart-ROS/SW-RCS…) 단위는 이 폴더들을 묶는 Docusaurus multi-instance로 표현되, 사이트는 하나다.
 - **파이프라인 (4단계)** — 이 레포 한 곳에서 실행:
   1. **변경 조회** — SCM 커넥터의 compare로 변경 파일 집합 수신 → [[decision-scm-connector-abstraction]]
   2. **영향 분석** — 변경 경로 ↔ frontmatter 매핑 대조로 영향받은 문서 산출

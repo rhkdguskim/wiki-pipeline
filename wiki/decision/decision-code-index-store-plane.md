@@ -26,8 +26,7 @@ status: active
 
 - **관리 서버가 안 보는 게 아니다** — 등록 메타데이터(어떤 레포·sha·버전이 활성인가)는 Control Plane이
   유지하고, 질의 서비스 평면은 그 메타를 받아 인덱스 산출물(파일)을 소유한다. 메타 vs 파생 데이터의 분리.
-- **형상 관리는 그대로** — 질의 서비스 평면 안에서 인덱스는 sha 결부 버전 스냅샷 + 원자 교체
-  ([[decision-code-index-versioning]])로 관리된다.
+- **형상 관리는 그대로** — 질의 서비스 평면 안에서 인덱스의 버전·교체는 [[decision-code-index-versioning]]가 소유한다.
 - **저장 엔진은 어댑터 정책 따름** — cg-colby([[decision-code-index-adapter-cg-colby]])를 쓰면 SQLite 파일이
   이 평면의 산출물이 된다. 평면 소유권과 엔진 선택은 직교.
 

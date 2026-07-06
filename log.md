@@ -278,3 +278,57 @@
 - 판단(question 라이프사이클): group-token-provisioning은 **부분 답**이라 answered로 넘기지 않음 — 이 decision은 소스 read 등록만 스코프하고, question이 원래 묶은 docs-hub write·최소권한 조합·아티팩트 read 축은 그대로 열려 있음. schema의 answered 조건(답이 확정)을 충족하는 부분만 본문에 명시 링크하고 status는 open 유지.
 - concept↔decision: 이번 건은 decision(기각 대안 4종 존재·우리 대시보드 맥락 한정·다르게 택하면 supersede 가능). 신규 개념 없음.
 - 결정 번복 없음(신규 추가). raw 무수정. blob-vs-code-index 리네임 완료분·삭제된 meta/는 미접촉.
+
+## [2026-07-06] ingest | 레포 등록·docs-hub grilling 확정 (grill-me 결정 회수)
+- raw: [[2026-07-06-registration-grilling]] (grill-me 인터뷰 문답 요약 보존, 불변)
+- 생성(신규 decision 2 + question 1 + summary 1):
+  - decision-docs-hub-folder-rule — docs-hub 소스별 폴더 = `full_namespace_path/branch` 자동 규칙(슬래시 `-` 치환). 기각: 사람 입력·네임스페이스만·과제1폴더
+  - decision-branch-loss-policy — 브랜치 등록 정책 C(전부 노출+비기본 경고) + compare 404 자동 비활성화(삭제 아님) + 재활성화 protected 분기(protected=자동, 비-protected=수동). 기각: 브랜치 제한 A/B·즉시 삭제·flapping
+  - question-initial-backfill-baseline — 첫 문서화 baseline(A 전체/B HEAD/C 지정) **미확정**(status: open). A+backfill 분리안 제안됐으나 사용자 승인 전
+  - summary-registration-grilling — grilling 요약(확정 4·미확정 1)
+- 갱신:
+  - entity-docs-hub("과제별 instance"→소스별 폴더 규칙으로 구체화), decision-db-source-of-truth(doc_dir 자동 규칙·enabled 좀비 비활성화 의미론 명시)
+  - decision-repo-registration-flow(브랜치 선택=정책 C·다중 브랜치 등록 허용 명확화, 기각 대안 "레포당 다중 브랜치"→"한 등록에 여러 브랜치 묶기"로 정정), decision-pull-model(404 실패 경로 추가)
+  - question-ci-less-source-policy(소실 vs 방치 구분 + branch-loss-policy 링크)
+  - overview(등록 서사에 폴더 규칙·다중 브랜치·404 비활성화), decision-index·question-index·summary-index, 허브 index(decision 31→33·question 29→30·summary 7→8·총 79→83·raw 9→10)
+- 판단: grilling 확정 4건은 우리 대시보드 맥락 한정·기각 대안 있음 → decision. baseline은 사용자 미승인이라 question(open)으로만 남김(결정 아님). 결정 번복 없음(신규 추가·기존 명확화). raw 무수정.
+
+## [2026-07-06] schema | answered 전환 시 blocking 태그 제거 규약 명문화
+- 계기: lint에서 question-mr-vs-docs-auto(answered)가 blocking 태그 잔존 → 활성 블로커 조회 오염(규약 공백)
+- schema.md: question 라이프사이클 규칙에 "answered 전환 시 blocking 태그 제거" 추가, lint 검사 항목에 "answered에 blocking 잔존" 추가
+- 적용: question-mr-vs-docs-auto tags [blocking,phase-1,mr]→[phase-1,mr]. question-headless-claude-auth는 status:open이라 blocking 정상 유지(위반 아님)
+
+## [2026-07-06] lint | 전체 md 중복·낡음·미갱신 점검 (84 파일, 다차원 병렬 + 오탐 검증)
+- 범위: 위키 전체(지식 78→82 + 카탈로그 6 + raw 9). 4차원(stale·링크/고아·중복·frontmatter/드리프트) 병렬 스캔 → 발견별 원본 대조 검증(21 에이전트)
+- 무결성 clean: 깨진 링크 0 · frontmatter 4필드 0누락 · type↔폴더·접두사 0불일치 · 빈 섹션 0 · 상대경로 링크 0 · 허브 카운트 정합(question 29·answered 16)
+- 확정 8건 전부 수정(사용자 승인 자동 수정):
+  - [MED] decision-scm-connector-abstraction auth 셀 — group token 전제 낡음 → 소스 read(레포별 토큰 확정)/docs-hub write(미확정) 두 축 분리 + 링크
+  - [MED] question-review-feedback-loop 고아 → decision-mr-review-gate 관련줄에 back-link (해소 확인)
+  - [MED] entity-codegraph 중복 — 어댑터 기각 근거가 decision과 near-verbatim → 판단은 decision 위임, 객관 스펙표만 유지
+  - [LOW] question-doc-qa-rag 약한 고아 → decision-control-data-plane-split 열린부분에 back-link (해소 확인)
+  - [LOW] decision-code-index-store-plane:29 versioning 메커니즘 재서술 → 위임 링크로 축약
+  - [LOW] summary-code-index-finalization 결정 8건 카탈로그가 decision-index와 중복 → 서사 계보로 축소, 전목은 index 위임
+  - [LOW] question-release-object-vs-tag-trigger → decision-repo-registration-flow forward-link 추가(트리거=등록 단일 브랜치 스코프)
+  - [LOW] question-mr-vs-docs-auto blocking 태그 → 위 schema 규약 신설 후 제거
+- 오탐 9건 기각: stale 차원의 BLOCKER/HIGH 주장(다중 브랜치 등록·doc_dir 규칙·좀비 비활성화 미반영)은 전부 환각 — 그 결정들이 아직 위키에 없어 "미반영 낡음"이 성립 안 함. (본 세션 앞 ingest로 실제 결정을 추가해 근본 해소). schedule-per-source·observability-event-contract 중복 주장도 정상 분리로 판정
+- 재검증: 신규 4페이지 링크 전부 해소·폴더 인덱스 등재·고아 아님, 두 고아 해소 확인, 카운트 83 정합
+
+## [2026-07-06] ingest | 등록 모델 전환 — 레포 1개 + 개발/배포 브랜치 (supersede)
+- 사용자 지시: "레포지토리는 하나만 등록하고 개발브랜치·배포브랜치를 등록하는 흐름으로". 앞서 확정한 "레포×브랜치 1개=원자단위" 모델을 뒤집음
+- raw: [[2026-07-06-repo-dev-release-branches]] (전환 기록, 불변)
+- grill-me 확정: (1) 브랜치 역할이 문서 산출을 가름(개발=최신 기술문서·compare 야간 / 배포=릴리스 문서·매뉴얼·태그 트리거), (2) 개수=개발 1+배포 1 고정 2, (3) docs-hub 폴더=레포 1폴더+`dev`/`release` 하위폴더
+- 생성: decision-repo-dev-release-registration — 등록 원자=레포 1개, 개발/배포 브랜치 2개, 역할별 문서·트리거·폴더. 기각: 레포×브랜치 원자단위(옛)·아무 브랜치 N개(옛 정책 C)·역할 라벨 없는 브랜치
+- superseded: decision-repo-registration-flow — status active→superseded + supersede 배너(토큰=스코프 메커니즘은 새 결정이 계승, 뒤집힌 건 원자단위·다중등록). schema 결정번복 규칙(덮어쓰기 금지·새 페이지+옛 superseded+상호링크) 준수
+- 개정(부분 유효): decision-branch-loss-policy(등록 정책 C 섹션 → 개발/배포 선택으로 교체, 좀비 비활성화·protected 재활성화는 유지), decision-docs-hub-folder-rule(평면 `full_namespace_path/branch` → 레포1폴더+`dev`/`release` 하위폴더, 슬래시 치환 문제 소멸), decision-db-source-of-truth(sources 레포단위 1행 + source_branches 개발/배포 2행, sha 추적 브랜치별)
+- 갱신: entity-docs-hub(역할 하위폴더), overview(실행흐름·Phase 2 결정 새 모델), question-release-object-vs-tag-trigger(트리거=배포 브랜치)·question-initial-backfill-baseline(source_branches·브랜치별 baseline)·question-group-token-provisioning(3링크)·decision-scm-connector-abstraction(auth 링크) → 옛 superseded 페이지 대신 새 결정 지목. summary-registration-grilling(후속 전환 note 배너, 이력 보존)
+- 인덱스: decision-index(새 결정 등재+옛 superseded 표기), 허브 index(decision 33→34[1 superseded]·총 83→84·raw 10→11)
+- 판단: superseded 페이지로 향하던 inbound 중 "현재 등록 모델" 지시는 새 결정으로 교체, grilling 이력 참조(summary)는 배너로 안내하고 유지. 미확정(개발/배포 필수2 vs 선택·배포 N 변종)은 새 결정 열린부분에 기록
+
+## [2026-07-06] ingest | 원격제어 MCP 소스 실측 (MiVncManagerMcpServer)
+- 사용자 지시: "D:/project/ros-sw-rcs-windows의 MiVncManagerMcpServer로 MCP 환경 구성" → 확인 결과 목표=wiki-pipeline에 설계 반영(서버는 이미 세션에 연결·작동 중)
+- raw: [[2026-07-06-mivnc-mcp-server-survey]] (소스 + 실행 인스턴스 조사, 불변)
+- 확인: 정확한 "MiRcsMcpSessionServer" 이름 없음 → 실체는 MiVncMcpServer(단일,:9100)·MiVncManagerMcpServer(다중,:9200) 계열. 둘 다 vnc-mcp-lib 단일 도구 정의 위 wrapping. Manager=60공통(withSessionId)+6세션관리+4 alias. 전송 SSE/stdio, 모드 remote(MiRcsServer TCP)/local(in-process). 외부 의존 OmniParser. 배포 Docker(8081→9200)/Windows 서비스
+- 실증: 세션의 mcp__mi-vnc__* 도구가 원격 화면(1920×1080, uia·terminal·file_transfer·hwnd) 연결·작동 확인(vnc_screen_info)
+- 갱신: entity-remote-control-mcp — "소스 실측(2026-07-06)" 절 추가(서버 2종·도구 세트·전송·모드·OmniParser·배포·동시성·실행 실증). "sw-rcs-session-mcp"의 실체를 이 계열로 명시, remote 모드가 decision-app-host-connection의 IP/port 연결에 해당함을 연결
+- 허브 index(raw 11→12·페이지 84 불변)
+- 판단: 실측 사실이라 신규 결정·번복 아님 — 기존 entity에 fact 보강(직전 wish-gitlab-survey와 동형). raw가 단일 컴포넌트 조사라 summary 생략(entity 갱신이 곧 증류, raw는 entity에서 2회 inbound 확보). raw 무수정

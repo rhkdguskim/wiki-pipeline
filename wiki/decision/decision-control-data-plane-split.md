@@ -27,5 +27,6 @@ status: active
 ## 열린 부분
 
 LLM Wiki와 **어떻게** 통합하고 서비스 경계를 어디에 둘지는 아직 미확정.
+→ 활용 후보(생성 문서 위 Q&A/RAG)가 이 서비스 평면 위에 얹힐 수 있다 → [[question-doc-qa-rag]].
 
 관련: [[overview]] · [[decision-db-source-of-truth]] · [[decision-pull-model]] · [[decision-nightly-batch]]

@@ -36,4 +36,19 @@ status: active
 `mivncmcpserver`·`mivncmanagermcpserver`·`mivnc2rtspserver`. "원격 제어 MCP"는 가설이 아니라 사내에서 이미
 빌드·배포되는 실물이다. 컨테이너 아티팩트는 `GET /projects/:id/registry/repositories`로 접근한다(단 소스별 권한 상이 → [[entity-mirero-gitlab]]).
 
-원본: [[2026-07-05-manual-extraction-pipeline]] · [[2026-07-06-wish-gitlab-api-survey]] · 전체 그림: [[overview]]
+## 소스 실측 (2026-07-06) — 서버 구조·모드·도구
+
+소스(`D:/project/ros-sw-rcs-windows`)와 이 세션에 붙은 실행 인스턴스를 직접 조사 → [[2026-07-06-mivnc-mcp-server-survey]].
+
+- **두 서버 앱, 한 도구 라이브러리**: `MiVncMcpServer`(단일 세션, :9100) · `MiVncManagerMcpServer`(다중 세션, :9200)가
+  둘 다 `vnc-mcp-lib` 단일 도구 정의 위에 wrapping. "sw-rcs-session-mcp"의 실체가 이 계열이다.
+- **Manager 도구 세트**: 60 공통(`withSessionId=true`) + 6 세션관리(Add/Remove/Connect/Disconnect/List) + 4 alias.
+  다중 세션은 **세션 ID로 여러 VNC 호스트를 동시 제어**한다.
+- **전송 2종**: SSE(HTTP) / stdio.
+- **연결 모드 2종**: **remote**(외부 `MiRcsServer`에 TCP, auto-reconnect) / **local**(in-process, 네트워크 우회, Windows 서비스는 local 전용) → [[decision-app-host-connection]]의 IP/port 연결은 remote 모드에 해당.
+- **외부 의존 OmniParser**(`--omniparser-url`, VLM 화면 분석) — 미설정 시 관련 도구 실패.
+- **배포**: Docker compose(`mivncmanagermcp:latest`, 8081→9200) 또는 Windows 서비스.
+- **동시성**: `VncSessionManager` lifecycle이 agent race로 동시 실행 — 도구는 idempotent·재시도 가능 설계(ADR 0001).
+- **실행 실증**: 이 세션의 `mcp__mi-vnc__*` 도구가 원격 화면(1920×1080, uia·terminal·file_transfer·hwnd)에 연결·작동 확인.
+
+원본: [[2026-07-05-manual-extraction-pipeline]] · [[2026-07-06-wish-gitlab-api-survey]] · [[2026-07-06-mivnc-mcp-server-survey]] · 전체 그림: [[overview]]

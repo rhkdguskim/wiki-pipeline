@@ -2,8 +2,15 @@
 type: decision
 title: 레포 등록 = 레포별 access token + 브랜치 1개 스코프
 tags: [scm, connector, gitlab, token, registration, dashboard]
-status: active
+status: superseded
 ---
+
+> [!superseded] 이 결정은 대체됨 (2026-07-06)
+> "등록 1건 = 레포×브랜치 1개" 원자 단위는 **레포 1개 등록 + 개발/배포 브랜치 2개** 모델로 대체됐다
+> → [[decision-repo-dev-release-registration]]. **여전히 유효한 부분**: 토큰 = 스코프(레포별 project
+> access token, 사용자 PAT·그룹 토큰·별도 프로젝트 선택 단계 기각), 자동 조회, compare dry-run 검증 —
+> 이 등록 메커니즘은 새 결정이 그대로 계승한다. **뒤집힌 부분**: 등록 원자 단위(브랜치 1개 → 레포 1개),
+> 다중 등록(→ 등록 안에 dev/release 2브랜치).
 
 # 결정: 대시보드 레포 등록은 "레포별 access token + 브랜치 1개"로 스코프한다
 
@@ -20,9 +27,11 @@ status: active
    → **토큰이 곧 "어느 레포냐"를 스코프**하므로 별도 프로젝트 선택 단계가 없다.
 2. **자동 조회로 채우는 값** — project id·`default_branch`·scm 타입(gitlab)·`http_url_to_repo`를
    전부 토큰으로 `GET /projects/:id`에서 얻는다 (사람이 입력하지 않는다).
-3. **브랜치를 사람이 선택 (레포당 1개)** — `GET /projects/:id/repository/branches` 목록에서 하나를 고르며,
+3. **브랜치를 사람이 선택 (등록당 1개)** — `GET /projects/:id/repository/branches`의 **모든 브랜치를
+   노출**하되 비-기본 브랜치를 고르면 경고한다(정책 C → [[decision-branch-loss-policy]]).
    `default_branch`를 기본값으로 자동 채운다(master/main 혼재라 하드코딩 금지 → [[entity-mirero-gitlab]]).
-   pcc30처럼 제품 변종 브랜치가 여럿이면 **각 변종을 별도 등록**으로 취급한다.
+   pcc30처럼 제품 변종 브랜치가 여럿이면 **각 변종을 별도 등록**으로 취급한다 — 같은 레포를 다른 브랜치로
+   여러 번 등록할 수 있고, 각 등록은 `full_namespace_path/branch` 폴더로 갈린다 → [[decision-docs-hub-folder-rule]].
 4. **소스별 정책 입력** — 트리거 기준(릴리스 객체/태그/브랜치), 아티팩트 타입 등. 소스가 균질하지 않아
    등록 시 명시가 필요하다(실측 근거: 태그 규칙 4종·아티팩트 타입 상이).
 5. **연결 검증(dry-run)** — 등록 확정 전 compare API(`GET /projects/:id/repository/compare`) 200을 확인해
@@ -38,7 +47,7 @@ status: active
 | **사용자 PAT로 등록** | 토큰이 사람 계정에 묶임 — 그 사람의 권한·재직에 등록이 종속. 레포 스코프도 넓음(계정 전체) |
 | **그룹 access token으로 등록** | 발급에 **Owner 권한** 필요(실측 `groups/:id/access_tokens` 401) — 등록자가 갖기 어려움 |
 | **별도 프로젝트 선택 단계** | 토큰이 이미 프로젝트를 스코프하므로 불필요 — 선택 UI는 토큰과 어긋날 여지만 만든다 |
-| **레포당 다중 브랜치** | 이번에 **"브랜치 1개"로 기각** — compare 라인 추적·트리거 관찰을 단순화(폭주 위험 축소). 변종이 여럿이면 등록을 나눈다 |
+| **한 등록에 여러 브랜치 묶기** | **"등록 1건 = 브랜치 1개"로 기각** — compare 라인 추적·트리거 관찰을 단순화. 단 같은 레포를 다른 브랜치로 **여러 번 등록**하는 것은 허용(정책 C, 각 등록이 독립 원자 단위) → [[decision-branch-loss-policy]] |
 
 ## 채택 근거
 

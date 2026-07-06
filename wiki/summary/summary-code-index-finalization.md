@@ -28,13 +28,8 @@ status: active
 
 - [[summary-code-index-pipeline]] → [[summary-code-index-followup]] → (이 요약) — 코드 인덱스 세션 3부작의 마지막.
 
-## 계보 (코드 인덱스 결정 전목)
+## 계보
 
-1. 도입·트리거 — [[decision-code-index-pipeline]]
-2. 프로바이더 추상화 — [[decision-code-index-provider-abstraction]]
-3. 형상 관리 — [[decision-code-index-versioning]]
-4. 질의 채널 — [[decision-code-index-mcp-serving]]
-5. 소스 확보 — [[decision-runner-git-clone]]
-6. **어댑터** — [[decision-code-index-adapter-cg-colby]]
-7. **질의 범위** — [[decision-code-index-single-repo-scope]]
-8. **저장소 평면** — [[decision-code-index-store-plane]]
+이 세션이 코드 인덱스 파이프라인의 마지막 세 축(어댑터·질의 범위·저장소 평면)을 닫으며,
+쓰기/읽기/저장/형상 전 축의 결정이 완결됐다. 코드 인덱스 결정 8건의 전체 카탈로그는
+[[decision-index]]의 "코드 인덱스 파이프라인" 섹션이 소유한다.
