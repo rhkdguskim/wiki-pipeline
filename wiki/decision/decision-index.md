@@ -11,7 +11,12 @@
 - [[decision-scm-connector-abstraction]] — 형상관리 커넥터 추상화, GitLab·GitHub 2 커넥터(동등)
 - [[decision-db-source-of-truth]] — 서버 DB가 SoT, sources.yml 커밋 기각
 - [[decision-server-vm-self-token]] — 관리 서버 = 사내 VM + 자체 토큰 인증
-- [[decision-engine-hybrid]] — 생성 엔진 = 하이브리드 (엔진 인터페이스 + 점진적 교체)
+- [[decision-engine-hybrid]] — 생성 엔진 = 하이브리드 (엔진 인터페이스 + 점진적 교체; 2026-07-06 driver 발동 → B 확정)
+- [[decision-engine-api-agent]] — **생성 엔진 = API 자체 에이전트** (Messages API + tool use 루프 · Data Plane 내 실행 · 공통 런타임 + 파이프라인별 도구 세트; Managed Agents·claude -p 기각)
+- [[decision-engine-api-key-auth]] — 엔진 인증 = API 키 등록 (계정 로그인 대체 · 러너 환경변수 주입 · 401 감지 → admin 이메일)
+- [[decision-engine-single-account-auth]] — ⛔ superseded — 엔진 인증 = 단일 Claude Code 계정 로그인 (API 키 등록이 계승)
+- [[decision-agent-step-observability]] — 에이전트 스텝 관측 = 사고 요약·도구 호출·토큰을 진행 이벤트 4단 계층으로 대시보드 출력 + 이력 DB 스텝 로그
+- [[decision-email-alerting]] — 알림 = 실시간 이메일 · 역할 기반 수신 (인증 해지→admin, 과제 실패→담당자+admin); 대시보드 풀·admin 단일 기각
 
 ### 정적 파이프라인 (Docu-Automatic — 코드→기술문서)
 
@@ -20,6 +25,9 @@
 - [[decision-schedule-per-source]] — 스케줄 = 과제별 개별, 대시보드 설정
 - [[decision-mr-review-gate]] — 사람 MR 리뷰 필수, docs-auto 브랜치 대체
 - [[decision-change-filter-rule-based]] — 사소한 변경(주석·포맷) 재생성 스킵 = 규칙 기반 먼저 (LLM 판단 후순위)
+- [[decision-theme-scope-expansion]] — 1차 테마 4→6 즉시 확장 (dev-guide + api-protocol〈백엔드〉); 실측 대기 방침의 예외
+- [[decision-critic-grounding-secrets]] — critic 확장 = 근거 대조 + 시크릿 기재 금지 (dev-guide·api-protocol 한정)
+- [[decision-devguide-grounding-scope]] — dev-guide 근거 = 코드 + 레포 내 문서 (코딩 규칙 포함); "코드만" 당일 번복
 
 #### 소스 등록 · docs-hub 산출 (정적 파이프라인 하위)
 
@@ -27,6 +35,7 @@
 - [[decision-repo-registration-flow]] — ⛔ superseded — 레포별 토큰 + 브랜치 1개 스코프 (토큰=스코프 메커니즘은 위 결정이 계승)
 - [[decision-docs-hub-folder-rule]] — docs-hub 폴더 = 레포 1폴더 + `dev/`·`release/` 하위폴더 자동 규칙 (평면 폴더·브랜치명 경로 기각)
 - [[decision-branch-loss-policy]] — 등록 브랜치 선택(개발/배포) + compare 404 자동 비활성화 + protected 분기 재활성화
+- [[decision-theme-activation-checklist]] — 테마 활성화 = 소스별 체크리스트 (기본 5 on · api-protocol opt-in); 성격 분류·scout 판단 기각
 
 ### 매뉴얼 추출 파이프라인 (2026-07-05 — 실행 앱→사용자 매뉴얼)
 
@@ -41,13 +50,14 @@
 - [[decision-manual-delete-grace]] — 매뉴얼 삭제 = deprecated 유예 후 삭제 (이중 게이트)
 - [[decision-coverage-metric-gap]] — 순회 커버리지 = 지표 + 누락 표시 (시나리오 + 탐색 합산)
 
-### 코드 인덱스 파이프라인 (2026-07-05 — 코드→질의 가능 인덱스)
+### 코드 인덱스 파이프라인 (2026-07-05 도입 → 2026-07-06 범위 제외)
 
-- [[decision-code-index-pipeline]] — 코드 인덱싱 파이프라인 도입, 짧은 주기 폴링 (야간 배치·webhook·CI job 기각)
-- [[decision-code-index-provider-abstraction]] — 프로바이더 추상화 (codegraph 은닉, traversal 1급 연산)
-- [[decision-code-index-mcp-serving]] — 질의 채널 = MCP 서버 (개발자 붙어서 스캔; 자체 UI·IDE 플러그인은 후순위)
-- [[decision-runner-git-clone]] — 인덱싱 소스 확보 = 러너 git clone (커넥터 4책임 확장 기각)
-- [[decision-code-index-versioning]] — 인덱스 형상 관리 = 버전 스냅샷 + 원자 교체 (in-place 기각)
-- [[decision-code-index-adapter-cg-colby]] — 첫 어댑터 = cg-colby 확정 (cgc 기각: 의존 heavy·Alpha)
-- [[decision-code-index-single-repo-scope]] — v1 질의 범위 = 단일 레포 (cross-repo 후순위)
-- [[decision-code-index-store-plane]] — 인덱스 저장소 = 별도 질의 서비스 평면 (관리 서버·이력 DB와 분리)
+- [[decision-code-index-out-of-pipeline]] — **코드 인덱스 = 파이프라인 범위 제외, 개발자 개인 관리 이관** (아래 8건 일괄 supersede; 재검토 조건 = cross-repo 등 개인이 못 푸는 요구)
+- [[decision-code-index-pipeline]] — ⛔ superseded — 코드 인덱싱 파이프라인 도입, 짧은 주기 폴링
+- [[decision-code-index-provider-abstraction]] — ⛔ superseded — 프로바이더 추상화 (codegraph 은닉)
+- [[decision-code-index-mcp-serving]] — ⛔ superseded — 질의 채널 = MCP 서버
+- [[decision-runner-git-clone]] — ⛔ superseded — 인덱싱 소스 확보 = 러너 git clone (실측 사실은 [[entity-mirero-gitlab]] 보유)
+- [[decision-code-index-versioning]] — ⛔ superseded — 인덱스 형상 관리 = 버전 스냅샷 + 원자 교체
+- [[decision-code-index-adapter-cg-colby]] — ⛔ superseded — 첫 어댑터 = cg-colby (도구 실측은 [[entity-codegraph]]에 유효)
+- [[decision-code-index-single-repo-scope]] — ⛔ superseded — v1 질의 범위 = 단일 레포 (cross-repo 축은 새 결정의 재검토 조건으로 계승)
+- [[decision-code-index-store-plane]] — ⛔ superseded — 인덱스 저장소 = 별도 질의 서비스 평면

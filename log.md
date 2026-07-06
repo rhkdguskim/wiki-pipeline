@@ -339,3 +339,95 @@
 - 재구성: decision-index(34) → 공통 7 / 정적 5 + 등록하위 4 / 매뉴얼 10 / 코드인덱스 8. question-index(30) → 공통 7 / 정적 3 + 등록하위 6 / 매뉴얼 7 / 코드인덱스 4 / 향후 3. summary-index(8) → 정적·공통 3 / 매뉴얼 1 / 코드인덱스 3 / 실측 1
 - entity(6)·concept(5)는 규모 작아 평면 유지
 - 검증: 세 인덱스 모두 파일↔링크 완전 정합(decision 34=34·question 30=30·summary 8=8), 중복·유령 0. 파일 이동 없음 → 링크·카운트 불변(페이지 84·raw 12)
+
+## [2026-07-06] query | MVP를 뽑는다면 어떤 기능들인가
+- 드릴다운: index → decision-index·question-index·concept-index·summary-index + overview, 정밀 읽기: summary-design-session·decision-engine-hybrid·question-headless-claude-auth
+- 답: 공식 MVP 결정은 위키에 없음 — Phase 1·2 확정 결정에서 후보 절단선 합성(정적 파이프라인 + 최소 Control Plane, 매뉴얼·코드인덱스·Phase 3+ 제외)
+- 생성: question-mvp-scope (open — 포함 기능 9·제외 4·열린 항목, 확정 시 decision 승격)
+- 갱신: question-index(공통 그룹 등재), overview(Phase 2 문단 뒤 MVP 절단선 링크 — inbound 확보), 허브 index(question 30→31·페이지 84→85)
+
+## [2026-07-06] ingest | 테마 1차 스코프 확장 (4→6) — 개발환경·개발가이드 + API & 프로토콜
+- raw: [[2026-07-06-theme-scope-expansion]] (query 후속 사용자 지시 원문 + 확인 문답)
+- 생성: decision-theme-scope-expansion (⑤ dev-guide 모든 소스 · ⑥ api-protocol 백엔드 소스; 근거 온보딩·환경 재현성; "실측 후 확장" 방침의 예외), summary-theme-scope-expansion
+- 갱신: entity-docu-automatic(테마 4→6), question-theme-expansion(후보 2개 1차 승격 기록·남은 후보 3개로 open 유지), decision-index·summary-index·question-index, 허브 index(summary 8→9·decision 34→35·raw 12→13·페이지 →87)
+- 정정: 허브 index의 question 30→31·페이지 84→85가 직전 query(MVP) 로그와 달리 미반영 상태였음 — 이번 갱신에 합산 반영(실측 카운트로 검증: decision 35·question 31·summary 9·entity 6·concept 5·overview 1 = 87)
+
+## [2026-07-06] ingest | 엔진 인증 — 단일 계정 로그인 (아이디/패스워드 등록)
+- 사용자 지시: 다중 계정 라운드 로빈(로그아웃/로그인 회전 + 만료 fallback)은 보류 → MVP는 단일 계정. "단일 아이디니까 아이디/패스워드 설정은 있어야겠네 확인" → 등록 UI/백엔드에 계정 크리덴셜 항목 필요. 약관 관련 서술은 넣지 않음(사용자 요청)
+- raw: [[2026-07-06-engine-single-account]] (논의 기록, 불변)
+- 생성: summary-engine-single-account, decision-engine-single-account-auth — 엔진 인증=단일 Claude Code 계정 로그인, 대시보드 아이디/패스워드 등록·상태 표시. 기각/보류: 다중 계정 라운드 로빈 풀. 열린 항목: headless 로그인 무인 지속 검증([[question-headless-claude-auth]])·단일 계정 처리량 상한([[question-cost-estimation]])
+- 갱신: question-headless-claude-auth(방침 갱신 2026-07-06 — 인증 수단은 단일 계정 로그인으로 확정, 단 무인 지속 검증 남아 open·blocking 유지), question-mvp-scope(엔진 인증 항목=단일 계정+아이디/패스워드), question-secret-storage-security(엔진 계정 크리덴셜도 at-rest 보안 대상 링크), overview(Phase 1 결정 문단에 단일 계정 인증)
+- 인덱스: decision-index(공통·cross-cutting 그룹 등재), summary-index(정적·공통 그룹 등재), 허브 index(decision 35→36·summary 9→10·raw 13→14·페이지 87→89)
+- 판단: "우리가 택했다"+기각 대안 있음 → decision. question-headless-claude-auth는 인증 수단이 확정됐어도 무인 지속 검증이 미완이라 answered 전환 대신 방침 갱신으로 open 유지(정직한 상태 표기)
+
+## [2026-07-06] lint | clean — 결함 0 (오탐 2건 기각)
+- 10개 항목 전수 점검. 대상: wiki 지식 83 + overview + 카탈로그 6, raw 14
+- 1 깨진 링크: 없음 ([[schema]] 6건은 루트 schema.md 정상 링크 — 스캔 범위 오탐). 2 고아: 없음(raw inbound도 전부 확보). 3 폴더 인덱스 멤버십: summary10·entity6·concept5·decision36·question31 파일=링크 완전 일치, 유령 0. 4 frontmatter 4필드: 누락 0. 5 접두사·6 type↔폴더: 불일치 0. 7 상대경로 링크: 0
+- 8 overview 드리프트: 신규 decision-engine-single-account-auth 반영됨, 구조 변화 없음. 9 모순·중복: 없음(단일계정 인증 vs 엔진 하이브리드는 축 다름). 10 answered 답 링크: answered 16건 중 question-runner-ai-network만 decision 링크 부재로 잡혔으나 실측 사실로 답한 질문(근거 entity-mirero-gitlab 링크 보유) → 오탐 기각
+- 허브 카운트 대조: 페이지 89(overview 1+summary10+entity6+concept5+decision36+question31)·raw14·answered16 전부 정합
+
+## [2026-07-06] ingest | 신규 테마 2종 상세 설계 grilling (dev-guide · api-protocol)
+- raw: [[2026-07-06-theme-detail-grilling]] (grilling 문답 6건 — 선택·기각 대안 병기)
+- 생성: decision-theme-activation-checklist (테마 활성화 = 소스별 체크리스트, 기본 5 on · api-protocol opt-in; 성격 분류·scout 판단 기각), decision-critic-grounding-secrets (critic 확장 = 근거 대조 + 시크릿 기재 금지, 두 테마 한정; 외부 결정적 검증은 Phase 3+ 보류), summary-theme-detail-grilling
+- 갱신: decision-theme-scope-expansion (상세 설계 절 — dev-guide 1문서·코드 근거만 / api-protocol 외부 노출 API만 / 둘 다 dev 전용; 표에 opt-in 링크), entity-docu-automatic (조정점 표에 critic 확장 행), decision-index (정적 +1 · 등록 하위 +1), summary-index (+1), 허브 index (summary 10→11 · decision 36→38 · raw 14→15 · 페이지 89→92)
+
+## [2026-07-06] query | requirements와 dev-guide 테마가 비슷하지 않은가
+- 드릴다운: entity-docu-automatic·decision-theme-scope-expansion(세션 내 기독) + raw 2026-07-05-docu-automatic-notes(requirements 원 정의 실측)
+- 답: 겹침 실재 — requirements="설치/실행 환경과 조건"(설치자·운영자)과 dev-guide ①환경 구성 절이 소재·source_files 트리거 겹침. 단 독자·관점 축이 달라(운영 vs 개발) 통합보다 경계 명시가 방향 (manual-taxonomy-two-reader와 동일 원리)
+- 생성: question-requirements-devguide-boundary (open — 잠정 방향: 분리 유지 + 테마 정의에 경계 문장, 상세는 한쪽+참조)
+- 갱신: question-index(정적 그룹 등재), decision-theme-scope-expansion(영향 절에 경계 질문 링크), 허브 index(question 31→32·페이지 92→93)
+
+## [2026-07-06] query | dev-guide에 코딩 컨벤션·개발 규칙이 포함되는가 — 확인
+- 답: 아니오 — grilling에서 "코드 근거만"으로 확정, 조직 규칙 제외가 현행. 단 코드로 실체화된 규칙(.editorconfig·analyzer·CI lint)은 코드 근거 범위라 포함
+- 사용자 확인: "조직 규칙 포함으로 수정" 대안 제시 → 현재 결정 유지 선택 (번복 없음)
+- 갱신: decision-theme-scope-expansion (상세 설계의 dev-guide 항목에 실체화된 규칙 포함 경계 명확화 한 줄 — 결정 변경 아님)
+
+## [2026-07-06] ingest | dev-guide 근거 범위 번복 — 코드만 → 코드 + 레포 내 문서 (코딩 규칙 포함)
+- raw: [[2026-07-06-devguide-docs-grounding]] (번복 지시 원문 + 해석 전제: 탐색 대상은 레포 내 문서, 외부 시스템 제외)
+- 생성: decision-devguide-grounding-scope (grilling Q2 "코드 근거만"의 당일 번복을 전용 결정으로 승격 — 기각 대안에 번복 이력 명기; 근거 대조 원칙은 유지), summary-devguide-docs-grounding
+- 갱신: decision-theme-scope-expansion (상세 설계의 dev-guide 항목 = 레포 근거〈코드+문서〉·④코딩 규칙 추가·새 결정으로 위임), decision-critic-grounding-secrets (근거 파일에 레포 문서 포함 명시), decision-index (정적 +1), summary-index (+1), 허브 index (summary 11→12·decision 38→39·raw 15→16·페이지 93→95)
+
+## [2026-07-06] lint | overview 가독성 재구성 (지식·링크 불변)
+- 대상: wiki/overview.md — "한눈에 안 들어온다" 피드백으로 구조만 재편
+- 변경: ① 도입부에 파이프라인 3종 요약 표 신설 ② 공통 뼈대(평면 분리·SCM 커넥터·관측성)를 도입부 불릿으로 승격 ③ 각 파이프라인 절의 서술 문단을 축별 불릿/표로 전환 (③ 코드 인덱스는 결정 축 표) ④ "더 보기" 속 Phase 1·2·미해결 서술 벽을 "지금 어디까지 왔나" 절의 그룹별 불릿으로 분해
+- 불변: wikilink 39개 전수 보존 (grep 대조 확인) · mermaid 다이어그램 2개 유지 · 지식 추가/삭제 없음
+
+## [2026-07-06] lint | 전수 점검 — 발견 2건 수정, clean
+- 검사 10항목 전수: 깨진 링크 0 · 고아 0 · 인덱스 등재 완전 · 허브 카운트 정합(95페이지·raw 16·answered 16) · frontmatter 4필드 완비 · 접두사/type↔폴더 불일치 0 · 상대경로 링크 0 · answered 답 링크 완비(runner-ai-network는 사실-답 패턴으로 entity 링크가 답 근거 — 결함 아님) · superseded 1건(기존)
+- 수정 1 (overview 드리프트): "지금 어디까지 왔나" Phase 1 목록에 테마 4→6 확장·체크리스트 활성화·dev-guide 근거 범위 한 줄 추가
+- 수정 2 (모순 방지): summary-theme-detail-grilling의 dev-guide 항목에 당일 번복 포인터 추가 (raw 요약으로는 정확하나 현행 오독 위험 → decision-devguide-grounding-scope 링크)
+- 결론: clean (남은 이슈 0)
+
+## [2026-07-06] ingest | 실시간 이메일 알림 (인증 해지·파이프라인 실패) + headless 무인 지속 안 됨 확정
+- raw: [[2026-07-06-failure-alerting-email]] (지시 원문 + 확인 문답: 수신자=역할 기반, 무인 지속 안 됨=확인된 사실)
+- 생성: decision-email-alerting (관리 서버 이메일 발송 기능 신설 · 실시간 푸시 · 역할 기반 수신 — 인증 해지/인프라→admin, 과제 실패→담당자+admin 참조; 대시보드 풀·admin 단일·구독 설정 기각; 발송 스택은 요구사항 수준만), summary-failure-alerting-email
+- 갱신: question-headless-claude-auth (무인 지속 안 됨 확정 — 초점을 만료 감지·재로그인 절차로 이동, open·blocking 유지), question-batch-observability (실패 알림 축 확정 — daily digest 구체만 남음), decision-engine-single-account-auth (상태 표시→이메일 알림 연계, 열린 항목 사실 반영), overview (공유 뼈대 관측성에 이메일 푸시 + 미해결 항목 갱신), decision-index(공통 +1)·summary-index(+1)·question-index(2행 갱신), 허브 index (summary 12→13·decision 39→40·raw 16→17·페이지 95→97)
+
+## [2026-07-06] ingest | 코드 인덱스 — 파이프라인 범위 제외 (개인 관리 이관)
+- 발단: 커밋 되돌리기 시 중앙 인덱스 불일치 질문 → 분석(revert=폴링 소화·force-push=HEAD 전체 재인덱싱) → 사용자 결정: "code indexing은 개인이 관리하는 편이 나을 거 같아서 파이프라인에서 빼도록 하자"
+- raw: [[2026-07-06-code-index-out-of-pipeline]] (논의 기록, 불변)
+- 생성: summary-code-index-out-of-pipeline, decision-code-index-out-of-pipeline — 코드 인덱스=중앙 파이프라인 범위 제외·개발자 개인 로컬 도구 이관. 근거: 소비 지점이 개인 로컬 작업 트리(원격 동기화 문제 자체가 없음)·비-AI라 중앙화 근거 부재·기존 실물(blob 검색·CodeScene) 중복 우려·MVP 절단선 단순화. 재검토 조건: cross-repo 등 개인이 못 푸는 요구 실증 시
+- 갱신(superseded 8건): decision-code-index-pipeline·provider-abstraction·mcp-serving·runner-git-clone·versioning·adapter-cg-colby·single-repo-scope·store-plane — 각각 supersede 콜아웃 + 상호 링크 (유효 잔존분 명기: 실측 사실→entity-mirero-gitlab, 도구 조사→entity-codegraph, cross-repo 축→재검토 조건)
+- 갱신(question): blob-vs-code-index-overlap open→answered(질문 자체 해소), code-index-query-surface·code-index-store·scm-checkout에 supersede 주석 (answered 유지 — 당시 결론의 기록)
+- 갱신(주변 드리프트): entity-codegraph(개인 도구 참고 자료로 재규정·열린 부분 닫힘), overview(파이프라인 3종→2종·③절→"범위 제외" 절), decision-pull-model·decision-nightly-batch(적용 범위 사례 무효 주석), decision-pipeline-observability(3개→2개), concept-port-adapter(실체화 취소 표기), question-mvp-scope(절단선 단순화)
+- 인덱스: decision-index(코드 인덱스 그룹 재구성 — 새 결정 + ⛔ 8건), question-index(그룹 헤더 + ✅ 4건), summary-index(+1), entity-index(codegraph 설명), 허브 index(summary 13→14·decision 40→41〈superseded 1→9〉·answered 16→17·raw 17→18·페이지 97→99)
+- 판단: "우리가 택했다"+기각 대안(중앙 유지) 있음 → decision. 8건 개별 페이지를 덮어쓰지 않고 status 전환+콜아웃으로 번복 이력 보존 (schema "결정 번복" 규칙)
+
+## [2026-07-06] lint | 범위 제외 ingest 직후 전수 점검 — 결함 2건 수정, clean
+- 10개 항목 전수 점검 (스크립트 + 판단). 대상: wiki 지식 93 + overview + 카탈로그 6, raw 18
+- 1 깨진 링크: 0. 2 고아: 0 (raw inbound 전부 확보). 3 폴더 인덱스: summary14·entity6·concept5·decision41·question32 파일=링크 완전 일치, 허브 카운트(페이지 99·raw 18·superseded 9·answered 17) 실측 정합. 4 frontmatter: 누락 0. 5 접두사·6 type↔폴더: 불일치 0. 7 상대경로 링크: 0
+- 8 overview 드리프트: 없음 — 코드 인덱스 범위 제외(2종 표+범위 제외 절)·email-alerting 모두 반영 확인
+- 9 모순 2건 발견·수정: decision-scm-connector-abstraction(checkout 4책임 "미확정" 잔존 — 07-05 답변+07-06 수요 소멸로 종결 표기), entity-mirero-gitlab(CodeScene "중복 가능성" — 해소로 갱신)
+- 10 answered 17건: blocking 잔존 0. question-runner-ai-network 답 링크 부재 플래그는 기존 판정대로 오탐(실측 답변, entity 근거 링크 보유)
+- 결론: clean (수정 후 잔존 이슈 0)
+
+## [2026-07-06] ingest | 엔진 API 자체 에이전트 전환 (B 확정) + 에이전트 스텝 관측
+- raw: [[2026-07-06-engine-api-agent-architecture]]
+- 생성: summary-engine-api-agent-architecture, decision-engine-api-agent, decision-engine-api-key-auth, decision-agent-step-observability
+- 갱신: decision-engine-hybrid(B 확정), decision-engine-single-account-auth(superseded), decision-observability-event-contract(스텝 계층), question-headless-claude-auth(answered·blocking 해제), question-engine-runtime, question-cost-estimation, entity-docu-automatic, overview, decision-index, question-index, summary-index
+
+## [2026-07-06] lint | 엔진 API 에이전트 ingest 직후 전수 점검 — 드리프트 4건 수정, clean
+- 기계 검사 10종: 깨진 링크·고아·인덱스 누락·frontmatter·접두사·폴더·상대경로 링크·blocking 잔존 — 모두 0건
+- 수정 4건 (B 전환 드리프트, 살아있는 페이지만): question-mvp-scope(엔진 항목·블로커 해소 반영), entity-docs-hub(headless→에이전트 루프), entity-mirero-gitlab(인증 확정 반영), question-secret-storage-security(API 키로 갱신)
+- 허용 예외: question-runner-ai-network는 답이 사실 확인이라 decision 링크 대신 entity 링크 (기존 lint 판정 유지)
+- 비수정 (역사 기록 보존): decision-email-alerting·decision-manual-pipeline-separate의 headless 언급은 결정 당시 근거 서술, superseded·summary 페이지 원문 유지

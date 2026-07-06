@@ -2,8 +2,13 @@
 type: decision
 title: 코드 인덱스 v1 질의 범위 = 단일 레포 (cross-repo 후순위)
 tags: [code-index, query, scope, traversal]
-status: active
+status: superseded
 ---
+
+> [!superseded] 이 결정은 대체됨 (2026-07-06)
+> 코드 인덱스가 중앙 파이프라인 범위에서 제외되어 질의 범위 결정도 효력을 잃었다
+> → [[decision-code-index-out-of-pipeline]]. 단 여기 남긴 **cross-repo 질의** 축은 새 결정의
+> "재검토 조건"으로 계승됐다 — 개인 로컬 도구가 못 푸는 유일한 축이므로.
 
 # 결정: v1은 한 레포 단위 질의만 — cross-repo 질의는 후순위
 

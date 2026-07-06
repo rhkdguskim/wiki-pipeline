@@ -2,8 +2,13 @@
 type: decision
 title: 코드 인덱스 프로바이더 첫 어댑터 = cg-colby 확정
 tags: [code-index, adapter, codegraph, provider]
-status: active
+status: superseded
 ---
+
+> [!superseded] 이 결정은 대체됨 (2026-07-06)
+> 코드 인덱스가 중앙 파이프라인 범위에서 제외되어 어댑터를 구현하지 않는다
+> → [[decision-code-index-out-of-pipeline]]. **여전히 유효한 부분**: cg-colby vs cgc 비교 실측
+> ([[entity-codegraph]]) — 개발자가 개인 도구를 고를 때의 참고 자료.
 
 # 결정: 첫 구현 어댑터는 cg-colby(`colbymchenry/codegraph`)로 간다
 

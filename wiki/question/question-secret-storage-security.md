@@ -9,7 +9,7 @@ status: open
 
 > **우선순위 낮음 (2026-07-05 사용자 판단)** — 지금 단계에선 중요하지 않다. 실제 운영·배포에 가까워질 때 다룬다. 설계 진행의 게이트가 아님.
 
-[[decision-app-host-connection]]로 app 등록 시 로그인 등 시크릿을 서버 DB에 저장한다. 이 시크릿의 보안 요건은 추후 결정.
+[[decision-app-host-connection]]로 app 등록 시 로그인 등 시크릿을 서버 DB에 저장한다. 엔진 인증도 **API 키**를 등록·저장하므로 같은 at-rest 보안 대상이다 → [[decision-engine-api-key-auth]] (구 아이디/패스워드 방식 [[decision-engine-single-account-auth]]은 superseded). 이 시크릿들의 보안 요건은 추후 결정.
 
 - 저장 시 암호화(at-rest)·키 관리는?
 - 접근 제어 — 누가 조회·수정 가능한가? 대시보드 UI에서 마스킹?

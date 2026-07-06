@@ -24,7 +24,8 @@ status: active
 ## 이 위키에서의 실체화
 
 - [[decision-scm-connector-abstraction]] — SCM 커넥터: GitLab·GitHub를 compare/submit/auth 뒤로
-- [[decision-code-index-provider-abstraction]] — 코드 인덱스 프로바이더: codegraph를 index/query/manage 뒤로
-- [[question-engine-runtime]] — 생성 엔진 인터페이스: 같은 패턴의 세 번째 후보 (검토 중)
+- [[decision-code-index-provider-abstraction]] — 코드 인덱스 프로바이더 (superseded — 코드 인덱스가
+  파이프라인 범위에서 제외되며 실체화 취소 → [[decision-code-index-out-of-pipeline]])
+- [[question-engine-runtime]] — 생성 엔진 인터페이스: 같은 패턴의 다른 실체화 (검토 중)
 
 전체 그림: [[overview]]

@@ -2,8 +2,13 @@
 type: decision
 title: 코드 인덱스 프로바이더 추상화 (codegraph 은닉·교체 가능)
 tags: [code-index, provider, abstraction, codegraph, traversal]
-status: active
+status: superseded
 ---
+
+> [!superseded] 이 결정은 대체됨 (2026-07-06)
+> 코드 인덱스가 중앙 파이프라인 범위에서 제외되어 프로바이더 인터페이스를 만들지 않는다
+> → [[decision-code-index-out-of-pipeline]]. port-adapter 패턴 자체([[concept-port-adapter]])는
+> SCM 커넥터에서 계속 유효.
 
 # 결정: 인덱싱 기술을 프로바이더 인터페이스로 추상화하고 codegraph를 첫 어댑터로 숨긴다
 

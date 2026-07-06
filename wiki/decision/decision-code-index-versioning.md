@@ -2,8 +2,12 @@
 type: decision
 title: 코드 인덱스 형상 관리 (버전 스냅샷 + 원자 교체)
 tags: [code-index, versioning, availability, consistency]
-status: active
+status: superseded
 ---
+
+> [!superseded] 이 결정은 대체됨 (2026-07-06)
+> 코드 인덱스가 중앙 파이프라인 범위에서 제외되어 중앙 인덱스 형상 관리가 불필요해졌다
+> → [[decision-code-index-out-of-pipeline]]
 
 # 결정: 인덱스는 버전 단위로 형상 관리한다 — 재인덱싱 중에도 직전 버전으로 질의
 

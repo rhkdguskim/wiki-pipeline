@@ -7,7 +7,7 @@ status: active
 
 # 결정: 모든 파이프라인은 실시간 진행 모니터링을 1급 요구사항으로 설계한다
 
-지금까지의 3개 파이프라인 — 정적 문서([[entity-docs-hub]]·[[entity-docu-automatic]]), 매뉴얼 추출([[entity-manual-pipeline]]), 코드 인덱스([[decision-code-index-pipeline]]) — 과 **앞으로 추가될 모든 파이프라인**은 관리 서버 대시보드에서 **진행상황이 실시간으로** 보여야 한다.
+현재의 2개 파이프라인 — 정적 문서([[entity-docs-hub]]·[[entity-docu-automatic]]), 매뉴얼 추출([[entity-manual-pipeline]]) — 과 **앞으로 추가될 모든 파이프라인**은 관리 서버 대시보드에서 **진행상황이 실시간으로** 보여야 한다. (코드 인덱스도 대상이었으나 2026-07-06 범위 제외 → [[decision-code-index-out-of-pipeline]])
 
 ## 무엇을 요구하나
 

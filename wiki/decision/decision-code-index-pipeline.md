@@ -2,8 +2,12 @@
 type: decision
 title: 코드 인덱싱 파이프라인 도입 (짧은 주기 폴링, 개발자 직접 조회)
 tags: [code-index, pipeline, polling, freshness, developer-facing]
-status: active
+status: superseded
 ---
+
+> [!superseded] 이 결정은 대체됨 (2026-07-06)
+> 코드 인덱스가 중앙 파이프라인 범위에서 **제외**되어 이 파이프라인은 도입하지 않는다 —
+> 개발자 개인 로컬 도구로 이관 → [[decision-code-index-out-of-pipeline]]
 
 # 결정: 코드 인덱싱 파이프라인을 도입한다 — 비-AI·짧은 주기 폴링·개발자 직접 조회
 

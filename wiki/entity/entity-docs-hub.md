@@ -19,7 +19,7 @@ status: active
 - **파이프라인 (4단계)** — 이 레포 한 곳에서 실행:
   1. **변경 조회** — SCM 커넥터의 compare로 변경 파일 집합 수신 → [[decision-scm-connector-abstraction]]
   2. **영향 분석** — 변경 경로 ↔ frontmatter 매핑 대조로 영향받은 문서 산출
-  3. **재생성** — 생성 엔진 headless 호출 → [[entity-docu-automatic]]
+  3. **재생성** — 생성 엔진 호출(API 에이전트 루프 → [[decision-engine-api-agent]]) → [[entity-docu-automatic]]
   4. **제출** — 브랜치 + MR/PR 생성 → [[decision-mr-review-gate]]
 
 전체 그림: [[overview]]

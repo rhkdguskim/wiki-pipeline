@@ -19,4 +19,8 @@ status: answered
 → [[decision-runner-git-clone]]. git 프로토콜은 SCM 중립이라 숨길 차이가 없고, 커넥터는 3책임(compare/submit/auth)을
 유지하되 **인증 토큰만 auth에서 얻는다**. 커넥터 인터페이스 비대화 방지.
 
+> (2026-07-06) 답이던 [[decision-runner-git-clone]]은 코드 인덱스의 파이프라인 범위 제외로 superseded
+> → [[decision-code-index-out-of-pipeline]] (인덱싱용 소스 확보 자체가 불필요). 커넥터 3책임 유지
+> 원칙과 실측 사실(Windows 러너·LFS)은 유효하다.
+
 소스: [[2026-07-05-code-index-pipeline]] · [[2026-07-05-code-index-followup]]

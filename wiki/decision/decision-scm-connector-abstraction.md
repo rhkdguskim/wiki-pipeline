@@ -22,7 +22,9 @@ status: active
 - **auth 두 축**: 소스 read는 레포별 project access token으로 확정(그룹 토큰은 Owner 권한이라 기각) → [[decision-repo-dev-release-registration]]. docs-hub write 토큰의 발급 주체는 여전히 열림 → [[question-group-token-provisioning]].
 - 소스 레포는 서버 DB에 `scm: gitlab | github` 타입과 함께 등록되고, 그 타입으로 커넥터가 선택된다 → [[decision-db-source-of-truth]]
 - 커넥터는 SCM 세부(엔드포인트·리뷰요청 명칭·인증)만 바꾸고, 파이프라인 상위 로직은 공유한다.
-- 코드 인덱스 파이프라인이 요구하는 소스 전체 확보(checkout)를 4번째 책임으로 넣을지는 미확정 → [[question-scm-checkout]]
+- 소스 전체 확보(checkout)의 4번째 책임 추가는 **기각으로 종결** — 러너 git clone으로 답했고([[question-scm-checkout]]),
+  이후 유일 수요자였던 코드 인덱스가 범위에서 제외돼 수요 자체가 소멸([[decision-code-index-out-of-pipeline]]).
+  커넥터는 3책임(compare/submit/auth)을 유지한다
 
 ## 변하지 않는 것 (커넥터 무관)
 

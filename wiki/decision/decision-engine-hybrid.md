@@ -29,3 +29,11 @@ status: active
 - **A 하드코딩 (인터페이스 없음)** — 교체 시 러너까지 뜯어고쳐야 한다. 계약층이 없으면 B 전환이 프로젝트가 된다.
 
 이 결정이 [[question-engine-runtime]]을 답한다. headless 검증([[question-headless-claude-auth]])이 A의 첫 관문이다.
+
+## 갱신 (2026-07-06) — driver 발동, B 전환 확정
+
+**headless 인증 막힘(driver 1번)이 실제로 발동**했다 — headless 로그인의 무인 지속 불가가
+확정되어([[question-headless-claude-auth]]), A(`claude -p`)를 거치지 않고 **B(자체 에이전트)로
+전환을 확정**한다 → [[decision-engine-api-agent]]. 이 페이지의 핵심인 **엔진 인터페이스
+계약은 그대로 유효**하며(그 인터페이스 뒤에 B가 삽입된 것), "당분간 A" 부분만 효력을 다했다.
+소스: [[2026-07-06-engine-api-agent-architecture]]

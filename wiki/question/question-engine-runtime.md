@@ -41,4 +41,9 @@ status: answered
 
 **하이브리드**로 확정 → [[decision-engine-hybrid]]. 엔진 인터페이스를 지금 정의하고, 당분간 `claude -p` headless(A), driver 발생 시 자체 에이전트(B)로 교체. headless 검증([[question-headless-claude-auth]])이 A의 첫 관문.
 
+## 갱신 (2026-07-06) — B 전환 확정
+
+headless 무인 지속 불가 확정으로 driver가 발동, **B(자체 에이전트)로 전환 확정**
+→ [[decision-engine-api-agent]]. 엔진 인터페이스 계약은 유지된 채 구현체만 교체됐다.
+
 관련: [[question-headless-claude-auth]] · [[decision-control-data-plane-split]] · [[decision-scm-connector-abstraction]] · [[entity-docu-automatic]] · [[overview]]

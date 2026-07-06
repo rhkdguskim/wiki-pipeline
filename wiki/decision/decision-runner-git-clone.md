@@ -2,8 +2,13 @@
 type: decision
 title: 인덱싱 소스 확보 = 러너 git clone (커넥터 4책임 확장 기각)
 tags: [code-index, scm, checkout, git]
-status: active
+status: superseded
 ---
+
+> [!superseded] 이 결정은 대체됨 (2026-07-06)
+> 코드 인덱스가 중앙 파이프라인 범위에서 제외되어 인덱싱용 소스 확보 자체가 불필요해졌다
+> → [[decision-code-index-out-of-pipeline]]. **여전히 유효한 부분**: 커넥터 3책임(compare/submit/auth)
+> 비대화 방지 원칙, 그리고 실측 사실(러너=Windows · ros-sw-rcs git LFS — [[entity-mirero-gitlab]] 보유).
 
 # 결정: 인덱싱용 소스 전체 확보는 러너가 git clone으로 한다
 

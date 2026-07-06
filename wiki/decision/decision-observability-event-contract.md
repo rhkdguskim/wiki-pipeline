@@ -28,3 +28,9 @@ status: active
 - **poll 전용** — 단순하지만 실시간성이 떨어져 진행 모니터링 목적에 안 맞는다.
 
 이 결정이 [[question-progress-event-contract]]을 답하고 [[concept-observability-contract]]를 실체화한다.
+
+## 갱신 (2026-07-06) — 에이전트 스텝 계층 확장
+
+엔진의 자체 에이전트 전환([[decision-engine-api-agent]])에 따라, 이 계약의 granularity가
+한 단계 아래로 확장됐다 — `파이프라인 실행 > 단계 > 엔진 호출 > 에이전트 스텝(사고 요약·
+도구 호출·토큰)` 4단 계층. 스키마·webhook push 채널은 그대로 쓴다 → [[decision-agent-step-observability]].

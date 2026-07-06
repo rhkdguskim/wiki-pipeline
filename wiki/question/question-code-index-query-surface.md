@@ -22,4 +22,7 @@ status: answered
 - **tool 표면** = 어댑터 정책을 따른다. cg-colby([[decision-code-index-adapter-cg-colby]])는 기본 `codegraph_explore`
   단일 tool 철학이며, 다중 tool 표면이 필요하면 환경변수 토글(`CODEGRAPH_MCP_TOOLS`) 또는 라이브러리 API 경로.
 
+> (2026-07-06) 이 답을 구성하던 결정들은 코드 인덱스의 파이프라인 범위 제외로 일괄 superseded
+> → [[decision-code-index-out-of-pipeline]]. 아래 답은 당시 결론의 기록이다.
+
 소스: [[2026-07-05-code-index-pipeline]] · [[2026-07-05-code-index-finalization]]

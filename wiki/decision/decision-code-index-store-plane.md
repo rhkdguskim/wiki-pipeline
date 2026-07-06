@@ -2,8 +2,12 @@
 type: decision
 title: 코드 인덱스 저장소 = 별도 질의 서비스 평면 (관리 서버와 분리)
 tags: [code-index, storage, plane, ownership, mcp]
-status: active
+status: superseded
 ---
+
+> [!superseded] 이 결정은 대체됨 (2026-07-06)
+> 코드 인덱스가 중앙 파이프라인 범위에서 제외되어 질의 서비스 평면도 만들지 않는다
+> → [[decision-code-index-out-of-pipeline]]
 
 # 결정: 인덱스 저장소는 별도 질의 서비스 평면이 소유한다
 

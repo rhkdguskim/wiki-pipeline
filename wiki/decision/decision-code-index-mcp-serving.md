@@ -2,8 +2,12 @@
 type: decision
 title: 코드 인덱스 질의는 MCP 서버로 제공 (우선 채널)
 tags: [code-index, mcp, query, serving, developer-facing]
-status: active
+status: superseded
 ---
+
+> [!superseded] 이 결정은 대체됨 (2026-07-06)
+> 코드 인덱스가 중앙 파이프라인 범위에서 제외되어 중앙 MCP 서빙도 만들지 않는다 —
+> 개발자가 로컬 도구의 MCP를 개인적으로 쓰는 것은 각자 선택 → [[decision-code-index-out-of-pipeline]]
 
 # 결정: 질의 채널은 MCP 서버 — 개발자가 붙어서 코드베이스를 빠르게 스캔한다
 

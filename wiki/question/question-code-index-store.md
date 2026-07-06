@@ -21,4 +21,7 @@ status: answered
 - **가용성·일관성** = sha 결부 버전 스냅샷 + 원자 교체. 재인덱싱 중 직전 버전 서빙 → [[decision-code-index-versioning]]
 - **저장 엔진** = 어댑터 정책 따름. cg-colby([[decision-code-index-adapter-cg-colby]]) 채택 시 SQLite 파일이 이 평면 산출물.
 
+> (2026-07-06) 이 답을 구성하던 결정들은 코드 인덱스의 파이프라인 범위 제외로 일괄 superseded
+> → [[decision-code-index-out-of-pipeline]]. 아래 답은 당시 결론의 기록이다.
+
 소스: [[2026-07-05-code-index-pipeline]] · [[2026-07-05-code-index-finalization]]
