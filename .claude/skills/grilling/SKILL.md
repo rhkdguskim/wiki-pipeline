@@ -1,0 +1,12 @@
+---
+name: grilling
+description: Grill the user relentlessly about a plan or design. Use when the user wants to stress-test a plan before building, or uses any 'grill' trigger phrases. 계획·설계를 확정하기 전에 집요하게 캐물어 검증하고 싶을 때 사용.
+---
+
+Interview me relentlessly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one-by-one. For each question, provide your recommended answer.
+
+Ask the questions one at a time, waiting for feedback on each question before continuing. Asking multiple questions at once is bewildering.
+
+If a question can be answered by exploring the codebase, explore the codebase instead.
+
+Do not enact the plan until I confirm we have reached a shared understanding.
