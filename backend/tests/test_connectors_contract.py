@@ -81,6 +81,11 @@ def test_resolve_ref_and_default_branch(scm):
     assert len(conn.resolve_ref("main")) == 40
 
 
+def test_list_branches(scm):
+    conn, _ = scm
+    assert "main" in conn.list_branches()
+
+
 def test_project_info_and_verify_access(scm):
     conn, _ = scm
     info = conn.verify_access()

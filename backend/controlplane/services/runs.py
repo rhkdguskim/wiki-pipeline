@@ -1,0 +1,181 @@
+"""run 수명주기 — 트리거·이벤트 적재·완료 보고·sha 전진.
+
+concept-idempotent-sha: last_processed_sha는 완료 보고(MR 제출 성공 포함)에서만
+전진한다. 실패한 run은 포인터를 건드리지 않아 다음 배치가 같은 구간을 재처리한다.
+decision-branch-loss-policy: compare 404 -> 소스 자동 비활성화 + admin 알림.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import subprocess
+import sys
+import uuid
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ..models import Run, RunEvent, Source, SourceBranch
+from ..settings import ControlPlaneSettings
+from .notifier import Notifier
+
+log = logging.getLogger("controlplane.runs")
+
+
+class RunService:
+    def __init__(self, settings: ControlPlaneSettings, notifier: Notifier):
+        self.settings = settings
+        self.notifier = notifier
+
+    # ── 트리거 (수동/스케줄) ─────────────────────────────────
+    def create_run(self, db: Session, *, source_id: str, mode: str = "auto",
+                   branch_role: str = "dev", trigger: str = "manual",
+                   pipeline_id: str = "static") -> Run:
+        source = db.get(Source, source_id)
+        if source is None:
+            raise ValueError(f"알 수 없는 source: {source_id}")
+        if not source.enabled:
+            raise ValueError(f"비활성화된 source: {source_id} ({source.disabled_reason})")
+        run_id = f"{pipeline_id}-{source_id}-{uuid.uuid4().hex[:8]}"
+        run = Run(id=run_id, source_id=source_id, pipeline_id=pipeline_id,
+                  mode=mode, branch_role=branch_role, trigger=trigger, status="pending")
+        db.add(run)
+        db.flush()
+        return run
+
+    def launch_runner(self, run: Run) -> subprocess.Popen | None:
+        """Data Plane 러너 프로세스 기동 (backend.runner.job).
+
+        Control Plane과 같은 호스트에서 subprocess로 실행하는 것이 v1 —
+        docs-hub CI 러너로 옮길 때는 이 지점이 CI 트리거 API 호출로 바뀐다.
+        """
+        api_url = f"http://{self.settings.control_host}:{self.settings.control_port}"
+        env = {
+            **os.environ,
+            "CONTROL_API_URL": api_url,
+            "CONTROL_RUNNER_TOKEN": self.settings.control_runner_token,
+        }
+        cmd = [sys.executable, "-m", "backend.runner.job",
+               "--run-id", run.id, "--source", run.source_id,
+               "--mode", run.mode, "--branch-role", run.branch_role]
+        try:
+            proc = subprocess.Popen(cmd, env=env, cwd=None,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            log.info("러너 기동: run=%s pid=%s", run.id, proc.pid)
+            return proc
+        except Exception as e:  # noqa: BLE001
+            log.error("러너 기동 실패: run=%s %s: %s", run.id, type(e).__name__, e)
+            return None
+
+    # ── webhook 이벤트 적재 ─────────────────────────────────
+    def ingest_events(self, db: Session, run_id: str, events: list[dict]) -> int:
+        run = db.get(Run, run_id)
+        count = 0
+        for e in events:
+            if not isinstance(e, dict):
+                continue
+            db.add(RunEvent(
+                run_id=run_id,
+                ts=str(e.get("ts") or ""),
+                layer=str(e.get("layer") or ""),
+                stage=str(e.get("stage") or ""),
+                status=str(e.get("status") or ""),
+                payload=json.dumps(e, ensure_ascii=False),
+            ))
+            count += 1
+            if run is not None and e.get("layer") == "run":
+                status = str(e.get("status") or "")
+                if status == "running" and run.status == "pending":
+                    run.status = "running"
+                elif status in ("done", "failed"):
+                    run.status = status
+                detail = e.get("detail") or {}
+                if status == "failed" and detail.get("error"):
+                    run.error = str(detail["error"])[:2000]
+            if run is not None and (e.get("detail") or {}).get("kind") == "usage":
+                detail = e["detail"]
+                run.input_tokens += int(detail.get("input_tokens") or 0)
+                run.output_tokens += int(detail.get("output_tokens") or 0)
+        db.flush()
+        return count
+
+    def read_db_events(self, db: Session, run_id: str, after_id: int = 0,
+                       limit: int = 2000) -> dict:
+        rows = db.scalars(
+            select(RunEvent).where(RunEvent.run_id == run_id, RunEvent.id > after_id)
+            .order_by(RunEvent.id).limit(limit)
+        ).all()
+        events = [json.loads(r.payload) for r in rows]
+        return {"events": events,
+                "offset": rows[-1].id if rows else after_id,
+                "size": after_id + len(rows), "age_sec": 0.0}
+
+    def all_db_events(self, db: Session, run_id: str) -> list[dict]:
+        rows = db.scalars(select(RunEvent).where(RunEvent.run_id == run_id)
+                          .order_by(RunEvent.id)).all()
+        return [json.loads(r.payload) for r in rows]
+
+    def has_db_events(self, db: Session, run_id: str) -> bool:
+        return db.scalars(select(RunEvent.id).where(RunEvent.run_id == run_id)
+                          .limit(1)).first() is not None
+
+    # ── 완료 보고 (sha 전진의 유일한 경로) ───────────────────
+    def complete_run(self, db: Session, run_id: str, report: dict[str, Any]) -> dict:
+        run = db.get(Run, run_id)
+        if run is None:
+            raise ValueError(f"알 수 없는 run: {run_id}")
+        status = str(report.get("status") or "done")
+        run.status = status
+        run.from_sha = str(report.get("from_sha") or run.from_sha)
+        run.to_sha = str(report.get("to_sha") or run.to_sha)
+        run.doc_count = int(report.get("doc_count") or run.doc_count)
+        run.mr_url = str(report.get("mr_url") or run.mr_url)
+        if report.get("error"):
+            run.error = str(report["error"])[:2000]
+
+        source = db.get(Source, run.source_id) if run.source_id else None
+        advanced = False
+        disabled = False
+
+        if status == "done" and report.get("last_processed_sha") and source is not None:
+            row = db.scalars(select(SourceBranch).where(
+                SourceBranch.source_id == source.id,
+                SourceBranch.role == (run.branch_role or "dev"))).first()
+            if row is not None:
+                row.last_processed_sha = str(report["last_processed_sha"])
+                advanced = True
+
+        if status == "failed" and source is not None:
+            error_kind = str(report.get("error_kind") or "")
+            if error_kind == "not_found":
+                # 좀비 소스: 레포/브랜치 소실 — 자동 비활성화 (decision-branch-loss-policy)
+                source.enabled = False
+                source.disabled_reason = f"compare 404: {str(report.get('error') or '')[:200]}"
+                disabled = True
+                self.notifier.source_disabled(source_label=source.label,
+                                              reason=source.disabled_reason)
+            elif error_kind == "auth":
+                self.notifier.auth_revoked(where=f"source {source.label}",
+                                           detail=str(report.get("error") or ""))
+            else:
+                self.notifier.run_failed(source_label=source.label, run_id=run_id,
+                                         error=str(report.get("error") or ""),
+                                         owner_email=source.owner_email)
+        db.flush()
+        return {"ok": True, "status": status, "sha_advanced": advanced,
+                "source_disabled": disabled}
+
+    # ── 조회 ────────────────────────────────────────────────
+    def list_runs(self, db: Session, limit: int = 100) -> list[dict]:
+        rows = db.scalars(select(Run).order_by(Run.created_at.desc()).limit(limit)).all()
+        return [{
+            "run_id": r.id, "source_id": r.source_id, "pipeline_id": r.pipeline_id,
+            "mode": r.mode, "branch_role": r.branch_role, "trigger": r.trigger,
+            "status": r.status, "from_sha": r.from_sha, "to_sha": r.to_sha,
+            "doc_count": r.doc_count, "mr_url": r.mr_url, "error": r.error,
+            "input_tokens": r.input_tokens, "output_tokens": r.output_tokens,
+            "created_at": r.created_at.isoformat() if r.created_at else "",
+            "updated_at": r.updated_at.isoformat() if r.updated_at else "",
+        } for r in rows]

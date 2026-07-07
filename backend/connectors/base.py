@@ -80,6 +80,9 @@ class ScmConnector(abc.ABC):
     def default_branch(self) -> str: ...
 
     @abc.abstractmethod
+    def list_branches(self) -> list[str]: ...
+
+    @abc.abstractmethod
     def project_info(self) -> ProjectInfo: ...
 
     def project_name(self) -> str:

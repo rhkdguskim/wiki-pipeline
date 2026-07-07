@@ -140,6 +140,20 @@ class GitHubConnector(ScmConnector):
     def default_branch(self) -> str:
         return self._get(self._repo).json().get("default_branch", "main")
 
+    def list_branches(self) -> list[str]:
+        out: list[str] = []
+        page = 1
+        while True:
+            batch = self._get(f"{self._repo}/branches",
+                              params={"per_page": 100, "page": page}).json()
+            if not batch:
+                break
+            out.extend(b.get("name", "") for b in batch)
+            if len(batch) < 100:
+                break
+            page += 1
+        return [b for b in out if b]
+
     def project_info(self) -> ProjectInfo:
         data = self._get(self._repo).json()
         return ProjectInfo(

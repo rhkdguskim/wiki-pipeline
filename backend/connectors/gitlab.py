@@ -118,6 +118,22 @@ class GitLabConnector(ScmConnector):
     def default_branch(self) -> str:
         return self._get(self._proj).json().get("default_branch", "master")
 
+    def list_branches(self) -> list[str]:
+        out: list[str] = []
+        page = 1
+        while True:
+            resp = self._get(f"{self._proj}/repository/branches",
+                             params={"per_page": 100, "page": page})
+            batch = resp.json()
+            if not batch:
+                break
+            out.extend(b.get("name", "") for b in batch)
+            next_page = resp.headers.get("x-next-page", "")
+            if not next_page:
+                break
+            page = int(next_page)
+        return [b for b in out if b]
+
     def project_info(self) -> ProjectInfo:
         data = self._get(self._proj).json()
         return ProjectInfo(

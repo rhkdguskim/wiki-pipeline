@@ -98,6 +98,9 @@ class FakeGitLab:
             if ref in st.branches:
                 return _json(200, {"id": st.branches[ref]})
             return _json(404, {"message": "commit not found"})
+        if rest == "/repository/branches" and request.method == "GET":
+            return _json(200, [{"name": n} for n in sorted(st.branches)],
+                         {"x-next-page": ""})
         if rest.startswith("/repository/branches"):
             if request.method == "GET":
                 name = rest[len("/repository/branches/"):]
@@ -231,6 +234,8 @@ class FakeGitHub:
             if ref in st.branches:
                 return _json(200, {"sha": st.branches[ref]})
             return _json(404, {"message": "No commit found"})
+        if rest == "/branches" and request.method == "GET":
+            return _json(200, [{"name": n} for n in sorted(st.branches)])
         if rest.startswith("/git/ref/heads/"):
             name = rest[len("/git/ref/heads/"):]
             if name in st.branches:

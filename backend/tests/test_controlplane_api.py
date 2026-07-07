@@ -1,0 +1,193 @@
+"""Control Plane API 통합 테스트 — 임시 SQLite + FastAPI TestClient.
+
+인증(자체 토큰) · 소스/인스턴스 등록 · 커넥터 검증(가짜 SCM) · 트리거 ·
+webhook 이벤트 적재/완료 보고(sha 전진·자동 비활성화) · 비용 집계.
+"""
+from __future__ import annotations
+
+import pytest
+from cryptography.fernet import Fernet
+from fastapi.testclient import TestClient
+
+import backend.controlplane.app as app_module
+from backend.controlplane.settings import ControlPlaneSettings
+
+from .fake_scm import HEAD_SHA, FakeGitLab
+
+ADMIN = {"Authorization": "Bearer tok-admin"}
+RUNNER = {"Authorization": "Bearer tok-runner"}
+
+
+@pytest.fixture()
+def client(tmp_path, monkeypatch):
+    monkeypatch.setattr(app_module, "_seed_from_env", lambda app: None)
+    settings = ControlPlaneSettings(
+        control_db_url=f"sqlite:///{tmp_path}/cp.sqlite",
+        control_api_tokens="admin:tok-admin",
+        control_runner_token="tok-runner",
+        control_secret_key=Fernet.generate_key().decode(),
+        scheduler_enabled=False,
+        notify_mode="log",
+        admin_email="admin@example.com",
+        out_dir=str(tmp_path / "out"),
+    )
+    app = app_module.create_app(settings)
+    with TestClient(app) as c:
+        c.app = app
+        yield c
+
+
+def _patch_fake_connector(client, monkeypatch):
+    """registration의 커넥터 생성을 가짜 GitLab로 대체."""
+    fake = FakeGitLab()
+    reg = client.app.state.registration
+
+    def fake_connector(db, source, transport=None):
+        from backend.connectors.gitlab import GitLabConnector
+        return GitLabConnector(base_url="http://gitlab.local", token="t",
+                               repo="grp/demo", retry_attempts=1,
+                               transport=fake.transport)
+
+    monkeypatch.setattr(reg, "connector_for_source", fake_connector)
+    return fake
+
+
+def _create_source(client, monkeypatch, verify=True) -> dict:
+    _patch_fake_connector(client, monkeypatch)
+    resp = client.post("/api/sources", headers=ADMIN, json={
+        "id": "demo", "label": "Demo", "kind": "gitlab",
+        "url": "http://gitlab.local", "project_id": "grp/demo",
+        "token": "secret-token", "dev_branch": "main",
+        "owner_email": "owner@example.com", "verify": verify,
+    })
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def test_auth_required(client):
+    assert client.get("/api/sources").status_code == 401
+    assert client.get("/api/sources", headers={"Authorization": "Bearer wrong"}).status_code == 401
+    assert client.get("/api/sources", headers=ADMIN).status_code == 200
+    assert client.get("/health").status_code == 200   # health는 공개
+
+
+def test_source_registration_with_verify(client, monkeypatch):
+    view = _create_source(client, monkeypatch)
+    assert view["has_token"] is True
+    assert view["dev_branch"] == "main"
+    assert view["release_branch"] == "main"       # 기본값 = default_branch
+    assert view["doc_dir"] == "grp/demo"          # 자동: namespace_path
+    assert view["verification"]["verified"] is True
+    assert view["verification"]["head_sha"] == HEAD_SHA
+    assert "main" in view["verification"]["branches"]
+    # 토큰 값은 API 응답에 절대 포함되지 않는다
+    assert "secret-token" not in str(view)
+
+
+def test_instance_crud(client):
+    resp = client.post("/api/instances", headers=ADMIN, json={
+        "id": "github-com", "kind": "github", "label": "GitHub.com", "token": "gh-tok",
+    })
+    assert resp.status_code == 201
+    assert resp.json()["has_token"] is True
+    listing = client.get("/api/instances", headers=ADMIN).json()
+    assert [i["id"] for i in listing] == ["github-com"]
+    assert client.post("/api/instances", headers=ADMIN,
+                       json={"id": "x", "kind": "svn"}).status_code == 400
+
+
+def test_trigger_and_webhook_lifecycle(client, monkeypatch):
+    _create_source(client, monkeypatch)
+    resp = client.post("/api/runs/trigger", headers=ADMIN,
+                       json={"source_id": "demo", "launch": False})
+    assert resp.status_code == 200
+    run_id = resp.json()["run_id"]
+
+    # 러너가 이벤트를 push (runner 토큰)
+    events = [
+        {"schema": "progress.v1", "pipeline_id": "static", "run_id": run_id,
+         "layer": "run", "stage": "static-diff", "status": "running", "ts": "2026-07-07T20:00:00"},
+        {"layer": "stage", "stage": "compare", "status": "done", "ts": "2026-07-07T20:00:05",
+         "detail": {"changed": 3}},
+        {"layer": "agent_step", "stage": "theme:intro", "ts": "2026-07-07T20:01:00",
+         "detail": {"kind": "usage", "input_tokens": 1000, "output_tokens": 500}},
+        {"layer": "engine_call", "stage": "theme:intro", "status": "done",
+         "ts": "2026-07-07T20:02:00", "detail": {"saved": "intro.md", "verdict": "pass"}},
+        {"layer": "run", "stage": "static-diff", "status": "done", "ts": "2026-07-07T20:03:00"},
+    ]
+    resp = client.post("/api/webhook/events", headers=RUNNER,
+                       json={"run_id": run_id, "events": events})
+    assert resp.status_code == 200 and resp.json()["ingested"] == 5
+
+    # 인증 없는 webhook은 거부
+    assert client.post("/api/webhook/events", json={"run_id": run_id, "events": []}).status_code == 401
+
+    # DB 이벤트 기반 run-summary
+    summary = client.get(f"/api/run-summary?run={run_id}", headers=ADMIN).json()
+    assert summary["status"] == "done"
+    assert summary["kpi"]["token_total"] == 1500
+    assert summary["kpi"]["stage_done"] >= 1
+
+    # 증분 커서 폴링
+    first = client.get(f"/api/events?run={run_id}&offset=0", headers=ADMIN).json()
+    assert len(first["events"]) == 5
+    again = client.get(f"/api/events?run={run_id}&offset={first['offset']}", headers=ADMIN).json()
+    assert again["events"] == []
+
+    # 완료 보고 -> sha 전진 (MR 성공 후에만 — concept-idempotent-sha)
+    resp = client.post("/api/webhook/complete", headers=RUNNER, json={
+        "run_id": run_id, "status": "done", "last_processed_sha": HEAD_SHA,
+        "doc_count": 1, "mr_url": "http://gitlab.local/mr/1",
+    })
+    assert resp.status_code == 200 and resp.json()["sha_advanced"] is True
+    src = client.get("/api/sources", headers=ADMIN).json()[0]
+    assert src["last_processed_sha"] == HEAD_SHA
+
+    # run 목록에 반영
+    runs = client.get("/api/runs/db", headers=ADMIN).json()
+    assert runs[0]["run_id"] == run_id
+    assert runs[0]["status"] == "done"
+    assert runs[0]["input_tokens"] == 1000
+
+    # 비용 집계
+    costs = client.get("/api/costs", headers=ADMIN).json()
+    assert costs["by_source"]["demo"]["input_tokens"] == 1000
+
+
+def test_compare_404_disables_source(client, monkeypatch):
+    _create_source(client, monkeypatch)
+    run_id = client.post("/api/runs/trigger", headers=ADMIN,
+                         json={"source_id": "demo", "launch": False}).json()["run_id"]
+    resp = client.post("/api/webhook/complete", headers=RUNNER, json={
+        "run_id": run_id, "status": "failed",
+        "error": "compare 404: branch gone", "error_kind": "not_found",
+    })
+    assert resp.status_code == 200 and resp.json()["source_disabled"] is True
+    src = client.get("/api/sources", headers=ADMIN).json()[0]
+    assert src["enabled"] is False
+    assert "404" in src["disabled_reason"]
+    # 비활성 소스는 트리거 거부
+    resp = client.post("/api/runs/trigger", headers=ADMIN,
+                       json={"source_id": "demo", "launch": False})
+    assert resp.status_code == 400
+
+
+def test_doc_target_and_mr_plan_requires_run(client):
+    resp = client.post("/api/docs-hub", headers=ADMIN, json={
+        "id": "product-common", "label": "product-common", "kind": "gitlab",
+        "url": "http://gitlab.local/grp/product-common",
+        "project_path": "grp/product-common", "token": "t", "enabled": True,
+    })
+    assert resp.status_code == 201
+    assert resp.json()["has_token"] is True
+    assert client.get("/api/docs-hub/mr-plan?run=nope", headers=ADMIN).status_code == 404
+
+
+def test_secretbox_encrypts_tokens_at_rest(client, monkeypatch, tmp_path):
+    _create_source(client, monkeypatch, verify=False)
+    import sqlite3
+    con = sqlite3.connect(tmp_path / "cp.sqlite")
+    stored = con.execute("SELECT token FROM sources WHERE id='demo'").fetchone()[0]
+    con.close()
+    assert stored.startswith("enc:v1:")
+    assert "secret-token" not in stored
