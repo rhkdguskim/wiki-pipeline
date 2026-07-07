@@ -24,3 +24,9 @@ Phase 1 PoC에서 과제 1개로 실측한 뒤 산정한다.
 ([[decision-agent-step-observability]]). PoC 실측이 별도 계측 없이 자동으로 쌓인다.
 단일 계정 사용량 한도가 처리량 상한이 되던 축은 종량제(API 키)로 대체
 ([[decision-engine-api-key-auth]]).
+
+## 갱신 (2026-07-07) — PoC 실측 조합 = LangGraph + MiniMax M3
+
+PoC 실측 스택이 **LangGraph 오케스트레이션([[decision-engine-orchestration-langgraph]]) +
+MiniMax M3([[decision-model-provider-neutral-minimax]])**로 구체화됐다. 공급자 중립 설계라
+비용 실측은 이 조합으로 시작하되, 프로덕션 공급자는 실측한 품질·비용으로 최종 확정한다.

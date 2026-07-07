@@ -29,6 +29,7 @@ status: active
 - **실시간 관측성** — 모든 파이프라인은 진행상황을 대시보드에 실시간 보고한다(설계의 1급 제약).
   구체형은 표준 스키마 + 가변 단위 + webhook push → [[decision-pipeline-observability]] · [[concept-observability-contract]] · [[decision-observability-event-contract]].
   엔진이 자체 에이전트가 되면서 **에이전트 스텝**(사고 요약·도구 호출·토큰)까지 드릴다운된다 → [[decision-agent-step-observability]].
+  엔진 구현체가 LangGraph로 옮겨간 뒤로는 `get_stream_writer` 커스텀 이벤트가 이 스키마를 채운다 → [[decision-engine-orchestration-langgraph]].
   파이프라인 실패·인증 해지 같은 운영 이벤트는 **역할 기반 실시간 이메일**로 사람에게 푸시된다 → [[decision-email-alerting]]
 
 ## ① 정적 파이프라인 — 코드 diff → 기술문서
@@ -48,14 +49,14 @@ flowchart TB
         Runner["감지 → 생성 → MR/PR 제출"]
     end
 
-    Engine["🤖 Docu-Automatic<br/>생성 엔진 · API 자체 에이전트"]
+    Engine["🤖 Docu-Automatic<br/>생성 엔진 · LangGraph 오케스트레이션"]
     Src[("소스 레포<br/>GitLab · GitHub")]
     Hub[("docs-hub<br/>공통 문서 레포")]
 
     User -->|조작| Dash
     Dash ==>|"① 트리거 · 스케줄/수동"| Runner
     Runner -->|"② compare API"| Src
-    Runner -->|"③ 엔진 호출 · 에이전트 루프"| Engine
+    Runner -->|"③ 엔진 호출 · LangGraph 루프"| Engine
     Runner -->|"MR/PR 제출"| Hub
     Runner -. "④ 완료 보고 · webhook" .-> DB
 
@@ -145,8 +146,8 @@ flowchart TB
 **Phase 1 핵심 결정** (2026-07-05 확정):
 
 - 산출물은 docs-hub **직접 MR** → [[decision-mr-review-gate]]
-- 생성 엔진은 **API 자체 에이전트** (2026-07-06 B 확정) — 엔진 인터페이스([[decision-engine-hybrid]]) 뒤에 Messages API + tool use 루프를 삽입. 공통 런타임 + 파이프라인별 도구 세트, 에이전트의 사고·동작·진행은 대시보드로 전부 출력 → [[decision-engine-api-agent]] · [[decision-agent-step-observability]]
-- 엔진 인증은 **API 키 등록** (계정 로그인 대체, 2026-07-06) — 무인 지속 문제 소멸, 401 감지 시 admin 이메일 → [[decision-engine-api-key-auth]]
+- 생성 엔진은 **LangGraph 오케스트레이션** (2026-07-07 전환) — 엔진 인터페이스([[decision-engine-hybrid]]) 계약은 불변이고, 그 뒤의 구현체가 자체 Messages API 루프([[decision-engine-api-agent]], B 확정) → LangGraph 프레임워크로 이동했다(supersede 아닌 구현체 갱신). 판단 루프를 LangGraph 그래프로 짜고, 에이전트의 사고·동작·진행은 `get_stream_writer` 커스텀 이벤트로 대시보드에 출력한다. OpenAI Agents SDK는 트레이싱 OpenAI 백엔드 강제로 탈락, Claude Agent SDK는 M3 불일치로 비채택(Anthropic 회귀 시 재고) → [[decision-engine-orchestration-langgraph]] · [[decision-agent-step-observability]]
+- 모델 공급자는 **중립 설계, PoC = MiniMax M3** (Anthropic 확정 → 중립 전환, 2026-07-07) — base URL·키·모델명 교체로 공급자를 갈아끼운다. 인증은 API 키 등록 골격([[decision-engine-api-key-auth]]) 유지, 대상 키만 공급자별. 401 감지 시 admin 이메일. 프로덕션 공급자는 PoC 실측 후 확정 → [[decision-model-provider-neutral-minimax]]
 - 러너→AI 네트워크는 뚫려 있음 ✅ → [[question-runner-ai-network]]
 - 1차 테마 **4→6 확장** (dev-guide·api-protocol〈백엔드 opt-in〉, 2026-07-06) — 활성화는 소스별 테마 체크리스트, dev-guide 근거는 코드+레포 문서 → [[decision-theme-scope-expansion]] · [[decision-theme-activation-checklist]] · [[decision-devguide-grounding-scope]]
 

@@ -60,4 +60,16 @@ status: active
 - 기존 스킬·에이전트 프롬프트의 이식·재튜닝 품질 검증 (Phase 1 PoC).
 - 단발 생성 스텝의 Batch API(50% 할인) 활용은 후순위 최적화로 보류.
 
+## 갱신 (2026-07-07) — 구현체를 LangGraph로 전환, 모델 공급자 중립화
+
+이 결정의 핵심인 **"자체 에이전트 루프(B)로 간다"는 방향은 유효**하되, 그 루프의 **구현체를
+직접 구현 Messages API 루프 → LangGraph 오케스트레이션**으로 전환한다 →
+[[decision-engine-orchestration-langgraph]]. 동시에 모델 공급자를 Anthropic 고정에서
+**공급자 중립**으로 옮기고 PoC 모델을 MiniMax M3로 둔다 → [[decision-model-provider-neutral-minimax]].
+[[decision-engine-hybrid]]의 **엔진 인터페이스 계약(입력/출력)은 그대로 유효**하며, 이번 이동은
+그 인터페이스 뒤에서 구현체를 교체하는 패턴이다 — 따라서 supersede가 아니라 구현체 갱신이고,
+이 페이지의 **status는 active를 유지**한다. LangGraph 채택이 위키에 없던 "엔진 오케스트레이션
+프레임워크 계층" 갭을 메운다(OpenAI Agents SDK 탈락·Claude Agent SDK 비채택 3자 비교는
+파생 결정 본문 참조). 소스: [[2026-07-07-engine-framework-langgraph-minimax]]
+
 소스: [[2026-07-06-engine-api-agent-architecture]] · 요약: [[summary-engine-api-agent-architecture]]

@@ -33,4 +33,15 @@ status: active
 - **단일 Claude Code 계정 로그인 유지** — 무인 지속 불가 확정으로 만료 감지·재로그인
   운영 절차가 상시 부담이 된다. 야간 무인 배치와 상충.
 
+## 갱신 (2026-07-07) — Anthropic 확정 → 공급자 중립, PoC 공급자 = MiniMax M3
+
+이 결정의 **"API 키를 대시보드에 등록·러너 환경변수 주입·401 감지→admin 이메일" 골격은
+그대로 유효**하되, 대상 공급자를 **Anthropic 고정에서 공급자 중립**으로 옮긴다 →
+[[decision-model-provider-neutral-minimax]]. 공급자를 base URL·키·모델명으로 갈아끼우며, PoC
+공급자는 사용자가 보유한 MiniMax M3다. 등록 UI·상태 표시·401 감지→admin 이메일
+([[decision-email-alerting]])은 불변이고 **저장·주입 대상 키만 공급자별**로 바뀐다 — 따라서
+supersede가 아니라 공급자 차원의 갱신이고, 이 페이지의 **status는 active를 유지**한다.
+프로덕션 공급자는 PoC 품질·비용 실측 후 최종 확정한다.
+소스: [[2026-07-07-engine-framework-langgraph-minimax]]
+
 소스: [[2026-07-06-engine-api-agent-architecture]] · 요약: [[summary-engine-api-agent-architecture]]

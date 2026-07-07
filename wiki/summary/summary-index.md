@@ -13,6 +13,7 @@
 - [[summary-devguide-docs-grounding]] — dev-guide 근거 범위 번복 요약: 코드+레포 문서 · 코딩 규칙 포함
 - [[summary-engine-single-account]] — 엔진 단일 계정 인증 요약: 다중 회전 보류 · 단일 계정 · 아이디/패스워드 등록
 - [[summary-engine-api-agent-architecture]] — 엔진 API 자체 에이전트 전환 요약: B 확정 · API 키 인증 · 에이전트 스텝 관측
+- [[summary-engine-framework-langgraph-minimax]] — 엔진 프레임워크 LangGraph 전환 + MiniMax M3 PoC 요약: 자체 루프→LangGraph · 공급자 중립 · 3자 비교(OpenAI SDK 탈락·Claude Agent SDK 비채택)
 - [[summary-failure-alerting-email]] — 실시간 이메일 알림 요약: 인증 해지·파이프라인 실패 · 역할 기반 수신
 - [[summary-open-questions-decisions]] — 2026-07-07 열린 질문 결정 4건 요약: MVP 절단선(정적+매뉴얼) · 등록 baseline A · 방치 소스 수동 큐레이션 · 테마 경계
 

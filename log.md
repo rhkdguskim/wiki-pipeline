@@ -462,3 +462,25 @@
 - 생성: summary-artifact-type-dispatch, decision-artifact-type-dispatch
 - 갱신: question-artifact-type-dispatch (open→answered · 답 링크 + 검토항목 인라인 답 · blocking 태그 없음 확인), overview (② 매뉴얼 절에 exe/msi·담당자 자산 선택·MCP 설치 실행 구체화 · MVP 절단선에 블로커 해소 항목 추가 · 미해결 절에서 제거), index (decision 48→49·summary 16→17·answered 22→23·raw 20→21·총 108→110), decision-index (매뉴얼 추출 파이프라인 그룹 등재), summary-index (매뉴얼 추출 파이프라인 그룹 등재), question-index (artifact-type-dispatch ✅ answered + 답 링크)
 - 3건 처리: exe/msi 한정 · 담당자 대시보드 자산 선택 · MCP 설치 실행까지 — 세 답이 밀접(담당자 명시 + Windows 설치본 집중)해 단일 decision 페이지 decision-artifact-type-dispatch로 묶음(메커니즘은 decision-artifact-consumption·decision-scenario-owner-dashboard·entity-remote-control-mcp 링크로 위임). container 제외 경계를 question-ci-less-source-policy와 "MVP 매뉴얼 대상 밖"으로 연결.
+
+## [2026-07-07] lint | 아티팩트 타입 dispatch ingest 직후 전수 점검 — clean (수정 0)
+- 범위: 위키 전체(109 지식페이지 + overview + 카탈로그 6 + raw 21). 10개 검사 항목 전부 점검.
+- 카운트 재검증(핵심, 직전 사이클 드리프트 재발 없음): 허브 index.md 표기가 실측과 전부 일치 — summary 17·entity 6·concept 5·decision 49·question 32·overview 1 = 총 110, raw 21. decision status superseded 실측 10 = 표기 10, question status answered 실측 23 = 표기 23, open 9 정합. ingestor 카운트 정확, 수정 불필요.
+- 1 깨진 링크 0: wiki 전체 wikilink 대상이 모두 실재 파일로 해소(wiki+raw+schema). 오탐만 남음 — [[schema]](루트 실재·기존 정상 예외)·log.md 프로즈 플레이스홀더([[decision-*]]·[[wikilink]]·[[링크]]·[[파일명]]·[[…]])·[[lint-report-2026-07-06]](log 과거 이력, 기판정).
+- 2 고아 0: 모든 지식페이지 최소 1 inbound 보유. 신규 3건 카탈로그 외 실 inbound — decision-artifact-type-dispatch←overview·question·summary, summary-artifact-type-dispatch←decision, question-artifact-type-dispatch←9개 파일.
+- 3 폴더 인덱스 등재: decision 49·summary 17·question 32·entity 6·concept 5 파일=링크 완전 일치(미등재 0·유령 0). decision-artifact-type-dispatch는 decision-index "매뉴얼 추출 파이프라인" 그룹 등재 확인.
+- 4 frontmatter 4필드 109/109 충족. 5 파일명↔type 접두사·6 type↔폴더: 위반 0.
+- 7 상대경로 마크다운 링크(`](../…)`·`](./…)`): 0.
+- 8 overview 드리프트: 없음 — artifact-type-dispatch가 ② 매뉴얼 절(L85-87 exe/msi·담당자 자산·silent install)·MVP 절단선(L162·166)·미해결 절(L170) 세 곳에 일관 반영.
+- 9 모순·중복: 없음. decision-artifact-consumption(타입 분기를 question으로 위임)·decision-mvp-scope(블로커로 언급)와 계보 관계로 정합, 이번에 그 question이 answered로 닫힘. entity-mirero-gitlab의 generic·nuget 병존은 실측 팩트라 무관.
+- 10 answered 답 링크: answered 23건 중 22건 [[decision-*]] 보유, question-runner-ai-network만 답이 인프라 사실이라 entity-mirero-gitlab 귀결(2026-07-06 확정 정상 예외). question-artifact-type-dispatch=answered·답 [[decision-artifact-type-dispatch]] 본문 보유·blocking 태그 없음 확인. answered+blocking 잔존 0.
+- 자동 수정: 없음(기계적 결함 0건). 판단 필요 신규 이슈: 없음.
+- 결론: clean (잔존 이슈 0)
+
+## [2026-07-07] ingest | 엔진 프레임워크 LangGraph 전환 + MiniMax M3
+- raw: [[2026-07-07-engine-framework-langgraph-minimax]] (기존 raw 재사용, 불변)
+- 생성: summary-engine-framework-langgraph-minimax, decision-engine-orchestration-langgraph, decision-model-provider-neutral-minimax
+- 갱신(supersede 아님 · 구현체/공급자 갱신): decision-engine-api-agent (갱신 절 추가 — 자체 Messages API 루프→LangGraph 오케스트레이션, status active 유지), decision-engine-api-key-auth (갱신 절 추가 — Anthropic 확정→공급자 중립·PoC M3, 등록/401→admin 골격 유지, status active 유지)
+- 갱신(기타): question-cost-estimation (PoC 실측 조합=LangGraph+M3 한 줄 연결), overview (Phase 1 엔진 항목 2개 → LangGraph 오케스트레이션·공급자 중립·PoC M3로 갱신·인터페이스 계약 불변 명시 / mermaid 라벨 "API 자체 에이전트"→"LangGraph 오케스트레이션"·"에이전트 루프"→"LangGraph 루프" / 관측성 문단에 get_stream_writer 한 줄), index (decision 49→51·summary 17→18·총 110→113·raw 22·superseded 10 불변·answered 23 불변), decision-index (공통·cross-cutting 그룹에 신규 2건 등재 · engine-api-key-auth 설명에 공급자 중립 갱신 주석), summary-index (정적·공통 그룹에 신규 summary 등재)
+- 결정 처리: 위키 척추 결정 2건(engine-api-agent·engine-api-key-auth)은 사용자 선택대로 **supersede가 아니라 갱신**으로 처리 — decision-engine-hybrid의 엔진 인터페이스 계약이 살아있어 "인터페이스 뒤 구현체/공급자 교체" 패턴, 둘 다 status active 유지. superseded 카운트 증가 없음(10 불변).
+- 신규 decision 2분할: 오케스트레이션(LangGraph, 프레임워크 계층 갭 명문화 + 3자 비교 OpenAI SDK 탈락·Claude Agent SDK 비채택)과 모델 공급자(중립·PoC M3)를 별도 관심사로 분리. 프레임워크 계층에 대응하는 open question이 위키에 없던 갭이었음을 summary·overview·신규 decision에 명시 — 새 question 페이지는 만들지 않고 신규 decision이 직접 메움.

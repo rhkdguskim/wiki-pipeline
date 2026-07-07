@@ -15,7 +15,9 @@
 - [[decision-server-vm-self-token]] — 관리 서버 = 사내 VM + 자체 토큰 인증
 - [[decision-engine-hybrid]] — 생성 엔진 = 하이브리드 (엔진 인터페이스 + 점진적 교체; 2026-07-06 driver 발동 → B 확정)
 - [[decision-engine-api-agent]] — **생성 엔진 = API 자체 에이전트** (Messages API + tool use 루프 · Data Plane 내 실행 · 공통 런타임 + 파이프라인별 도구 세트; Managed Agents·claude -p 기각)
-- [[decision-engine-api-key-auth]] — 엔진 인증 = API 키 등록 (계정 로그인 대체 · 러너 환경변수 주입 · 401 감지 → admin 이메일)
+- [[decision-engine-api-key-auth]] — 엔진 인증 = API 키 등록 (계정 로그인 대체 · 러너 환경변수 주입 · 401 감지 → admin 이메일; 2026-07-07 공급자 중립으로 갱신)
+- [[decision-engine-orchestration-langgraph]] — **엔진 오케스트레이션 = LangGraph** (자체 루프 → 프레임워크 · 프레임워크 계층 갭 명문화 · get_stream_writer 커스텀 관측 · durable 체크포인팅; OpenAI Agents SDK 탈락·Claude Agent SDK 비채택. 인터페이스 계약 불변 → 구현체 갱신)
+- [[decision-model-provider-neutral-minimax]] — **모델 공급자 = 중립 설계, PoC = MiniMax M3** (Anthropic 확정 → base URL·키·모델명 교체 중립 · 공급자별 키 인증 · 프로덕션 공급자는 PoC 후 확정)
 - [[decision-engine-single-account-auth]] — ⛔ superseded — 엔진 인증 = 단일 Claude Code 계정 로그인 (API 키 등록이 계승)
 - [[decision-agent-step-observability]] — 에이전트 스텝 관측 = 사고 요약·도구 호출·토큰을 진행 이벤트 4단 계층으로 대시보드 출력 + 이력 DB 스텝 로그
 - [[decision-email-alerting]] — 알림 = 실시간 이메일 · 역할 기반 수신 (인증 해지→admin, 과제 실패→담당자+admin); 대시보드 풀·admin 단일 기각
