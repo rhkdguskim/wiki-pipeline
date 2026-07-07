@@ -68,14 +68,34 @@ def _files_under(all_paths: list[str], root_path: str) -> list[str]:
 def _reduce_and_save(
     *, ctx: RunContext, client, model, ref, repo_name, themes, summaries, summary,
 ) -> dict:
-    """reduce 단계: 테마별 레포 문서 합성(병렬) + critic + 저장. (계획/캐시 양쪽 공용)"""
+    """reduce 단계: 테마별 레포 문서 합성(병렬) + critic + 저장. (계획/캐시 양쪽 공용)
+
+    래칫(ratchet): 같은 ref에서 이미 critic pass한 테마는 재생성하지 않고 유지한다
+    (_verdicts.json 사이드카). critic 판정은 비결정적이라 매 실행 전부 다시 뽑으면
+    pass가 복권이 된다 — 실패 테마만 재생성해 반복을 단조 수렴시킨다.
+    """
     settings = ctx.settings
     rev = ctx.rev
     out_dir = settings.out_path / "init"
     summ_block = summaries_block(summaries)
 
+    verdicts_path = out_dir / "_verdicts.json"
+    try:
+        prior = json.loads(verdicts_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        prior = {}
+
     def _gen_theme(theme: str):
         stage = f"repo:{theme}"
+        # 래칫: 같은 ref에서 pass한 문서가 남아있으면 유지 (재생성 안 함).
+        kept = prior.get(theme)
+        doc_file = out_dir / f"{theme}.md"
+        if (kept and kept.get("verdict") == "pass" and kept.get("ref") == ref
+                and doc_file.exists()):
+            rev("engine_call", stage, "done",
+                detail={"kept": "이전 실행 critic pass 유지", "file": doc_file.name})
+            return doc_file, {"result": "pass", "kept": True}, False
+
         rev("engine_call", stage, "running")
 
         def factory(_t=theme, no_tools=False):
@@ -111,9 +131,21 @@ def _reduce_and_save(
         summary["docs"][theme] = {
             "file": str(path), "chars": path.stat().st_size,
             "verdict": verdict.get("result"), "warned": warned,
+            "kept": bool(verdict.get("kept")),
         }
         if warned:
             summary["warned"].append(theme)
+
+    # 래칫 사이드카 갱신 — 이번에 생성/유지된 테마의 판정을 기록 (pass는 다음 실행에서 유지됨).
+    for theme, info in summary["docs"].items():
+        if "error" not in info:
+            prior[theme] = {"verdict": info.get("verdict"), "ref": ref,
+                            "warned": info.get("warned", False)}
+    try:
+        verdicts_path.write_text(
+            json.dumps(prior, ensure_ascii=False, indent=1), encoding="utf-8")
+    except OSError:
+        pass
 
     # 상태 전진 — 전 테마가 (경고 포함) 저장됐을 때만 last_processed_sha를 기록한다.
     # 위키 계약(concept-idempotent-sha): 성공 후에만 전진, 실패 시 상태 불변 -> 재실행 안전.
