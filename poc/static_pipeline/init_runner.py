@@ -156,7 +156,9 @@ def _reduce_and_save(
             sp = save_state(
                 settings.out_path, project_id=settings.gitlab_project_id,
                 last_processed_sha=head_sha, ref=ref, op="init",
-                extra={"themes": ok_docs},
+                source_id=settings.source_id if settings.scm_sources_json else None,
+                extra={"themes": ok_docs, "source_label": settings.source_label,
+                       "source_kind": settings.source_kind},
             )
             summary["last_processed_sha"] = head_sha
             rev("stage", "state-advance", "done",
@@ -199,7 +201,11 @@ def run_init(
             repo_name = client.project_name() or repo_name
         except Exception:  # noqa: BLE001
             pass
-        ctx.start(detail={"ref": ref, "themes": themes})
+        ctx.start(detail={
+            "ref": ref, "themes": themes,
+            "source_id": settings.source_id, "source_label": settings.source_label,
+            "project_id": settings.gitlab_project_id,
+        })
 
         # 캐시 재사용: 요약 캐시가 같은 ref면 계획·트리·map을 전부 건너뛴다 —
         # 프롬프트 반복 개선 시 비결정적 계획 재실행을 피해 반복을 결정적으로 만든다.

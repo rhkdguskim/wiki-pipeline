@@ -33,7 +33,11 @@ def run_static(settings: Settings, from_sha: str, to_sha: str | None,
         # to_sha 미지정(상태 기반 증분)이면 default branch HEAD로 해석.
         if not to_sha or to_sha.upper() == "HEAD":
             to_sha = client.resolve_ref(client.default_branch())
-        ctx.start(detail={"from": from_sha[:10], "to": to_sha[:10]})
+        ctx.start(detail={
+            "from": from_sha[:10], "to": to_sha[:10],
+            "source_id": settings.source_id, "source_label": settings.source_label,
+            "project_id": settings.gitlab_project_id,
+        })
 
         rev("stage", "compare", "running")
         diffs = client.compare(from_sha, to_sha)
@@ -102,7 +106,10 @@ def _advance(settings, client, to_sha: str, summary: dict, rev) -> None:
         sp = save_state(
             settings.out_path, project_id=settings.gitlab_project_id,
             last_processed_sha=full, ref=to_sha, op="diff",
-            extra={"themes": list(summary["themes"].keys())},
+            source_id=settings.source_id if settings.scm_sources_json else None,
+            extra={"themes": list(summary["themes"].keys()),
+                   "source_label": settings.source_label,
+                   "source_kind": settings.source_kind},
         )
         summary["last_processed_sha"] = full
         rev("stage", "state-advance", "done",
