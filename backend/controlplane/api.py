@@ -6,11 +6,13 @@ JSONL 파일 폴백으로 서빙한다. 쓰기·webhook은 자체 토큰 인증 
 """
 from __future__ import annotations
 
+import asyncio
 import re
 import secrets
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi import (APIRouter, Body, Depends, HTTPException, Query, Request,
+                     WebSocket, WebSocketDisconnect)
 
 from ..common.docshub import build_mr_plan, submit_change_request
 from . import projection
@@ -115,8 +117,10 @@ def list_runs(request: Request, db=Depends(_db)) -> list[dict]:
 
 
 @router.get("/api/runs/db", dependencies=[Depends(require_api_token)])
-def list_db_runs(request: Request, db=Depends(_db), limit: int = 100) -> list[dict]:
-    return _state(request).run_service.list_runs(db, limit=limit)
+def list_db_runs(request: Request, db=Depends(_db), limit: int = 100,
+                 source: str = Query("")) -> list[dict]:
+    return _state(request).run_service.list_runs(db, limit=limit,
+                                                 source_id=source or None)
 
 
 @router.post("/api/runs/trigger", dependencies=[Depends(require_api_token)])
@@ -286,6 +290,7 @@ def create_source(request: Request, db=Depends(_db), payload: dict = Body(...)) 
         raise HTTPException(400, str(e)) from e
     db.commit()
     st.scheduler.reload_jobs()
+    st.broadcaster.publish({"type": "sources_changed"})
     view = st.registration.source_view(db, source)
     view["verification"] = verification
     return view
@@ -305,6 +310,7 @@ def update_source(source_id: str, request: Request, db=Depends(_db),
         raise HTTPException(400, str(e)) from e
     db.commit()
     st.scheduler.reload_jobs()
+    st.broadcaster.publish({"type": "sources_changed"})
     view = st.registration.source_view(db, source)
     view["verification"] = verification
     return view
@@ -340,8 +346,10 @@ def create_instance(request: Request, db=Depends(_db), payload: dict = Body(...)
     kind = str(payload.get("kind") or "gitlab").lower()
     if kind not in ("gitlab", "github"):
         raise HTTPException(400, f"지원하지 않는 kind: {kind}")
-    inst = _state(request).registration.upsert_instance(db, payload)
+    st = _state(request)
+    inst = st.registration.upsert_instance(db, payload)
     db.commit()
+    st.broadcaster.publish({"type": "instances_changed"})
     return _instance_view(inst)
 
 
@@ -351,8 +359,10 @@ def update_instance(instance_id: str, request: Request, db=Depends(_db),
     if db.get(ScmInstance, instance_id) is None:
         raise HTTPException(404, f"instance 없음: {instance_id}")
     payload["id"] = instance_id
-    inst = _state(request).registration.upsert_instance(db, payload, preserve_token=True)
+    st = _state(request)
+    inst = st.registration.upsert_instance(db, payload, preserve_token=True)
     db.commit()
+    st.broadcaster.publish({"type": "instances_changed"})
     return _instance_view(inst)
 
 
@@ -392,6 +402,7 @@ def create_target(request: Request, db=Depends(_db), payload: dict = Body(...)) 
         raise HTTPException(400, f"필수값 누락: {validation['missing']}")
     target = st.registration.upsert_doc_target(db, payload)
     db.commit()
+    st.broadcaster.publish({"type": "targets_changed"})
     return st.registration.doc_target_view(target)
 
 
@@ -404,6 +415,7 @@ def update_target(target_id: str, request: Request, db=Depends(_db),
     payload["id"] = target_id
     target = st.registration.upsert_doc_target(db, payload, preserve_token=True)
     db.commit()
+    st.broadcaster.publish({"type": "targets_changed"})
     return st.registration.doc_target_view(target)
 
 
@@ -448,6 +460,35 @@ def submit_mr(request: Request, db=Depends(_db), payload: dict = Body(...)) -> d
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     return {"ok": True, "plan": plan, "result": result}
+
+
+# ── WebSocket 실시간 채널 (폴링 대체 — 폴링 API는 폴백으로 유지) ──
+
+@router.websocket("/api/ws")
+async def ws_channel(websocket: WebSocket):
+    state = websocket.app.state
+    tokens: dict[str, str] = state.api_tokens
+    if tokens:
+        presented = websocket.query_params.get("token", "")
+        if not any(secrets.compare_digest(presented, t) for t in tokens):
+            await websocket.close(code=4401)
+            return
+    await websocket.accept()
+    q = state.broadcaster.register()
+
+    async def _pump():
+        while True:
+            await websocket.send_json(await q.get())
+
+    sender = asyncio.create_task(_pump())
+    try:
+        while True:
+            await websocket.receive_text()   # keepalive/ping — 서버는 브로드캐스트 전용
+    except WebSocketDisconnect:
+        pass
+    finally:
+        sender.cancel()
+        state.broadcaster.unregister(q)
 
 
 # ── runner 컨텍스트 (Data Plane 전용 — 토큰이 복호화되어 내려간다) ──

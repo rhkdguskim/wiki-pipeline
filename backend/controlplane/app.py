@@ -72,6 +72,9 @@ def create_app(settings: ControlPlaneSettings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        import asyncio
+
+        app.state.broadcaster.bind_loop(asyncio.get_running_loop())
         if not app.state.api_tokens:
             log.warning("CONTROL_API_TOKENS 미설정 — 개발 모드(무인증)로 기동합니다.")
         if not app.state.box.enabled:
@@ -99,18 +102,22 @@ def create_app(settings: ControlPlaneSettings | None = None) -> FastAPI:
         return JSONResponse(status_code=exc.status_code,
                             content={"error": str(exc.detail), "detail": exc.detail})
 
+    from .ws import Broadcaster
+
     engine = make_engine(settings.db_url)
     init_db(engine)
     session_factory = make_session_factory(engine)
     box = SecretBox(settings.control_secret_key)
     notifier = Notifier(settings)
-    run_service = RunService(settings, notifier)
+    broadcaster = Broadcaster()
+    run_service = RunService(settings, notifier, broadcaster)
 
     app.state.settings = settings
     app.state.engine = engine
     app.state.session_factory = session_factory
     app.state.box = box
     app.state.notifier = notifier
+    app.state.broadcaster = broadcaster
     app.state.registration = RegistrationService(box)
     app.state.run_service = run_service
     app.state.scheduler = SourceScheduler(settings, session_factory, run_service)

@@ -249,6 +249,38 @@ def test_event_retention_prunes_old_completed_runs(client, monkeypatch):
         assert db.get(Run, run_id) is not None   # run 이력(보고·sha)은 영구 보존
 
 
+def test_websocket_pushes_events_and_status(client, monkeypatch):
+    """웹소켓 실시간 채널 — webhook 적재·완료 보고가 접속 클라이언트로 push된다."""
+    _create_source(client, monkeypatch, verify=False)
+    run_id = client.post("/api/runs/trigger", headers=ADMIN,
+                         json={"source_id": "demo", "launch": False}).json()["run_id"]
+    with client.websocket_connect("/api/ws?token=tok-admin") as ws:
+        client.post("/api/webhook/events", headers=RUNNER, json={
+            "run_id": run_id,
+            "events": [{"layer": "stage", "stage": "compare", "status": "done",
+                        "ts": "2026-07-07T20:00:00"}],
+        })
+        msg = ws.receive_json()
+        assert msg["type"] == "events" and msg["run_id"] == run_id
+        assert msg["events"][0]["stage"] == "compare"
+
+        client.post("/api/webhook/complete", headers=RUNNER, json={
+            "run_id": run_id, "status": "done", "last_processed_sha": HEAD_SHA,
+        })
+        statuses = [ws.receive_json() for _ in range(2)]
+        types = {m["type"] for m in statuses}
+        assert "run_status" in types and "runs_changed" in types
+        status_msg = next(m for m in statuses if m["type"] == "run_status")
+        assert status_msg["status"] == "done" and status_msg["sha_advanced"] is True
+
+
+def test_websocket_rejects_bad_token(client):
+    import pytest as _pytest
+    with _pytest.raises(Exception):
+        with client.websocket_connect("/api/ws?token=wrong") as ws:
+            ws.receive_json()
+
+
 def test_secretbox_encrypts_tokens_at_rest(client, monkeypatch, tmp_path):
     _create_source(client, monkeypatch, verify=False)
     import sqlite3

@@ -5,7 +5,10 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/api': 'http://127.0.0.1:8420',
+      '/api': {
+        target: 'http://127.0.0.1:8420',
+        ws: true,   // /api/ws 웹소켓 프록시
+      },
     },
   },
   build: {

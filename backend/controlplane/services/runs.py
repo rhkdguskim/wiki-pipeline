@@ -25,9 +25,15 @@ log = logging.getLogger("controlplane.runs")
 
 
 class RunService:
-    def __init__(self, settings: ControlPlaneSettings, notifier: Notifier):
+    def __init__(self, settings: ControlPlaneSettings, notifier: Notifier,
+                 broadcaster=None):
         self.settings = settings
         self.notifier = notifier
+        self.broadcaster = broadcaster
+
+    def _publish(self, message: dict) -> None:
+        if self.broadcaster is not None:
+            self.broadcaster.publish(message)
 
     # ── 트리거 (수동/스케줄) ─────────────────────────────────
     def create_run(self, db: Session, *, source_id: str, mode: str = "auto",
@@ -43,6 +49,7 @@ class RunService:
                   mode=mode, branch_role=branch_role, trigger=trigger, status="pending")
         db.add(run)
         db.flush()
+        self._publish({"type": "runs_changed", "run_id": run_id})
         return run
 
     def launch_runner(self, run: Run) -> subprocess.Popen | None:
@@ -99,6 +106,9 @@ class RunService:
                 run.input_tokens += int(detail.get("input_tokens") or 0)
                 run.output_tokens += int(detail.get("output_tokens") or 0)
         db.flush()
+        if count:
+            self._publish({"type": "events", "run_id": run_id,
+                           "events": [e for e in events if isinstance(e, dict)]})
         return count
 
     def read_db_events(self, db: Session, run_id: str, after_id: int = 0,
@@ -164,6 +174,12 @@ class RunService:
                                          error=str(report.get("error") or ""),
                                          owner_email=source.owner_email)
         db.flush()
+        self._publish({"type": "run_status", "run_id": run_id, "status": status,
+                       "sha_advanced": advanced, "source_disabled": disabled,
+                       "mr_url": run.mr_url})
+        self._publish({"type": "runs_changed", "run_id": run_id})
+        if disabled:
+            self._publish({"type": "sources_changed"})
         return {"ok": True, "status": status, "sha_advanced": advanced,
                 "source_disabled": disabled}
 
@@ -189,8 +205,12 @@ class RunService:
         return deleted
 
     # ── 조회 ────────────────────────────────────────────────
-    def list_runs(self, db: Session, limit: int = 100) -> list[dict]:
-        rows = db.scalars(select(Run).order_by(Run.created_at.desc()).limit(limit)).all()
+    def list_runs(self, db: Session, limit: int = 100,
+                  source_id: str | None = None) -> list[dict]:
+        stmt = select(Run).order_by(Run.created_at.desc()).limit(limit)
+        if source_id:
+            stmt = stmt.where(Run.source_id == source_id)
+        rows = db.scalars(stmt).all()
         return [{
             "run_id": r.id, "source_id": r.source_id, "pipeline_id": r.pipeline_id,
             "mode": r.mode, "branch_role": r.branch_role, "trigger": r.trigger,
