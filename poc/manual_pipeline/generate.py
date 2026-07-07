@@ -35,9 +35,15 @@ def generate_manual_with_critic(
         f"완성되면 frontmatter 포함 마크다운만 출력하라."
     )
 
-    def write(feedback: list[str], _no_tools: bool) -> str:
+    def write(feedback: list[str], _no_tools: bool, prev_doc: str | None = None) -> str:
         # writer는 애초에 도구가 없어 no_tools 플래그는 의미 없음 (형식 검증은 동일 적용).
         prompt = base_prompt
+        if prev_doc:
+            prompt += (
+                "\n\n## 이전 문서 (수정 기반 — 피드백 부분만 고치고 나머지는 유지)\n"
+                "<<<DOC_BEGIN>>>\n" + prev_doc + "\n<<<DOC_END>>>\n"
+                "지적된 부분만 최소로 수정한 전체 문서를 다시 출력하라."
+            )
         if feedback:
             fb = "\n".join(f"  - {f}" for f in feedback)
             prompt += f"\n\n## 검증 피드백 (지적된 부분만 핀포인트 수정, 전면 재작성 금지)\n{fb}"

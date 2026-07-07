@@ -70,7 +70,7 @@ def run_json_verdict(
 
 def verified_generate(
     *,
-    write: Callable[[list[str], bool], str],           # (feedback, no_tools) -> doc_md
+    write: Callable[[list[str], bool, str | None], str],  # (feedback, no_tools, prev_doc) -> doc_md
     critic: Callable[[str], dict],                     # (doc_md) -> verdict JSON
     lint: Callable[[str], list[str]] | None = None,    # 결정적 검증 (없으면 생략)
     lint_name: str = "lint",
@@ -81,18 +81,22 @@ def verified_generate(
 ) -> tuple[str, dict, bool]:
     """write -> 형식검증 -> lint -> critic -> 재시도. (doc, verdict, warned) 반환.
 
-    피드백은 다음 write에 주입돼 핀포인트 수정을 유도한다 (전면 재작성 방지).
+    재시도는 재작성이 아니라 **수정**이다 — 직전의 형식 유효한 문서(prev_doc)를 피드백과
+    함께 넘겨 지적 부분만 고치게 한다 (원본 Docu-Automatic의 draft 핀포인트 수정 이식).
+    매번 처음부터 다시 쓰면 다른 곳에 새 오류가 생기는 두더지잡기가 된다.
     """
     feedback: list[str] = []
     doc_md = ""
+    last_valid_doc: str | None = None   # 형식 검증을 통과한 마지막 draft
     verdict: dict = {"result": "unknown"}
     force_no_tools = False   # 도구 호출 텍스트 유출 후엔 도구를 떼고 재시도 (구조적 차단)
 
     for attempt in range(max_retry + 1):
         emit_ctx("engine_call", stage, "running",
                  detail={"phase": "write", "attempt": attempt + 1,
-                         "no_tools": force_no_tools})
-        doc_md = write(feedback, force_no_tools)
+                         "no_tools": force_no_tools,
+                         "mode": "edit" if last_valid_doc else "write"})
+        doc_md = write(feedback, force_no_tools, last_valid_doc)
 
         # 0) 형식 검증 (결정적) — 쓰레기 출력이면 critic 없이 즉시 재시도.
         invalid = invalid_doc_reason(doc_md, min_len=min_len)
@@ -104,6 +108,7 @@ def verified_generate(
                      detail={"phase": "format", "verdict": "fail",
                              "reason": invalid, "attempt": attempt + 1})
             continue
+        last_valid_doc = doc_md   # 형식 통과본만 수정 기반으로 삼는다
 
         # 1) 결정적 lint (mermaid 등 — 주입된 경우만).
         lint_errs = lint(doc_md) if lint else []

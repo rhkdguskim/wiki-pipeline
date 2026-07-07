@@ -20,9 +20,21 @@ from .mermaid_lint import lint_mermaid
 _STATE_EXTRA = {"theme": "", "changed_files": [], "from_sha": "", "to_sha": ""}
 
 
-def _run_writer(writer_graph_factory, base_prompt, feedback, observer, *, no_tools=False):
-    """writer 그래프 1회 실행 -> 문서 마크다운(<think>·서문 제거) 반환."""
+def _run_writer(writer_graph_factory, base_prompt, feedback, observer, *,
+                no_tools=False, prev_doc: str | None = None):
+    """writer 그래프 1회 실행 -> 문서 마크다운(<think>·서문 제거) 반환.
+
+    prev_doc이 있으면 '수정 모드' — 이전 문서를 기반으로 지적 부분만 고치게 한다
+    (재작성 시 다른 곳에 새 할루시네이션이 생기는 두더지잡기 방지).
+    """
     prompt = base_prompt
+    if prev_doc:
+        prompt += (
+            "\n\n## 이전 문서 (수정 기반 — 아래 피드백 부분만 고치고 나머지는 그대로 유지하라)\n"
+            "<<<DOC_BEGIN>>>\n" + prev_doc + "\n<<<DOC_END>>>\n"
+            "위 문서에서 지적된 부분만 최소로 수정한 **전체 문서**를 다시 출력하라. "
+            "지적되지 않은 문장·표·다이어그램은 바꾸지 마라."
+        )
     if feedback:
         fb = "\n".join(f"  - {f}" for f in feedback)
         prompt += f"\n\n## 검증 피드백 (지적된 부분만 핀포인트 수정, 전면 재작성 금지)\n{fb}"
@@ -61,9 +73,9 @@ def generate_with_critic(
     (doc, verdict, warned) 반환 — 루프 자체는 common.verify.verified_generate.
     """
 
-    def write(feedback: list[str], no_tools: bool) -> str:
+    def write(feedback: list[str], no_tools: bool, prev_doc: str | None = None) -> str:
         return _run_writer(writer_graph_factory, base_prompt, feedback, observer,
-                           no_tools=no_tools)
+                           no_tools=no_tools, prev_doc=prev_doc)
 
     def critic(doc_md: str) -> dict:
         src = _extract_source_files(doc_md)
