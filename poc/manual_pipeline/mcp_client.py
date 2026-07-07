@@ -169,9 +169,12 @@ class McpBridge:
         return str(raw)
 
     def _image_or_json(self, item: dict) -> str:
-        mime = str(item.get("mimeType") or item.get("mime_type") or "")
-        data = item.get("data")
+        """콘텐츠 블록 dict 처리 — text 블록은 본문만, image 블록은 파일로."""
         kind = str(item.get("type", ""))
+        if kind == "text" and isinstance(item.get("text"), str):
+            return self._extract_blob(item["text"])
+        mime = str(item.get("mimeType") or item.get("mime_type") or "")
+        data = item.get("data") or item.get("base64")
         if isinstance(data, str) and len(data) > 1000 and ("image" in mime or kind == "image"):
             return self._save_shot(data, mime)
         return json.dumps(item, ensure_ascii=False)[:2000]
