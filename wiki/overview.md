@@ -23,7 +23,7 @@ MVP에서 **다중 인스턴스 + GitHub까지** 붙는다 — 사내 GitLab·gi
 
 두 파이프라인이 공유하는 뼈대:
 
-- **Control/Data Plane 분리** — 관리 서버(대시보드 + 이력 DB = source of truth)는 *무엇을 언제*만 지휘하고,
+- **Control/Data Plane 분리** — 관리 서버(대시보드 + 이력 DB = source of truth)는 *무엇을 어떤 파이프라인으로 언제* 실행할지만 지휘하고,
   AI 생성 같은 무거운 작업은 **사내 Windows CI 러너**(Data Plane)에 격리한다 → [[decision-control-data-plane-split]].
   이 분리는 추후 LLM Wiki 통합·서비스화를 위한 포석이기도 하다.
 - **SCM 커넥터** — 형상관리 연동을 추상화해 GitLab·GitHub 둘 다 동등한 1급 대상으로 붙는다 → [[decision-scm-connector-abstraction]].
@@ -43,7 +43,7 @@ flowchart TB
 
     subgraph CP["🎛️ Control Plane · 관리 서버"]
         direction LR
-        Dash["대시보드 · API<br/>등록 · 스케줄 · 수동 트리거"]
+        Dash["대시보드 · API<br/>등록 · 다중 스케줄 · 수동 트리거"]
         DB[("이력 DB<br/>source of truth")]
         Dash <--> DB
     end
@@ -77,7 +77,7 @@ flowchart TB
   (project id·default_branch·git URL은 자동 조회, compare dry-run으로 검증) → [[decision-repo-dev-release-registration]]
 - **브랜치 → 문서 역할** — 개발 브랜치 = 최신 기술문서(compare 야간), 배포 브랜치 = 릴리스 문서(태그 트리거).
   docs-hub의 `full_namespace_path/{dev|release}/` 하위폴더로 갈린다 → [[decision-docs-hub-folder-rule]]
-- **실행** — 트리거(스케줄/수동) → 러너가 처리 대상 수신 → compare API로 변경 파일 집합 →
+- **실행** — 트리거(스케줄/수동) → 스케줄 row의 `pipeline_id/mode/branch_role`에 따라 run 생성 → 러너가 처리 대상 수신 → compare API로 변경 파일 집합 →
   frontmatter 매핑으로 영향 테마 산출 → 테마당 1회 엔진 호출 → MR 생성 → **성공 후에만 sha 전진**
 - **실패 처리** — compare가 404(브랜치·레포 소실)면 자동 비활성화하고 알린다 → [[decision-branch-loss-policy]]
 
@@ -157,7 +157,7 @@ flowchart TB
 **Phase 2 인프라 결정**:
 
 - 관리 서버 = **사내 VM + 자체 토큰** → [[decision-server-vm-self-token]]. 구현 스택은 **Python FastAPI**(Data Plane LangGraph와 언어 일치로 이벤트 스키마·DB 모델·커넥터 공유) → [[decision-control-plane-fastapi]], DB는 **PostgreSQL**(API·스케줄러·webhook 동시 쓰기·트랜잭션, POC SQLite에서 이관) → [[decision-control-plane-postgresql]] (2026-07-07 확정)
-- 스케줄 = **과제별 대시보드 설정** → [[decision-schedule-per-source]]
+- 스케줄 = **소스별 다중 스케줄 + 파이프라인 선택 + 대시보드 설정** → [[decision-schedule-per-source]]
 - 소스 등록 = **레포 1개 + 개발/배포 브랜치 2개** → [[decision-repo-dev-release-registration]]
 - 매뉴얼 파이프라인의 앱 실행/연결([[decision-app-host-connection]])·AI 호출 경로([[question-mcp-auth-network]] ✅) 확정
 

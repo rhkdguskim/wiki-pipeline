@@ -20,7 +20,7 @@ status: active
 - 스케줄러는 **관리 서버 내장 cron** (GitLab pipeline schedule 아님) — 스케줄·수동 트리거·상태를 대시보드 한 곳에서 통제
 - 예외: Phase 1 PoC는 서버가 없으므로 GitLab pipeline schedule로 임시 운영
 - 수동 트리거 병행: 특정 소스만 즉시 실행, full 재생성 옵션, 실행 중 중복 트리거 락
-- 시각/요일·과제별 개별 스케줄은 미확정 → [[question-schedule-policy]]
+- 평일 20:00은 기본값이다. 실제 운영 스케줄은 소스별 다중 스케줄(`pipeline_id/mode/branch_role` 포함)로 대시보드에서 관리한다 → [[decision-schedule-per-source]] · [[question-schedule-policy]]
 
 ## 적용 범위 (2026-07-05 한정)
 

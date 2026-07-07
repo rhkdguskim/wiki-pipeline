@@ -29,7 +29,7 @@
 
 - [[decision-pull-model]] — pull 모델 채택, push/큐 대안 기각
 - [[decision-nightly-batch]] — 야간 배치 (평일 20:00), 서버 내장 cron
-- [[decision-schedule-per-source]] — 스케줄 = 과제별 개별, 대시보드 설정
+- [[decision-schedule-per-source]] — 스케줄 = 소스별 다중 스케줄, 파이프라인 선택, 대시보드 설정
 - [[decision-mr-review-gate]] — 사람 MR 리뷰 필수, docs-auto 브랜치 대체
 - [[decision-change-filter-rule-based]] — 사소한 변경(주석·포맷) 재생성 스킵 = 규칙 기반 먼저 (LLM 판단 후순위)
 - [[decision-theme-scope-expansion]] — 1차 테마 4→6 즉시 확장 (dev-guide + api-protocol〈백엔드〉); 실측 대기 방침의 예외

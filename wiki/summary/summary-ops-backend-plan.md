@@ -29,7 +29,7 @@ DB SoT 미연결), SCM이 GitLab 하드코딩, 이벤트가 JSONL+offset 폴링(
 ## 단계별 계획 (Phase 1–4 + 병행)
 
 - **Phase 1 — SCM 커넥터 계층**: ScmConnector 포트(read/write/auth), gitlab_client+docshub 흡수, GitHubConnector 신규, 계약 테스트. 완료 기준 = 클라우드 레포 diff→문서.
-- **Phase 2 — Control Plane 승격**: serve.py→FastAPI, DB SoT 이관(SCM_SOURCES_JSON 폐기), 소스 등록 API, 자체 토큰 인증, cron+수동 트리거, 역할 기반 이메일 알림 → [[decision-server-vm-self-token]] · [[decision-email-alerting]] · [[decision-schedule-per-source]] · [[decision-branch-loss-policy]]
+- **Phase 2 — Control Plane 승격**: serve.py→FastAPI, DB SoT 이관(SCM_SOURCES_JSON 폐기), 소스 등록 API, 자체 토큰 인증, 소스별 다중 스케줄(`pipeline_id/mode/branch_role` 선택)+수동 트리거, 역할 기반 이메일 알림 → [[decision-server-vm-self-token]] · [[decision-email-alerting]] · [[decision-schedule-per-source]] · [[decision-branch-loss-policy]]
 - **Phase 3 — Data Plane 러너화**: 파이프라인을 러너 잡으로, run별 격리 작업 디렉터리, 이벤트 webhook push+DB 적재, MR/PR 실구현(성공 후에만 sha 전진) → [[decision-observability-event-contract]] · [[concept-idempotent-sha]] · [[decision-mr-review-gate]]
 - **Phase 4 — 신뢰성·보안·운영성**: 시크릿 암호화·토큰 순환, 구조화 로깅·이벤트 회전, 하드코딩 8곳 Settings 승격, usage 토큰 비용 집계, 테스트 피라미드·CI, daily digest → [[question-secret-storage-security]] · [[question-cost-estimation]] · [[question-batch-observability]]
 - **병행 트랙 — 매뉴얼 파이프라인 실측**: MCP 실 연결, 스텁 3곳(수집·배포·제출) 구현, 릴리스 태그 트리거를 스케줄러에 통합 → [[entity-manual-pipeline]] · [[decision-release-tag-trigger]]
