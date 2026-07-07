@@ -24,6 +24,7 @@ _TRANSIENT_NAMES = {
     "APITimeoutError", "APIConnectionError", "InternalServerError",
     "RateLimitError", "APIError", "Timeout", "ConnectTimeout",
     "ReadTimeout", "ConnectError", "RemoteProtocolError",
+    "TimeoutException", "WriteTimeout", "PoolTimeout",
 }
 
 
@@ -33,8 +34,11 @@ def is_transient(exc: BaseException) -> bool:
     name = type(exc).__name__
     if name in _TRANSIENT_NAMES:
         return True
-    # 상태 코드 5xx / 429 도 일시로 취급.
+    # 상태 코드 5xx / 429 도 일시로 취급. httpx.HTTPStatusError는 코드가
+    # exc.response.status_code에 있으므로 response 쪽도 본다.
     status = getattr(exc, "status_code", None) or getattr(exc, "status", None)
+    if status is None:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
     if isinstance(status, int) and (status == 429 or 500 <= status < 600):
         return True
     return False

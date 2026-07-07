@@ -12,6 +12,7 @@ from urllib.parse import quote
 import httpx
 
 from ..common.config import Settings
+from ..common.retry import with_retry
 
 
 class GitLabClient:
@@ -25,29 +26,32 @@ class GitLabClient:
             headers = {"PRIVATE-TOKEN": settings.gitlab_token}
         self._client = httpx.Client(headers=headers, timeout=30.0)
 
+    def _get(self, url: str, params: dict | None = None) -> httpx.Response:
+        """GET + raise_for_status. 전부 멱등 읽기라 일시 오류(타임아웃·5xx·429)는
+        지수 백오프로 재시도한다 — 에이전트 도구 호출이 일시 오류로 실패하면
+        LLM 턴(과 max_steps 예산)을 태우며 재요청하게 되므로 시스템 계층에서 흡수.
+        영구 오류(404 등)는 즉시 전파한다."""
+        def _call() -> httpx.Response:
+            resp = self._client.get(url, params=params)
+            resp.raise_for_status()
+            return resp
+        return with_retry(_call, attempts=3)
+
     def compare(self, from_sha: str, to_sha: str) -> list[dict]:
         """두 sha 사이 변경 파일 목록. 각 원소는 new_path/old_path/new_file/deleted_file 등."""
         url = f"{self.base}/projects/{self.project}/repository/compare"
-        resp = self._client.get(url, params={"from": from_sha, "to": to_sha})
-        resp.raise_for_status()
-        return resp.json().get("diffs", [])
+        return self._get(url, params={"from": from_sha, "to": to_sha}).json().get("diffs", [])
 
     def raw_file(self, path: str, ref: str) -> str:
         """파일 원문. 바이너리/미존재는 예외."""
         enc = quote(path, safe="")
         url = f"{self.base}/projects/{self.project}/repository/files/{enc}/raw"
-        resp = self._client.get(url, params={"ref": ref})
-        resp.raise_for_status()
-        return resp.text
+        return self._get(url, params={"ref": ref}).text
 
     def list_tree(self, path: str = "", ref: str = "HEAD") -> list[dict]:
         """디렉터리 트리 (name/type/path). 단일 페이지(최대 100)."""
         url = f"{self.base}/projects/{self.project}/repository/tree"
-        resp = self._client.get(
-            url, params={"path": path, "ref": ref, "per_page": 100}
-        )
-        resp.raise_for_status()
-        return resp.json()
+        return self._get(url, params={"path": path, "ref": ref, "per_page": 100}).json()
 
     def list_tree_all(self, ref: str = "HEAD", recursive: bool = True) -> list[dict]:
         """레포 전체 트리를 페이지네이션으로 끝까지 모은다 (init/backfill용)."""
@@ -55,11 +59,10 @@ class GitLabClient:
         out: list[dict] = []
         page = 1
         while True:
-            resp = self._client.get(url, params={
+            resp = self._get(url, params={
                 "ref": ref, "recursive": str(recursive).lower(),
                 "per_page": 100, "page": page,
             })
-            resp.raise_for_status()
             batch = resp.json()
             if not batch:
                 break
@@ -74,22 +77,16 @@ class GitLabClient:
         """브랜치명/태그/short-sha -> 전체 커밋 sha (상태 포인터는 항상 전체 sha로 저장)."""
         enc = quote(ref, safe="")
         url = f"{self.base}/projects/{self.project}/repository/commits/{enc}"
-        resp = self._client.get(url)
-        resp.raise_for_status()
-        return resp.json()["id"]
+        return self._get(url).json()["id"]
 
     def default_branch(self) -> str:
         url = f"{self.base}/projects/{self.project}"
-        resp = self._client.get(url)
-        resp.raise_for_status()
-        return resp.json().get("default_branch", "master")
+        return self._get(url).json().get("default_branch", "master")
 
     def project_name(self) -> str:
         """프로젝트 표시 이름 (init 문서의 저장소 서술용)."""
         url = f"{self.base}/projects/{self.project}"
-        resp = self._client.get(url)
-        resp.raise_for_status()
-        return resp.json().get("name", "")
+        return self._get(url).json().get("name", "")
 
     def close(self) -> None:
         self._client.close()

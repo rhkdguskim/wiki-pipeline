@@ -3,6 +3,11 @@
 map(단위 요약)·reduce(테마 합성)처럼 '항목마다 에이전트 1개'를 병렬로 돌리는 자리가
 파이프라인마다 반복된다. 완료 순서대로 (item, result, exc)를 스트리밍해 호출부가
 진행 이벤트·실패 기록을 자기 정책대로 처리하게 한다.
+
+LangGraph Send API(그래프 내 fan-out) 대신 러너 계층 병렬을 쓰는 이유: 항목마다
+**독립 그래프 실행**이어야 항목 단위 캐시(_summaries.json)·래칫(_verdicts.json)·
+실패 격리(한 항목 예외가 전체를 죽이지 않음)·완료 즉시 저장이 성립한다.
+Send는 한 그래프 안 병렬이라 이 격리가 없다.
 """
 from __future__ import annotations
 

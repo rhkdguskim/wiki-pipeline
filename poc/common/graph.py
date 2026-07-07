@@ -85,7 +85,10 @@ def build_agent_graph(spec: AgentSpec, model: BaseChatModel):
             ))
         return {"messages": [resp]}
 
-    base_tool_node = ToolNode(spec.tools) if spec.tools else None
+    # handle_tool_errors: 도구 예외(주로 모델의 인자 스키마 위반)를 raise 대신
+    # ToolMessage(status="error")로 되돌린다 — 아래 ok 판정과 LLM 자가 정정이
+    # 이 계약에 의존하므로 라이브러리 기본값에 맡기지 않고 명시한다.
+    base_tool_node = ToolNode(spec.tools, handle_tool_errors=True) if spec.tools else None
 
     def observed_tools_node(state: dict) -> dict[str, Any]:
         # 마지막 AI 메시지의 tool_calls를 관측용으로 emit.
@@ -114,7 +117,8 @@ def build_agent_graph(spec: AgentSpec, model: BaseChatModel):
 
     if spec.tools:
         builder.add_node("tools", observed_tools_node)
-        builder.add_conditional_edges("agent", tools_condition)
+        # 목적지를 명시해 그래프 구조를 선언적으로 고정 (tools_condition은 "tools"/END만 반환).
+        builder.add_conditional_edges("agent", tools_condition, ["tools", END])
         builder.add_edge("tools", "agent")
     else:
         builder.add_edge("agent", END)
