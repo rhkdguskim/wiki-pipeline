@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>wiki-pipeline 관측 대시보드</title>
+<style>
+/* 팔레트: dataviz 검증 기본값 (라이트/다크 각각 선택된 스텝 — 자동 반전 아님) */
+:root {
+  --surface-1: #fcfcfb; --page: #f9f9f7;
+  --ink-1: #0b0b0b; --ink-2: #52514e; --ink-3: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+  --series-in: #2a78d6;   /* 슬롯1 blue = 입력 토큰 */
+  --series-out: #1baf7a;  /* 슬롯2 aqua = 출력 토큰 */
+  --good: #0ca30c; --warning: #fab219; --critical: #d03b3b;
+  --accent: #2a78d6;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface-1: #1a1a19; --page: #0d0d0d;
+    --ink-1: #ffffff; --ink-2: #c3c2b7; --ink-3: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --series-in: #3987e5; --series-out: #199e70;
+    --accent: #3987e5;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--page); color: var(--ink-1);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 16px 20px 40px; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 6px 0 14px; }
+header h1 { font-size: 16px; font-weight: 600; margin: 0 auto 0 0; }
+header .sub { color: var(--ink-3); font-weight: 400; }
+select {
+  background: var(--surface-1); color: var(--ink-1); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 10px; font: inherit;
+}
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface-1);
+  font-weight: 600; font-size: 13px;
+}
+.chip .dot { width: 8px; height: 8px; border-radius: 50%; }
+.chip.running .dot { background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+.chip.done .dot { background: var(--good); }
+.chip.failed .dot { background: var(--critical); }
+.chip.stalled .dot { background: var(--warning); }
+@keyframes pulse { 50% { opacity: .25; } }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.tile {
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 14px;
+}
+.tile .label { color: var(--ink-2); font-size: 12px; }
+.tile .value { font-size: 26px; font-weight: 600; margin-top: 2px; }
+.tile .hint { color: var(--ink-3); font-size: 11px; margin-top: 2px; min-height: 14px; }
+
+.card {
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+  padding: 14px 16px; margin-top: 14px;
+}
+.card h2 { font-size: 13px; font-weight: 600; margin: 0 0 8px; color: var(--ink-2); }
+.legend { display: flex; gap: 16px; font-size: 12px; color: var(--ink-2); margin-bottom: 6px; }
+.legend .key { display: inline-flex; align-items: center; gap: 6px; }
+.legend .sw { width: 14px; height: 3px; border-radius: 2px; }
+
+#chartbox { position: relative; }
+#chart { width: 100%; height: 240px; display: block; }
+#chart text { font: 11px system-ui, sans-serif; fill: var(--ink-3); font-variant-numeric: tabular-nums; }
+#chart .endlabel { fill: var(--ink-2); font-weight: 600; font-variant-numeric: normal; }
+#tooltip {
+  position: absolute; pointer-events: none; display: none; z-index: 5;
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+  padding: 6px 10px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.12); white-space: nowrap;
+}
+#tooltip .t { color: var(--ink-3); }
+#tooltip .row { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+#tooltip .row .sw { width: 8px; height: 8px; border-radius: 50%; }
+#tooltip .row .v { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; padding-left: 12px; }
+
+.cols { display: grid; grid-template-columns: 3fr 2fr; gap: 14px; align-items: start; }
+@media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+.scroll { max-height: 420px; overflow-y: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th { text-align: left; color: var(--ink-3); font-weight: 500; padding: 4px 8px; border-bottom: 1px solid var(--grid); position: sticky; top: 0; background: var(--surface-1); }
+td { padding: 5px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.st { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.st .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.st.running .dot { background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+.st.done .dot { background: var(--good); }
+.st.failed .dot { background: var(--critical); }
+.stage-name { word-break: break-all; }
+
+#feed { font-size: 12px; }
+#feed .ev { display: flex; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--grid); }
+#feed .ts { color: var(--ink-3); font-variant-numeric: tabular-nums; flex: none; }
+#feed .badge {
+  flex: none; font-size: 10.5px; font-weight: 600; border-radius: 4px; padding: 1px 6px;
+  border: 1px solid var(--border); color: var(--ink-2); align-self: flex-start; margin-top: 1px;
+}
+#feed .badge.err { color: var(--critical); border-color: var(--critical); }
+#feed .stg { color: var(--ink-3); flex: none; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#feed .txt { color: var(--ink-2); word-break: break-all; }
+.empty { color: var(--ink-3); padding: 20px 0; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>wiki-pipeline 관측 대시보드 <span class="sub" id="pipelineLabel"></span></h1>
+    <select id="runSel" title="run 선택"></select>
+    <span class="chip" id="statusChip"><span class="dot"></span><span id="statusText">대기</span></span>
+    <span class="chip"><span id="elapsed">0:00</span><span class="sub">&nbsp;경과</span></span>
+  </header>
+
+  <div class="tiles">
+    <div class="tile"><div class="label">입력 토큰</div><div class="value" id="tIn">0</div><div class="hint" id="tInRaw"></div></div>
+    <div class="tile"><div class="label">출력 토큰</div><div class="value" id="tOut">0</div><div class="hint" id="tOutRaw"></div></div>
+    <div class="tile"><div class="label">LLM 호출</div><div class="value" id="tLlm">0</div><div class="hint" id="tRetry"></div></div>
+    <div class="tile"><div class="label">도구 호출</div><div class="value" id="tTool">0</div><div class="hint" id="tToolErr"></div></div>
+    <div class="tile"><div class="label">스테이지</div><div class="value" id="tStage">0</div><div class="hint" id="tStageHint"></div></div>
+  </div>
+
+  <div class="card">
+    <h2>누적 토큰 사용량</h2>
+    <div class="legend">
+      <span class="key"><span class="sw" style="background:var(--series-in)"></span>입력 토큰</span>
+      <span class="key"><span class="sw" style="background:var(--series-out)"></span>출력 토큰</span>
+    </div>
+    <div id="chartbox">
+      <svg id="chart" viewBox="0 0 940 240" preserveAspectRatio="none"></svg>
+      <div id="tooltip"></div>
+    </div>
+  </div>
+
+  <div class="cols">
+    <div class="card">
+      <h2>스테이지 진행 (run &gt; stage &gt; engine_call)</h2>
+      <div class="scroll">
+        <table>
+          <thead><tr>
+            <th>스테이지</th><th>상태</th><th class="num">소요</th>
+            <th class="num">in 토큰</th><th class="num">out 토큰</th><th class="num">도구</th>
+          </tr></thead>
+          <tbody id="stageBody"></tbody>
+        </table>
+        <div class="empty" id="stageEmpty">이벤트 대기 중…</div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>에이전트 라이브 피드 (agent_step)</h2>
+      <div class="scroll" id="feed"><div class="empty" id="feedEmpty">이벤트 대기 중…</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const POLL_MS = 1500, RUNS_MS = 10000, STALL_SEC = 90, FEED_MAX = 60;
+
+let currentRun = null, offset = 0, lastAge = 0, polling = false;
+let S = null;   // 집계 상태
+
+function freshState() {
+  return {
+    firstTs: null, lastTs: null, runStatus: null, pipeline: "",
+    inTok: 0, outTok: 0, llmCalls: 0, toolCalls: 0, toolErr: 0, retries: 0,
+    stages: new Map(),   // stage -> {layer, firstTs, lastTs, status, in, out, tools}
+    series: [],          // {t, in, out} usage 이벤트마다 누적
+    feed: [],
+  };
+}
+
+// ── 이벤트 1건 집계 (스키마: common/events.py progress.v1) ──
+function ingest(e) {
+  const t = Date.parse(e.ts);
+  if (!S.firstTs || t < S.firstTs) S.firstTs = t;
+  if (!S.lastTs || t > S.lastTs) S.lastTs = t;
+  if (e.pipeline_id) S.pipeline = e.pipeline_id;
+  const d = e.detail || {};
+
+  if (e.layer === "run") { S.runStatus = e.status; return; }
+
+  if (e.layer === "stage" || e.layer === "engine_call") {
+    let st = S.stages.get(e.stage);
+    if (!st) { st = { layer: e.layer, firstTs: t, lastTs: t, status: e.status, in: 0, out: 0, tools: 0 }; S.stages.set(e.stage, st); }
+    st.lastTs = t; st.status = e.status;
+    return;
+  }
+
+  if (e.layer === "agent_step") {
+    // 러너의 마일스톤 stage(repo:intro)와 에이전트 그래프 stage(reduce:intro,
+    // critic:...)는 이름이 다르다 — 처음 보는 stage는 작업 행으로 추가해
+    // usage/도구가 표에서 유실되지 않게 한다 (status는 이벤트가 없어 null).
+    let st = S.stages.get(e.stage);
+    if (!st) { st = { layer: "agent_step", firstTs: t, lastTs: t, status: null, in: 0, out: 0, tools: 0 }; S.stages.set(e.stage, st); }
+    st.lastTs = t;
+    if (d.kind === "usage") {
+      S.inTok += d.input_tokens || 0; S.outTok += d.output_tokens || 0; S.llmCalls += 1;
+      if (st) { st.in += d.input_tokens || 0; st.out += d.output_tokens || 0; }
+      S.series.push({ t, in: S.inTok, out: S.outTok });
+    } else if (d.kind === "tool_use") {
+      S.toolCalls += 1; if (st) st.tools += 1;
+    } else if (d.kind === "tool_result") {
+      if (!d.ok) S.toolErr += 1;
+    } else if (d.kind === "llm_retry") {
+      S.retries += 1;
+    }
+    S.feed.push(e);
+    if (S.feed.length > FEED_MAX) S.feed.splice(0, S.feed.length - FEED_MAX);
+  }
+}
+
+// ── 포맷터 ──
+const fmtC = n => n.toLocaleString("en-US");
+function fmtK(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + "M";
+  if (n >= 1e4) return (n / 1e3).toFixed(n >= 1e5 ? 0 : 1) + "K";
+  return fmtC(n);
+}
+function fmtDur(ms) {
+  if (ms == null || ms < 0) return "–";
+  const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`
+           : `${m}:${String(s % 60).padStart(2, "0")}`;
+}
+const fmtClock = t => new Date(t).toTimeString().slice(0, 8);
+
+// ── run 상태 판정: run 이벤트 + 파일 최근성(활동 없음 감지) ──
+function runState() {
+  if (S.runStatus === "done") return ["done", "✓ 완료"];
+  if (S.runStatus === "failed") return ["failed", "✕ 실패"];
+  if (lastAge > STALL_SEC) return ["stalled", "◌ 활동 없음"];
+  return ["running", "● 실행 중"];
+}
+const isLive = () => runState()[0] === "running" || runState()[0] === "stalled";
+
+// ── 렌더 ──
+function render() {
+  $("pipelineLabel").textContent = S.pipeline ? `— ${S.pipeline}` : "";
+  const [cls, label] = runState();
+  $("statusChip").className = "chip " + cls;
+  $("statusText").textContent = label;
+
+  $("tIn").textContent = fmtK(S.inTok);  $("tInRaw").textContent = S.inTok ? fmtC(S.inTok) : "";
+  $("tOut").textContent = fmtK(S.outTok); $("tOutRaw").textContent = S.outTok ? fmtC(S.outTok) : "";
+  $("tLlm").textContent = fmtC(S.llmCalls);
+  $("tRetry").textContent = S.retries ? `재시도 ${S.retries}회` : "";
+  $("tTool").textContent = fmtC(S.toolCalls);
+  $("tToolErr").textContent = S.toolErr ? `실패 ${S.toolErr}회` : "";
+  // 타일은 마일스톤 행(러너가 status를 찍는 stage/engine_call)만 센다 —
+  // agent_step 전용 작업 행은 done 이벤트가 없어 분모를 왜곡한다.
+  const sts = [...S.stages.values()].filter(s => s.status != null);
+  const done = sts.filter(s => s.status === "done").length;
+  const failed = sts.filter(s => s.status === "failed").length;
+  $("tStage").textContent = `${done}/${sts.length}`;
+  $("tStageHint").textContent = failed ? `실패 ${failed}개` : "완료/전체";
+
+  renderStages(); renderFeed(); renderChart(); tickClock();
+}
+
+function tickClock() {
+  if (!S || !S.firstTs) { $("elapsed").textContent = "0:00"; return; }
+  const end = isLive() ? Date.now() : S.lastTs;
+  $("elapsed").textContent = fmtDur(end - S.firstTs);
+}
+
+function renderStages() {
+  const rows = [...S.stages.entries()].sort((a, b) => a[1].firstTs - b[1].firstTs);
+  $("stageEmpty").style.display = rows.length ? "none" : "";
+  const live = isLive();
+  $("stageBody").innerHTML = rows.map(([name, s]) => {
+    // status=null(agent_step 전용 행)은 최근 활동으로 실행 여부만 추정한다.
+    const active = s.status == null && live && Date.now() - s.lastTs < 45000;
+    const running = s.status === "running" || active;
+    const durEnd = running && live ? Date.now() : s.lastTs;
+    const stLabel = running ? "실행 중" : (s.status === "done" ? "완료" : s.status === "failed" ? "실패" : "작업");
+    const stCls = running ? "running" : (s.status || "");
+    const dot = s.status == null && !running ? `<span class="dot" style="background:var(--ink-3)"></span>` : `<span class="dot"></span>`;
+    return `<tr>
+      <td class="stage-name">${esc(name)}</td>
+      <td><span class="st ${stCls}">${dot}${stLabel}</span></td>
+      <td class="num">${fmtDur(durEnd - s.firstTs)}</td>
+      <td class="num">${s.in ? fmtK(s.in) : "–"}</td>
+      <td class="num">${s.out ? fmtK(s.out) : "–"}</td>
+      <td class="num">${s.tools || "–"}</td>
+    </tr>`;
+  }).join("");
+}
+
+const KIND_LABEL = { thinking: "생각", tool_use: "도구", tool_result: "결과", usage: "토큰", llm_retry: "재시도" };
+function feedText(e) {
+  const d = e.detail || {};
+  if (d.kind === "thinking") return d.summary || "";
+  if (d.kind === "tool_use") return `${d.tool}(${esc(JSON.stringify(d.input || {}).slice(0, 80))})`;
+  if (d.kind === "tool_result") return (d.ok ? "ok " : "ERR ") + (d.preview || "").slice(0, 100);
+  if (d.kind === "usage") return `in=${fmtC(d.input_tokens || 0)} out=${fmtC(d.output_tokens || 0)}`;
+  if (d.kind === "llm_retry") return `attempt=${d.attempt} (${d.error || ""})`;
+  return JSON.stringify(d).slice(0, 100);
+}
+function renderFeed() {
+  const el = $("feed");
+  $("feedEmpty").style.display = S.feed.length ? "none" : "";
+  const stick = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  el.querySelectorAll(".ev").forEach(n => n.remove());
+  const frag = document.createDocumentFragment();
+  for (const e of S.feed) {
+    const d = e.detail || {};
+    const div = document.createElement("div");
+    div.className = "ev";
+    const err = (d.kind === "tool_result" && !d.ok) || d.kind === "llm_retry";
+    div.innerHTML = `<span class="ts">${fmtClock(Date.parse(e.ts))}</span>` +
+      `<span class="badge${err ? " err" : ""}">${KIND_LABEL[d.kind] || d.kind || "?"}</span>` +
+      `<span class="stg" title="${esc(e.stage)}">${esc(e.stage)}</span>` +
+      `<span class="txt">${esc(feedText(e))}</span>`;
+    frag.appendChild(div);
+  }
+  el.appendChild(frag);
+  if (stick) el.scrollTop = el.scrollHeight;
+}
+
+// ── 누적 토큰 차트 (SVG 직접 렌더 — 2px 라인·헤어라인 그리드·크로스헤어 툴팁) ──
+const M = { l: 56, r: 74, t: 10, b: 24 }, W = 940, H = 240;
+let chartPts = [];   // 툴팁용 화면 좌표 캐시
+
+function decimate(arr, max) {
+  if (arr.length <= max) return arr;
+  const step = (arr.length - 1) / (max - 1), out = [];
+  for (let i = 0; i < max; i++) out.push(arr[Math.round(i * step)]);
+  return out;
+}
+function niceMax(v) {
+  if (v <= 0) return 1;
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  for (const m of [1, 2, 2.5, 5, 10]) if (v <= m * p) return m * p;
+  return 10 * p;
+}
+function renderChart() {
+  const svg = $("chart");
+  const pts = decimate(S.series, 400);
+  chartPts = [];
+  if (pts.length < 2) {
+    svg.innerHTML = `<text x="${W / 2}" y="${H / 2}" text-anchor="middle">usage 이벤트 2건부터 표시됩니다</text>`;
+    return;
+  }
+  const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+  const yMax = niceMax(Math.max(pts[pts.length - 1].in, pts[pts.length - 1].out));
+  const x = t => M.l + (t - t0) / Math.max(1, t1 - t0) * (W - M.l - M.r);
+  const y = v => H - M.b - v / yMax * (H - M.t - M.b);
+
+  let g = "";
+  // 그리드 + y눈금 (헤어라인·실선·클린 넘버)
+  for (let i = 0; i <= 4; i++) {
+    const v = yMax * i / 4, yy = y(v);
+    g += `<line x1="${M.l}" y1="${yy}" x2="${W - M.r}" y2="${yy}" stroke="var(--grid)" stroke-width="1"/>`;
+    g += `<text x="${M.l - 8}" y="${yy + 4}" text-anchor="end">${fmtK(v)}</text>`;
+  }
+  // x눈금 3개 (시:분:초)
+  for (let i = 0; i <= 2; i++) {
+    const tt = t0 + (t1 - t0) * i / 2;
+    g += `<text x="${x(tt)}" y="${H - 6}" text-anchor="${i === 0 ? "start" : i === 2 ? "end" : "middle"}">${fmtClock(tt)}</text>`;
+  }
+  g += `<line x1="${M.l}" y1="${H - M.b}" x2="${W - M.r}" y2="${H - M.b}" stroke="var(--axis)" stroke-width="1"/>`;
+
+  const line = key => pts.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p[key]).toFixed(1)}`).join("");
+  for (const [key, color] of [["in", "var(--series-in)"], ["out", "var(--series-out)"]]) {
+    g += `<path d="${line(key)}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  }
+  // 끝점 도트(r4 + 서피스 링) + 간격이 충분할 때만 직접 라벨 (겹치면 범례가 담당)
+  const last = pts[pts.length - 1];
+  const yIn = y(last.in), yOut = y(last.out), xe = x(last.t);
+  for (const [yy, color] of [[yIn, "var(--series-in)"], [yOut, "var(--series-out)"]]) {
+    g += `<circle cx="${xe}" cy="${yy}" r="4" fill="${color}" stroke="var(--surface-1)" stroke-width="2"/>`;
+  }
+  if (Math.abs(yIn - yOut) >= 16) {
+    g += `<text class="endlabel" x="${xe + 8}" y="${yIn + 4}">${fmtK(last.in)}</text>`;
+    g += `<text class="endlabel" x="${xe + 8}" y="${yOut + 4}">${fmtK(last.out)}</text>`;
+  }
+  g += `<line id="xhair" x1="0" y1="${M.t}" x2="0" y2="${H - M.b}" stroke="var(--axis)" stroke-width="1" visibility="hidden"/>`;
+  svg.innerHTML = g;
+  chartPts = pts.map(p => ({ px: x(p.t), ...p }));
+}
+
+// 크로스헤어 + 툴팁 (가장 가까운 점 스냅)
+$("chartbox").addEventListener("mousemove", ev => {
+  if (!chartPts.length) return;
+  const svg = $("chart"), box = svg.getBoundingClientRect();
+  const vx = (ev.clientX - box.left) * W / box.width;
+  let best = chartPts[0];
+  for (const p of chartPts) if (Math.abs(p.px - vx) < Math.abs(best.px - vx)) best = p;
+  const xh = svg.querySelector("#xhair");
+  if (xh) { xh.setAttribute("x1", best.px); xh.setAttribute("x2", best.px); xh.setAttribute("visibility", "visible"); }
+  const tip = $("tooltip");
+  tip.innerHTML = `<span class="t">${fmtClock(best.t)}</span>` +
+    `<div class="row"><span class="sw" style="background:var(--series-in)"></span>입력<span class="v">${fmtC(best.in)}</span></div>` +
+    `<div class="row"><span class="sw" style="background:var(--series-out)"></span>출력<span class="v">${fmtC(best.out)}</span></div>`;
+  tip.style.display = "block";
+  const bx = $("chartbox").getBoundingClientRect();
+  const left = best.px / W * box.width;
+  tip.style.left = Math.min(left + 12, bx.width - tip.offsetWidth - 4) + "px";
+  tip.style.top = "8px";
+});
+$("chartbox").addEventListener("mouseleave", () => {
+  $("tooltip").style.display = "none";
+  const xh = $("chart").querySelector("#xhair");
+  if (xh) xh.setAttribute("visibility", "hidden");
+});
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// ── 폴링 ──
+async function pollEvents() {
+  if (!currentRun || polling) return;
+  polling = true;
+  try {
+    let got = false;
+    for (let i = 0; i < 50; i++) {   // 첫 로드 따라잡기 (4MB/회 상한)
+      const r = await (await fetch(`/api/events?run=${encodeURIComponent(currentRun)}&offset=${offset}`)).json();
+      if (r.error) break;
+      offset = r.offset; lastAge = r.age_sec;
+      r.events.forEach(ingest);
+      got = got || r.events.length > 0;
+      if (r.offset >= r.size) break;
+    }
+    if (got) render(); else { const [cls, label] = runState(); $("statusChip").className = "chip " + cls; $("statusText").textContent = label; }
+  } catch (e) { /* 서버 재시작 등 — 다음 폴링에서 재시도 */ }
+  polling = false;
+}
+
+async function refreshRuns() {
+  try {
+    const runs = await (await fetch("/api/runs")).json();
+    const sel = $("runSel"), prev = sel.value;
+    sel.innerHTML = runs.map(r =>
+      `<option value="${esc(r.run_id)}">${esc(r.run_id)}${r.age_sec < STALL_SEC ? " ●" : ""}</option>`).join("");
+    if (runs.length === 0) return;
+    if (prev && runs.some(r => r.run_id === prev)) sel.value = prev;
+    if (!currentRun) { sel.value = runs[0].run_id; switchRun(runs[0].run_id); }
+  } catch (e) { /* 다음 주기 재시도 */ }
+}
+
+function switchRun(id) {
+  currentRun = id; offset = 0; lastAge = 0; S = freshState();
+  $("feed").querySelectorAll(".ev").forEach(n => n.remove());
+  render(); pollEvents();
+}
+
+$("runSel").addEventListener("change", ev => switchRun(ev.target.value));
+S = freshState();
+refreshRuns();
+setInterval(pollEvents, POLL_MS);
+setInterval(refreshRuns, RUNS_MS);
+setInterval(tickClock, 1000);
+</script>
+</body>
+</html>

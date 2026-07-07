@@ -29,6 +29,9 @@ poc/
 │   ├── parallel.py      #   에이전트 병렬 분배 (완료 순서 스트리밍)
 │   ├── theme.py         #   테마 계약 (ThemeSpec·brief) — 레지스트리 데이터는 파이프라인 소유
 │   └── output.py        #   생성 문서 저장 (strip_reasoning + .md)
+├── dashboard/           # 관측 대시보드 (events JSONL 소비자 — 실시간 피드백 I/F)
+│   ├── serve.py         #   표준 라이브러리 HTTP 서버: JSONL 바이트 오프셋 증분 tail API
+│   └── index.html       #   토큰·경과시간 KPI + 누적 토큰 차트 + 스테이지 표 + 라이브 피드
 ├── static_pipeline/     # ① 정적 (코드 diff -> 기술문서) — 구현 완료
 └── manual_pipeline/     # ② 매뉴얼 (앱 관측 -> 매뉴얼) — 구현 완료(실측 전)
     ├── observation.py   #   관측 로그 (JSONL 영속, 근거 블록/커버리지 재료 — 브리지 기록 콜백의 목적지)
@@ -68,6 +71,9 @@ python -m poc.common.run --smoke
 python -m poc.static_pipeline.main            # .env의 sha 사용
 python -m poc.static_pipeline.main --from <sha> --to <sha>
 # 산출: poc/out/{theme}.md + poc/out/events-*.jsonl
+
+# 관측 대시보드 (실행 중/종료된 run 실시간 모니터링 — 토큰·경과시간·스테이지·피드)
+python -m poc.dashboard.serve                 # http://127.0.0.1:8420 (파이프라인과 별도 프로세스)
 
 # ② 매뉴얼 파이프라인 (MCP 관측 -> 독자 2축 매뉴얼)
 python -m poc.manual_pipeline.main --smoke    # L1/L2: MCP 연결 + 도구 로드 + 관측 1회
