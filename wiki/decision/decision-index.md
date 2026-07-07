@@ -5,7 +5,10 @@
 
 ### 공통 · cross-cutting (파이프라인 공유)
 
-- [[decision-mvp-scope]] — **MVP 절단선 = 정적 + 매뉴얼 두 파이프라인** (GitLab 1 커넥터, GitHub 이후; 위키 후보안〈정적만〉을 확대 · 매뉴얼 open 질문이 MVP 블로커로 승격)
+- [[decision-mvp-scope]] — **MVP 절단선 = 정적 + 매뉴얼 두 파이프라인** (위키 후보안〈정적만〉을 확대 · 매뉴얼 open 질문이 MVP 블로커로 승격; 2026-07-07 "GitLab 1 커넥터" 절단선 부분 번복 → 아래 SCM 다중 인스턴스 결정)
+- [[decision-scm-multi-instance-github-mvp]] — **SCM 다중 인스턴스 + GitHub 커넥터 MVP 승격** (등록 단위 = SCM 인스턴스 × 레포 · scm_instances 테이블 · GitLabConnector base_url 주입식〈사내·gitlab.com 동일〉 · GitHubConnector 신규 · 동일 계약 테스트; MVP GitLab 1커넥터 유지 기각)
+- [[decision-control-plane-fastapi]] — **Control Plane 스택 = Python FastAPI** (Data Plane LangGraph와 언어 일치로 이벤트 스키마·DB 모델·커넥터 공유; ASP.NET Core 언어 이원화 비용으로 기각)
+- [[decision-control-plane-postgresql]] — **Control Plane DB = PostgreSQL** (API·스케줄러·webhook 동시 쓰기·트랜잭션; SQLite 동시성 한계·SQL Server FastAPI 선택으로 조합 이점 소멸 기각)
 - [[decision-registration-baseline]] — 등록 baseline = A(null → 전체 코드베이스 initialize); 초기 전량 backfill을 정기 야간 배치와 분리된 1급 작업으로, 야간 배치는 증분만
 - [[decision-control-data-plane-split]] — Control/Data Plane 분리, 단일 프로세스 기각 (LLM Wiki 통합·서비스화 포석)
 - [[decision-pipeline-observability]] — 모든 파이프라인 실시간 진행 모니터링(대시보드), 사후만·제각각 기각

@@ -6,11 +6,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 from pathlib import Path
 import re
 from typing import Any
-from urllib import error, parse, request
 
 
 _PATH_RE = re.compile(r"[^A-Za-z0-9._/-]+")
@@ -145,10 +143,10 @@ def build_mr_plan(
     warnings = []
     if not files:
         warnings.append("MR에 포함할 Markdown 산출물이 없습니다.")
-    if target_model.kind != "gitlab":
-        warnings.append("현재 제출 구현은 GitLab target만 지원합니다.")
+    if target_model.kind not in ("gitlab", "github"):
+        warnings.append(f"지원하지 않는 target kind: {target_model.kind} (gitlab | github)")
     if not target_model.project_ref:
-        warnings.append("GitLab project_id 또는 project_path가 필요합니다.")
+        warnings.append("target의 project_id / project_path (github: owner/repo)가 필요합니다.")
     return {
         "run_id": summary.get("run_id"),
         "source_id": source_id,
@@ -178,7 +176,8 @@ def build_mr_plan(
         "file_count": len(files),
         "total_bytes": sum(f["size"] for f in files),
         "warnings": warnings,
-        "can_submit": target_model.enabled and bool(target_model.token) and target_model.kind == "gitlab"
+        "can_submit": target_model.enabled and bool(target_model.token)
+                      and target_model.kind in ("gitlab", "github")
                       and bool(target_model.project_ref) and bool(files),
         "out_dir": str(out_dir),
     }
@@ -200,93 +199,46 @@ def read_plan_files(plan: dict[str, Any], out_dir: Path) -> list[dict[str, str]]
     return payloads
 
 
-class GitLabDocHubClient:
-    def __init__(self, target: DocHubTarget, *, timeout: float = 30.0):
-        self.target = target
-        self.timeout = timeout
-        if not target.project_ref:
-            raise ValueError("GitLab project_id 또는 project_path가 필요합니다.")
-        if not target.token:
-            raise ValueError("GitLab token이 필요합니다.")
+def submit_change_request(plan: dict[str, Any], *, target: dict[str, Any], out_dir: Path) -> dict[str, Any]:
+    """산출물 브랜치 커밋 + MR/PR 제출 — 커넥터 경유 (GitLab·GitHub 공용).
 
-    @property
-    def project_api(self) -> str:
-        project = parse.quote(self.target.project_ref, safe="")
-        return f"{self.target.api_base}/projects/{project}"
+    같은 (source_branch, target_branch)에 열린 자동 MR/PR이 있으면 새로 만들지 않고
+    갱신한다 (decision-mr-review-gate 중복 방지). 머지는 사람 리뷰 게이트.
+    """
+    from ..connectors import connector_for_target   # 순환 임포트 방지 지연 로드
 
-    def _request(self, method: str, url: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        data = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        headers = {self.target.token_header: self.target.token}
-        if data is not None:
-            headers["Content-Type"] = "application/json"
-        req = request.Request(url, data=data, headers=headers, method=method)
-        try:
-            with request.urlopen(req, timeout=self.timeout) as res:  # noqa: S310 - target is user-configured GitLab
-                body = res.read().decode("utf-8", "replace")
-                return json.loads(body) if body else {}
-        except error.HTTPError as e:
-            body = e.read().decode("utf-8", "replace")
-            raise RuntimeError(f"GitLab API {method} {url} failed: HTTP {e.code} {body[:400]}") from e
-
-    def ensure_branch(self, branch: str, ref: str) -> dict[str, Any]:
-        encoded = parse.quote(branch, safe="")
-        try:
-            return self._request("GET", f"{self.project_api}/repository/branches/{encoded}")
-        except RuntimeError as e:
-            if "HTTP 404" not in str(e):
-                raise
-        qs = parse.urlencode({"branch": branch, "ref": ref})
-        return self._request("POST", f"{self.project_api}/repository/branches?{qs}")
-
-    def upsert_file(self, *, branch: str, path: str, content: str, message: str) -> dict[str, Any]:
-        encoded = parse.quote(path, safe="")
-        payload = {"branch": branch, "content": content, "commit_message": message}
-        try:
-            return self._request("PUT", f"{self.project_api}/repository/files/{encoded}", payload)
-        except RuntimeError as e:
-            if "HTTP 404" not in str(e):
-                raise
-        return self._request("POST", f"{self.project_api}/repository/files/{encoded}", payload)
-
-    def create_merge_request(self, *, source_branch: str, target_branch: str, title: str, description: str) -> dict[str, Any]:
-        payload = {
-            "source_branch": source_branch,
-            "target_branch": target_branch,
-            "title": title,
-            "description": description,
-            "remove_source_branch": True,
-        }
-        return self._request("POST", f"{self.project_api}/merge_requests", payload)
-
-
-def submit_gitlab_mr(plan: dict[str, Any], *, target: dict[str, Any], out_dir: Path) -> dict[str, Any]:
     target_model = DocHubTarget.from_dict(target)
     if not plan.get("can_submit"):
         raise ValueError("MR 제출 조건이 충족되지 않았습니다.")
-    client = GitLabDocHubClient(target_model)
     branch = str(plan["branch_name"])
     base = str(plan["base_branch"])
-    client.ensure_branch(branch, base)
     files = read_plan_files(plan, out_dir)
     commit_message = f"{plan['title']} ({plan['run_id']})"
-    updated = [
-        client.upsert_file(branch=branch, path=f["target_path"], content=f["content"], message=commit_message)
-        for f in files
-    ]
-    mr = client.create_merge_request(
-        source_branch=branch,
-        target_branch=base,
-        title=str(plan["title"]),
-        description=str(plan["description"]),
-    )
+
+    with connector_for_target(target) as conn:
+        conn.ensure_branch(branch, base)
+        updated = [
+            conn.upsert_file(branch=branch, path=f["target_path"],
+                             content=f["content"], message=commit_message)
+            for f in files
+        ]
+        cr = conn.create_or_update_change_request(
+            source_branch=branch, target_branch=base,
+            title=str(plan["title"]), description=str(plan["description"]),
+        )
     return {
         "ok": True,
+        "kind": target_model.kind,
         "branch": branch,
         "files": len(updated),
         "merge_request": {
-            "id": mr.get("id"),
-            "iid": mr.get("iid"),
-            "web_url": mr.get("web_url"),
-            "state": mr.get("state"),
+            "id": cr.raw.get("id"),
+            "iid": cr.id,
+            "web_url": cr.web_url,
+            "state": cr.state,
         },
     }
+
+
+# 하위 호환 별칭 (기존 호출부 — GitLab 전용이던 시절 이름).
+submit_gitlab_mr = submit_change_request

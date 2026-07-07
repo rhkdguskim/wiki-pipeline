@@ -484,3 +484,13 @@
 - 갱신(기타): question-cost-estimation (PoC 실측 조합=LangGraph+M3 한 줄 연결), overview (Phase 1 엔진 항목 2개 → LangGraph 오케스트레이션·공급자 중립·PoC M3로 갱신·인터페이스 계약 불변 명시 / mermaid 라벨 "API 자체 에이전트"→"LangGraph 오케스트레이션"·"에이전트 루프"→"LangGraph 루프" / 관측성 문단에 get_stream_writer 한 줄), index (decision 49→51·summary 17→18·총 110→113·raw 22·superseded 10 불변·answered 23 불변), decision-index (공통·cross-cutting 그룹에 신규 2건 등재 · engine-api-key-auth 설명에 공급자 중립 갱신 주석), summary-index (정적·공통 그룹에 신규 summary 등재)
 - 결정 처리: 위키 척추 결정 2건(engine-api-agent·engine-api-key-auth)은 사용자 선택대로 **supersede가 아니라 갱신**으로 처리 — decision-engine-hybrid의 엔진 인터페이스 계약이 살아있어 "인터페이스 뒤 구현체/공급자 교체" 패턴, 둘 다 status active 유지. superseded 카운트 증가 없음(10 불변).
 - 신규 decision 2분할: 오케스트레이션(LangGraph, 프레임워크 계층 갭 명문화 + 3자 비교 OpenAI SDK 탈락·Claude Agent SDK 비채택)과 모델 공급자(중립·PoC M3)를 별도 관심사로 분리. 프레임워크 계층에 대응하는 open question이 위키에 없던 갭이었음을 summary·overview·신규 decision에 명시 — 새 question 페이지는 만들지 않고 신규 decision이 직접 메움.
+
+## [2026-07-07] ingest | 운영화 전환 — 백엔드 개선 계획 확정
+- raw: [[2026-07-07-ops-backend-plan]]
+- 생성: summary-ops-backend-plan, decision-scm-multi-instance-github-mvp, decision-control-plane-fastapi, decision-control-plane-postgresql, question-cloud-scm-network(blocking), question-cloud-scm-token-policy
+- 갱신(부분 번복): decision-mvp-scope (status active 유지 — 전체 supersede 아님. "GitLab 1 커넥터" 절단선만 신규 decision으로 대체: 상단 부분 번복 주석 + 포함 SCM 줄·제외 GitHub 줄에 취소선+대체 링크. 두 파이프라인 포함 절단선은 유효)
+- 갱신(구체화·상호 링크): decision-scm-connector-abstraction (MVP 승격+다중 인스턴스 절 추가 — 기존 GitLab·GitHub 2커넥터 동등 설계는 불변, 구현 착수 앞당김+scm_instances), decision-server-vm-self-token (구체화 절 — 스택 FastAPI·DB PostgreSQL 링크), decision-db-source-of-truth (DB 엔진 PostgreSQL + scm_instances 테이블 절)
+- 갱신(인덱스): decision-index (공통·cross-cutting 그룹에 신규 3건 등재 + mvp-scope 설명에 부분 번복 주석), question-index (공통·인프라 그룹에 신규 2건 — network는 ⛔ blocking), summary-index (정적·공통 그룹에 신규 summary 등재)
+- 갱신(overview): SCM 커넥터가 MVP에서 다중 인스턴스+GitHub까지 붙음 명시(도입부·공유 뼈대 SCM 항목) · Phase 2 인프라에 FastAPI/PostgreSQL 스택 결정 추가 · MVP 절단선 SCM 부분 번복 반영 · 미해결 질문에 클라우드 SCM 네트워크(⛔)·토큰 정책 2건 추가
+- 갱신(허브 index): summary 18→19 · decision 51→54(superseded 10 불변) · question 32→34(answered 23 불변 · blocking 신규 1) · 총 113→119 · raw 22→23
+- 결정 처리: SCM 범위는 사용자 지시대로 **전체 supersede가 아니라 부분 번복** — decision-mvp-scope는 status active 유지, GitHub 관련 항목만 신규 decision-scm-multi-instance-github-mvp로 대체하고 상호 링크. superseded 카운트 증가 없음(10 불변). 기존 decision-scm-connector-abstraction이 이미 GitLab·GitHub 2커넥터를 동등 1급으로 설계해 두었으므로 새 결정은 "구현 MVP 승격 + 다중 인스턴스 확장"으로 좁혀 창작 없이 정합.

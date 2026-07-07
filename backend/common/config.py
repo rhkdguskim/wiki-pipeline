@@ -163,8 +163,8 @@ class Settings(BaseSettings):
         raise ValueError(f"알 수 없는 source '{source_id}'. 사용 가능: {known}")
 
     def for_source(self, source: SourceConfig, *, isolate_output: bool | None = None) -> "Settings":
-        if source.kind != "gitlab":
-            raise ValueError(f"아직 지원하지 않는 SCM kind: {source.kind}")
+        if source.kind not in ("gitlab", "github"):
+            raise ValueError(f"지원하지 않는 SCM kind: {source.kind} (gitlab | github)")
         multi = len(self.source_list) > 1
         scoped_out = self.out_dir
         if (isolate_output if isolate_output is not None else multi):

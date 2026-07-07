@@ -1,18 +1,18 @@
 """정적 파이프라인 에이전트 도구 — 전부 GitLab raw API 기반 읽기전용 코드 탐색.
 
 에이전트가 변경 파일과 주변 코드를 탐색해 문서 근거를 모은다. 쓰기 도구는 없다.
-GitLabClient·ref를 클로저로 묶어 langchain tool로 노출한다.
+ScmConnector·ref를 클로저로 묶어 langchain tool로 노출한다.
 """
 from __future__ import annotations
 
 from langchain_core.tools import StructuredTool
 
-from .gitlab_client import GitLabClient
+from ..connectors import ScmConnector
 
 _MAX_CHARS = 40000   # 파일 원문 잘라내기. 긴 컨텍스트 모델 전제로 넉넉히 (재-read 유발 방지)
 
 
-def make_tools(client: GitLabClient, ref: str) -> list:
+def make_tools(client: ScmConnector, ref: str) -> list:
     """read_file / list_dir 도구를 ref(=to_sha)에 바인딩해 생성."""
 
     def read_file(path: str) -> str:

@@ -10,7 +10,7 @@ from langchain_core.language_models import BaseChatModel
 
 from ..common.agent_spec import AgentSpec
 from ..common.graph import build_agent_graph
-from .gitlab_client import GitLabClient
+from ..connectors import ScmConnector
 from .prompts import (
     critic_prompt,
     diff_writer_prompt,
@@ -21,7 +21,7 @@ from .tools import make_tools
 
 
 def build_diff_writer_graph(
-    *, model: BaseChatModel, client: GitLabClient, theme: str,
+    *, model: BaseChatModel, client: ScmConnector, theme: str,
     changed_files: list[str], from_sha: str, to_sha: str, run_id: str,
     max_steps: int = 6, no_tools: bool = False,
 ):
@@ -35,7 +35,7 @@ def build_diff_writer_graph(
 
 
 def build_init_writer_graph(
-    *, model: BaseChatModel, client: GitLabClient, theme: str,
+    *, model: BaseChatModel, client: ScmConnector, theme: str,
     unit: str, unit_files: list[str], ref: str, run_id: str,
     max_steps: int = 6, no_tools: bool = False,
 ):
@@ -49,7 +49,7 @@ def build_init_writer_graph(
 
 
 def build_repo_writer_graph(
-    *, model: BaseChatModel, client: GitLabClient, theme: str,
+    *, model: BaseChatModel, client: ScmConnector, theme: str,
     repo_name: str, ref: str, summaries_block: str, run_id: str,
     max_steps: int = 8, no_tools: bool = False,
 ):
@@ -68,7 +68,7 @@ def build_repo_writer_graph(
 
 
 def build_critic_graph(
-    *, model: BaseChatModel, client: GitLabClient, theme: str,
+    *, model: BaseChatModel, client: ScmConnector, theme: str,
     doc_markdown: str, source_files_read: list[str], ref: str,
     run_id: str, stage: str, max_steps: int = 5, no_tools: bool = False,
 ):

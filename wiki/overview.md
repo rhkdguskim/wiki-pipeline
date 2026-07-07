@@ -17,7 +17,8 @@ status: active
 | **② 매뉴얼 추출** (행위)         | 릴리스 앱 실행·관측 → 사용자/엔지니어 매뉴얼 | 릴리스/버전 **태그** | docs-hub **MR** (사람 리뷰)      |
 
 **두 파이프라인 모두 MVP 첫 출시 범위에 든다**(2026-07-07 확정 → [[decision-mvp-scope]]). SCM 커넥터는
-인터페이스를 유지하되 MVP 구현은 GitLab 1개, GitHub는 이후. 코드 인덱스는 한때 ③번 파이프라인이었으나
+MVP에서 **다중 인스턴스 + GitHub까지** 붙는다 — 사내 GitLab·gitlab.com·github.com을 소스로 등록 가능
+(2026-07-07 승격 → [[decision-scm-multi-instance-github-mvp]], 원래 "GitLab 1개" 절단선을 부분 번복). 코드 인덱스는 한때 ③번 파이프라인이었으나
 **2026-07-06 범위에서 제외**됐다 — 개발자 개인 관리로 이관(아래 "범위 제외" 절).
 
 두 파이프라인이 공유하는 뼈대:
@@ -25,7 +26,9 @@ status: active
 - **Control/Data Plane 분리** — 관리 서버(대시보드 + 이력 DB = source of truth)는 *무엇을 언제*만 지휘하고,
   AI 생성 같은 무거운 작업은 **사내 Windows CI 러너**(Data Plane)에 격리한다 → [[decision-control-data-plane-split]].
   이 분리는 추후 LLM Wiki 통합·서비스화를 위한 포석이기도 하다.
-- **SCM 커넥터** — 형상관리 연동을 추상화해 GitLab·GitHub 둘 다 동등한 1급 대상으로 붙는다 → [[decision-scm-connector-abstraction]]
+- **SCM 커넥터** — 형상관리 연동을 추상화해 GitLab·GitHub 둘 다 동등한 1급 대상으로 붙는다 → [[decision-scm-connector-abstraction]].
+  등록 단위는 **SCM 인스턴스 × 레포**로, 사내 GitLab·gitlab.com·github.com이 각각 하나의 인스턴스(kind·base_url·token)다.
+  GitLabConnector는 base_url 주입식이라 사내·gitlab.com이 동일 구현, GitHubConnector는 신규 → [[decision-scm-multi-instance-github-mvp]]
 - **실시간 관측성** — 모든 파이프라인은 진행상황을 대시보드에 실시간 보고한다(설계의 1급 제약).
   구체형은 표준 스키마 + 가변 단위 + webhook push → [[decision-pipeline-observability]] · [[concept-observability-contract]] · [[decision-observability-event-contract]].
   엔진이 자체 에이전트가 되면서 **에이전트 스텝**(사고 요약·도구 호출·토큰)까지 드릴다운된다 → [[decision-agent-step-observability]].
@@ -153,14 +156,14 @@ flowchart TB
 
 **Phase 2 인프라 결정**:
 
-- 관리 서버 = **사내 VM + 자체 토큰** → [[decision-server-vm-self-token]]
+- 관리 서버 = **사내 VM + 자체 토큰** → [[decision-server-vm-self-token]]. 구현 스택은 **Python FastAPI**(Data Plane LangGraph와 언어 일치로 이벤트 스키마·DB 모델·커넥터 공유) → [[decision-control-plane-fastapi]], DB는 **PostgreSQL**(API·스케줄러·webhook 동시 쓰기·트랜잭션, POC SQLite에서 이관) → [[decision-control-plane-postgresql]] (2026-07-07 확정)
 - 스케줄 = **과제별 대시보드 설정** → [[decision-schedule-per-source]]
 - 소스 등록 = **레포 1개 + 개발/배포 브랜치 2개** → [[decision-repo-dev-release-registration]]
 - 매뉴얼 파이프라인의 앱 실행/연결([[decision-app-host-connection]])·AI 호출 경로([[question-mcp-auth-network]] ✅) 확정
 
 **MVP 절단선 확정** (2026-07-07):
 
-- **MVP = 정적 + 매뉴얼 두 파이프라인 모두** → [[decision-mvp-scope]]. 위키 후보안(정적만)을 사용자가 매뉴얼 포함으로 확대해 open→decision으로 굳었다 → [[question-mvp-scope]] ✅. 매뉴얼 포함으로 매뉴얼 open 질문이 MVP 블로커로 승격됐고, 그중 **아티팩트 타입 dispatch가 2026-07-07 해소**됐다 → [[question-artifact-type-dispatch]] ✅. SCM 커넥터는 MVP에서 GitLab 1개만, GitHub는 이후.
+- **MVP = 정적 + 매뉴얼 두 파이프라인 모두** → [[decision-mvp-scope]]. 위키 후보안(정적만)을 사용자가 매뉴얼 포함으로 확대해 open→decision으로 굳었다 → [[question-mvp-scope]] ✅. 매뉴얼 포함으로 매뉴얼 open 질문이 MVP 블로커로 승격됐고, 그중 **아티팩트 타입 dispatch가 2026-07-07 해소**됐다 → [[question-artifact-type-dispatch]] ✅. SCM은 원래 "GitLab 1개, GitHub는 이후"였으나 **2026-07-07 부분 번복** — SCM 다중 인스턴스(사내 GitLab·gitlab.com·github.com) + GitHub 커넥터를 MVP로 승격 → [[decision-scm-multi-instance-github-mvp]].
 - 등록 baseline = **A(null → 전체 코드베이스 initialize)**, 초기 전량 backfill을 정기 야간 배치와 분리된 1급 작업으로 → [[decision-registration-baseline]] · [[question-initial-backfill-baseline]] ✅
 - 방치 소스 = **운영자 수동 큐레이션**(자동 판정 없음) → [[decision-source-manual-curation]] · [[question-ci-less-source-policy]] ✅
 - requirements ↔ dev-guide 경계 = **통합 없이 독자 축으로 명시** → [[decision-requirements-devguide-boundary]] · [[question-requirements-devguide-boundary]] ✅
@@ -169,6 +172,8 @@ flowchart TB
 **미해결 (열린 질문)**:
 
 - 매뉴얼 MVP 블로커 중 트리거 확정이 남아 있다 → [[question-release-object-vs-tag-trigger]] (아티팩트 타입 dispatch는 해소 → [[decision-artifact-type-dispatch]])
+- **클라우드 SCM 아웃바운드 네트워크 경로**(github.com·gitlab.com) — Phase 1 SCM 커넥터 실측을 막는 blocker, AI API는 뚫렸으나 클라우드 SCM은 미확인 → [[question-cloud-scm-network]] ⛔
+- 클라우드 SCM 토큰 발급 정책·rate limit → [[question-cloud-scm-token-policy]]
 - (해소) headless 인증 블로커는 자체 에이전트 전환으로 질문 자체가 사라졌다 → [[question-headless-claude-auth]] ✅
 
 **근거 실측**: 인프라·등록 결정은 사내 GitLab을 실제 로그인해 API 표면을 실측한 근거 위에 있다 —

@@ -11,8 +11,8 @@ from ..common.docshub import submit_mr_stub
 from ..common.llm import build_chat_model
 from ..common_pipeline.output import save_doc
 from ..common_pipeline.run_context import RunContext
+from ..connectors import connector_for_settings
 from .generate import generate_with_critic
-from .gitlab_client import GitLabClient
 from .graph import build_diff_writer_graph
 from .pipeline_state import save_state
 from .theme_mapping import filter_source_files, themes_for_changes
@@ -25,7 +25,7 @@ def run_static(settings: Settings, from_sha: str, to_sha: str | None,
 
     with RunContext("static", settings, run_stage="static-diff") as ctx:
         rev = ctx.rev
-        client = ctx.track(GitLabClient(settings))
+        client = ctx.track(connector_for_settings(settings))
         model = build_chat_model(settings)
         summary: dict = {"run_id": ctx.run_id, "themes": {},
                          "changed": 0, "sources": 0, "warned": []}

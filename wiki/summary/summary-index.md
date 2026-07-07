@@ -16,6 +16,7 @@
 - [[summary-engine-framework-langgraph-minimax]] — 엔진 프레임워크 LangGraph 전환 + MiniMax M3 PoC 요약: 자체 루프→LangGraph · 공급자 중립 · 3자 비교(OpenAI SDK 탈락·Claude Agent SDK 비채택)
 - [[summary-failure-alerting-email]] — 실시간 이메일 알림 요약: 인증 해지·파이프라인 실패 · 역할 기반 수신
 - [[summary-open-questions-decisions]] — 2026-07-07 열린 질문 결정 4건 요약: MVP 절단선(정적+매뉴얼) · 등록 baseline A · 방치 소스 수동 큐레이션 · 테마 경계
+- [[summary-ops-backend-plan]] — 2026-07-07 운영화 전환 백엔드 계획 요약: POC 격차 진단 · SCM 다중 인스턴스+GitHub MVP 승격 · Control Plane FastAPI/PostgreSQL 확정 · Phase 1–4 계획
 
 ### 매뉴얼 추출 파이프라인
 

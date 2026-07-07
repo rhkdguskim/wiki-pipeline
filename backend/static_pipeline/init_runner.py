@@ -27,9 +27,9 @@ from ..common.textproc import extract_json_obj
 from ..common_pipeline.output import save_doc
 from ..common_pipeline.parallel import parallel_map
 from ..common_pipeline.run_context import RunContext
+from ..connectors import connector_for_settings
 from .deep_summary import map_unit_summaries, summaries_block
 from .generate import generate_with_critic
-from .gitlab_client import GitLabClient
 from .graph import build_repo_writer_graph
 from .pipeline_state import save_state
 from .prompts import plan_system_prompt
@@ -187,7 +187,7 @@ def run_init(
 
     with RunContext("static", settings, prefix="init", run_stage="static-init") as ctx:
         rev = ctx.rev
-        client = ctx.track(GitLabClient(settings))
+        client = ctx.track(connector_for_settings(settings))
         model = build_chat_model(settings)
         out_dir = settings.out_path / "init"
         out_dir.mkdir(parents=True, exist_ok=True)

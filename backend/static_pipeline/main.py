@@ -25,10 +25,14 @@ def _validate(settings) -> int:
         print("✗ LLM_API_KEY 가 .env 에 없습니다.")
         return 2
     if not settings.gitlab_token:
-        print("✗ GITLAB_TOKEN 이 .env 에 없습니다.")
+        print(f"✗ source '{settings.source_id or 'default'}'의 token이 없습니다.")
         return 2
-    if not (settings.gitlab_url and settings.gitlab_project_id):
-        print("✗ GITLAB_URL / GITLAB_PROJECT_ID 가 .env 에 없습니다.")
+    if not settings.gitlab_project_id:
+        print(f"✗ source '{settings.source_id or 'default'}'의 project/repo 식별자가 없습니다.")
+        return 2
+    # github은 url 생략 시 github.com으로 해석되므로 gitlab만 url 필수.
+    if settings.source_kind == "gitlab" and not settings.gitlab_url:
+        print(f"✗ source '{settings.source_id or 'default'}'의 GitLab url이 없습니다.")
         return 2
     return 0
 

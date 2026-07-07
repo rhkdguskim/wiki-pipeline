@@ -13,6 +13,8 @@
 - [[question-progress-event-contract]] ✅ — 진행 이벤트 형태·granularity (answered: 표준 스키마 + 가변 단위 + webhook push → [[decision-observability-event-contract]])
 - [[question-batch-observability]] — 배치 알림/리포트 — 실패 알림=실시간 이메일·역할 기반 확정 → [[decision-email-alerting]]; daily digest 구체 남음
 - [[question-mvp-scope]] ✅ — MVP 절단선 (answered: 정적 + 매뉴얼 둘 다 → [[decision-mvp-scope]]; 후보안〈정적만〉을 확대 · 매뉴얼 open 질문이 MVP 블로커로 승격)
+- [[question-cloud-scm-network]] ⛔ — 클라우드 SCM(github.com·gitlab.com) 아웃바운드 HTTPS 경로 (관리 서버 VM·러너에서; AI API는 뚫림·클라우드 SCM 미확인 · Phase 1 실측 차단 → [[decision-scm-multi-instance-github-mvp]])
+- [[question-cloud-scm-token-policy]] — 클라우드 SCM 토큰 발급 정책 (GitHub PAT 종류·gitlab.com 토큰 주체/순환·rate limit 5000 req/h 대응 → [[decision-scm-multi-instance-github-mvp]])
 
 ### 정적 파이프라인 (Docu-Automatic)
 
