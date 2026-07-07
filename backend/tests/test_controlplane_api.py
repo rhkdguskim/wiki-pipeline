@@ -172,6 +172,35 @@ def test_compare_404_disables_source(client, monkeypatch):
     assert resp.status_code == 400
 
 
+def test_source_preflight_without_saving(client, monkeypatch):
+    """등록 마법사 사전 검증 — DB에 아무것도 저장하지 않고 커넥터 검증만."""
+    import backend.connectors as connectors_pkg
+    from backend.connectors.gitlab import GitLabConnector
+    fake = FakeGitLab()
+
+    def fake_make_connector(**kwargs):
+        return GitLabConnector(base_url="http://gitlab.local", token="t",
+                               repo="grp/demo", retry_attempts=1,
+                               transport=fake.transport)
+
+    monkeypatch.setattr(connectors_pkg, "make_connector", fake_make_connector)
+    resp = client.post("/api/sources/preflight", headers=ADMIN, json={
+        "kind": "gitlab", "url": "http://gitlab.local",
+        "project_id": "grp/demo", "token": "t",
+    })
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["verified"] is True
+    assert data["default_branch"] == "main"
+    assert "main" in data["branches"]
+    assert data["head_sha"] == HEAD_SHA
+    # 저장되지 않았다
+    assert client.get("/api/sources", headers=ADMIN).json() == []
+    # repo 누락은 400
+    assert client.post("/api/sources/preflight", headers=ADMIN,
+                       json={"kind": "gitlab"}).status_code == 400
+
+
 def test_runner_context_returns_decrypted_token(client, monkeypatch):
     _create_source(client, monkeypatch, verify=False)
     run_id = client.post("/api/runs/trigger", headers=ADMIN,

@@ -221,6 +221,47 @@ td:not(:first-child), th:not(:first-child) { text-align: right; font-variant-num
 .formMessage { color: var(--muted); font-size: 12px; line-height: 1.4; }
 .emptyPanel { min-height: 160px; display: grid; place-items: center; color: var(--soft); border: 1px dashed var(--line); border-radius: 8px; }
 
+.verifyBox { display: grid; gap: 4px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 12px; }
+.verifyBox p { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.verifyBox.ok { border-color: color-mix(in srgb, var(--green), transparent 55%); background: color-mix(in srgb, var(--green), transparent 94%); }
+.verifyBox.ok p:first-child { color: var(--green); font-weight: 650; }
+.verifyBox.bad { border-color: color-mix(in srgb, var(--red), transparent 55%); background: color-mix(in srgb, var(--red), transparent 94%); }
+.verifyBox.bad p { color: var(--red); font-weight: 650; }
+
+.checkRow { display: flex; align-items: center; gap: 7px; text-transform: none; font-weight: 500; color: var(--ink); font-size: 12px; }
+.checkRow.active { color: var(--blue); font-weight: 650; }
+
+.tokenSettings { position: relative; display: inline-flex; }
+.tokenPop { position: absolute; top: 40px; right: 0; z-index: 5; display: flex; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px; box-shadow: 0 10px 28px rgba(0,0,0,.14); }
+.tokenPop input { min-width: 0; height: 34px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); padding: 0 9px; outline: none; width: 200px; }
+
+.triggerRow { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.errText { color: var(--red); font-size: 12px; }
+.emptyCell { text-align: center !important; color: var(--soft); padding: 24px 8px !important; }
+.clickable { cursor: pointer; }
+
+.healthDot { width: 9px; height: 9px; border-radius: 50%; background: var(--soft); flex: none; }
+.healthDot.ok { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green), transparent 84%); }
+.healthDot.bad { background: var(--red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--red), transparent 84%); }
+
+.stageState.pending { color: var(--amber); }
+.stageState.pending span { background: var(--amber); }
+
+.wizardOverlay { position: fixed; inset: 0; background: rgba(10, 10, 8, 0.45); display: grid; place-items: center; z-index: 20; padding: 20px; }
+.wizardModal { width: min(640px, 100%); max-height: 88vh; overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 14px; }
+.wizardHead { display: flex; align-items: center; justify-content: space-between; }
+.wizardSteps { display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px; color: var(--soft); }
+.wizardStep { border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; }
+.wizardStep.active { color: var(--blue); border-color: var(--blue); font-weight: 650; }
+.wizardStep.done { color: var(--green); }
+.wizardPane { display: grid; gap: 10px; min-height: 120px; }
+.wizardProviderGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.providerCard { display: grid; justify-items: center; gap: 6px; padding: 22px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); cursor: pointer; }
+.providerCard:hover { background: var(--surface-2); }
+.providerCard.active { border-color: var(--blue); color: var(--blue); background: color-mix(in srgb, var(--blue), transparent 92%); }
+.providerCard small { color: var(--soft); }
+.wizardFoot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+
 @media (max-width: 1100px) {
   .app { grid-template-columns: 1fr; }
   .rail { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }

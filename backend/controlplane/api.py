@@ -230,6 +230,49 @@ def validate_source(payload: dict = Body(...)) -> dict:
     return _validate_source_payload(payload)
 
 
+@router.post("/api/sources/preflight", dependencies=[Depends(require_api_token)])
+def preflight_source(request: Request, db=Depends(_db), payload: dict = Body(...)) -> dict:
+    """저장 없이 커넥터 검증만 — 등록 마법사의 사전 검증 단계.
+
+    반환: verified·name·default_branch·namespace_path·branches·head_sha (실패 시 error).
+    instance_id를 주면 저장된 인스턴스 토큰을 쓰고, payload token이 있으면 그것을 우선한다.
+    """
+    st = _state(request)
+    from ..connectors import make_connector
+
+    kind = str(payload.get("kind") or "gitlab").lower()
+    url = str(payload.get("url") or "")
+    token = str(payload.get("token") or "")
+    token_header = str(payload.get("token_header") or "PRIVATE-TOKEN")
+    repo = str(payload.get("repo") or payload.get("project_id") or "").strip()
+    if payload.get("instance_id"):
+        inst = db.get(ScmInstance, str(payload["instance_id"]))
+        if inst is None:
+            raise HTTPException(404, f"instance 없음: {payload['instance_id']}")
+        kind = inst.kind
+        url = inst.base_url
+        token_header = inst.token_header
+        if not token and inst.token:
+            token = st.box.decrypt(inst.token)
+    if not repo:
+        raise HTTPException(400, "repo(project_id)가 필요합니다.")
+    try:
+        with make_connector(kind=kind, url=url, token=token,
+                            token_header=token_header, repo=repo) as conn:
+            info = conn.verify_access()
+            branches = conn.list_branches()
+            head = conn.resolve_ref(info.default_branch)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except Exception as e:  # noqa: BLE001 — 검증 실패는 결과로 반환
+        return {"verified": False, "error": f"{type(e).__name__}: {e}"}
+    return {
+        "verified": True, "kind": kind, "name": info.name,
+        "default_branch": info.default_branch, "namespace_path": info.namespace_path,
+        "web_url": info.web_url, "branches": branches[:200], "head_sha": head,
+    }
+
+
 @router.post("/api/sources", status_code=201, dependencies=[Depends(require_api_token)])
 def create_source(request: Request, db=Depends(_db), payload: dict = Body(...)) -> dict:
     st = _state(request)
