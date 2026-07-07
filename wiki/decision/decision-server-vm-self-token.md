@@ -26,4 +26,10 @@ status: active
 - **사내 SSO 연동** — 보안·감사 우위지만 연동 승인·가용성이 일정을 잡을 수 없어 Phase 2에서 리스크. 추후 필요 시 토큰 교체 가능.
 - **컨테이너 배포** — 이식성 좋지만 사내에 컨테이너 오케스트레이션 운영 체계가 없으면 VM 대비 이점이 사라진다.
 
+## 구체화 (2026-07-07)
+
+배포 위치(사내 VM)와 인증(자체 토큰)을 정한 이 결정 위에, 서버의 **구현 스택**이 채워졌다:
+Control Plane 서버 = **Python FastAPI** → [[decision-control-plane-fastapi]], DB = **PostgreSQL** → [[decision-control-plane-postgresql]].
+자체 토큰 인증은 그 FastAPI 서버가 발급·검증한다.
+
 이 결정이 [[question-server-deploy-auth]]를 답한다.

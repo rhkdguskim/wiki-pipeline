@@ -1,7 +1,7 @@
 """관측 대시보드 API 서버 — 표준 라이브러리만으로 events JSONL을 증분/요약 서빙.
 
-    python -m poc.dashboard.serve            # http://127.0.0.1:8420
-    python -m poc.dashboard.serve --port 9000 --out D:/path/to/out
+    python -m backend.dashboard.serve            # http://127.0.0.1:8420
+    python -m backend.dashboard.serve --port 9000 --out D:/path/to/out
 
 API (모두 GET, JSON):
 - /            : API 엔드포인트 목록

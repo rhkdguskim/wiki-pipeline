@@ -1,9 +1,9 @@
 """정적 파이프라인 CLI 엔트리 — 상태 기반 init/diff 자동 분기.
 
-    python -m poc.static_pipeline.main                      # 상태 없으면 init, 있으면 상태->HEAD 증분
-    python -m poc.static_pipeline.main --from <sha> --to <sha>   # 명시 구간 diff (상태 무시)
-    python -m poc.static_pipeline.main --init                    # 강제 init
-    python -m poc.static_pipeline.main --init --themes intro,architecture-overview
+    python -m backend.static_pipeline.main                      # 상태 없으면 init, 있으면 상태->HEAD 증분
+    python -m backend.static_pipeline.main --from <sha> --to <sha>   # 명시 구간 diff (상태 무시)
+    python -m backend.static_pipeline.main --init                    # 강제 init
+    python -m backend.static_pipeline.main --init --themes intro,architecture-overview
 
 상태 계약 (decision-registration-baseline · concept-idempotent-sha):
 - last_processed_sha 없음(=null) -> 전량 init. init 성공 시 sha 기록.

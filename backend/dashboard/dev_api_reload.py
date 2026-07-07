@@ -1,8 +1,8 @@
 """Dashboard API dev runner with polling hot reload.
 
-    python -m poc.dashboard.dev_api_reload
+    python -m backend.dashboard.dev_api_reload
 
-This intentionally stays dependency-free. It runs ``poc.dashboard.serve`` as a
+This intentionally stays dependency-free. It runs ``backend.dashboard.serve`` as a
 child process and restarts it when relevant Python files change.
 """
 from __future__ import annotations
@@ -15,11 +15,11 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[2]
 _WATCH_DIRS = [
-    _ROOT / "poc" / "common",
-    _ROOT / "poc" / "common_pipeline",
-    _ROOT / "poc" / "dashboard",
-    _ROOT / "poc" / "static_pipeline",
-    _ROOT / "poc" / "manual_pipeline",
+    _ROOT / "backend" / "common",
+    _ROOT / "backend" / "common_pipeline",
+    _ROOT / "backend" / "dashboard",
+    _ROOT / "backend" / "static_pipeline",
+    _ROOT / "backend" / "manual_pipeline",
 ]
 _SKIP_PARTS = {"__pycache__", ".venv", "node_modules", "dist"}
 
@@ -48,7 +48,7 @@ def _start(args: argparse.Namespace) -> subprocess.Popen:
     cmd = [
         sys.executable,
         "-m",
-        "poc.dashboard.serve",
+        "backend.dashboard.serve",
         "--host",
         args.host,
         "--port",

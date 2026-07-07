@@ -12,7 +12,7 @@ import re
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# poc/ 디렉터리 기준으로 .env 를 찾는다 (실행 위치와 무관하게).
+# backend/ 디렉터리 기준으로 .env 를 찾는다 (실행 위치와 무관하게).
 _POC_DIR = Path(__file__).resolve().parent.parent
 _ENV_FILE = _POC_DIR / ".env"
 

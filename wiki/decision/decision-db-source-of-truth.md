@@ -14,7 +14,14 @@ status: active
 - `last_processed_sha`가 매일 갱신 → 포인터 하나 바꾸는 커밋이 매일 쌓임
 - 사용자 등록 시점과 야간 배치의 sha 갱신 시점이 겹치면 push 충돌
 
-## 스키마 (3 테이블)
+## DB 엔진 + 다중 인스턴스 (2026-07-07)
+
+이 DB의 **엔진은 PostgreSQL**로 확정됐다(POC SQLite에서 이관) → [[decision-control-plane-postgresql]].
+또 스키마에 **`scm_instances`(kind·base_url·token·token_header)** 테이블이 더해지고, `sources`·`doc_targets`가
+인스턴스를 참조한다 — 등록 단위가 "레포"에서 "SCM 인스턴스 × 레포"로 확장돼 사내 GitLab·gitlab.com·github.com을
+모두 담는다 → [[decision-scm-multi-instance-github-mvp]]. 기존 `doc_targets.kind=gitlab` 하드코딩을 대체한다.
+
+## 스키마 (기본 4 테이블 + scm_instances)
 
 `sources`(project_id, doc_dir, enabled) — **레포 단위 1행** ·
 `source_branches`(source_id, role[dev|release], branch, baseline_sha, last_processed_sha, enabled) — **등록당 2행(개발·배포)** ·

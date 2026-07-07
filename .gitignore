@@ -9,8 +9,8 @@
 # Obsidian 그래프 뷰 상태 (zoom/scale 등 개인 UI)
 **/.obsidian/graph.json
 
-# ── PoC (poc/) ──────────────────────────────────────────────
-# 자격증명 — 절대 커밋 금지 (MiniMax API 키·GitLab 토큰·MCP endpoint)
+# ── 운영 코드 (backend/ · frontend/) ────────────────────────
+# 자격증명 — 절대 커밋 금지 (LLM API 키·GitLab/GitHub 토큰·MCP endpoint)
 .env
 **/.env
 !**/.env.example
@@ -20,16 +20,17 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
-poc/.venv/
 *.egg-info/
+.pytest_cache/
 
-# Dashboard frontend dependencies
+# Frontend dependencies / build
 node_modules/
-poc/dashboard/node_modules/
+frontend/dist/
 
-# PoC 실행 산출물 (생성 문서·관측 로그·스크린샷·체크포인트)
-poc/out/
-poc/output/
-poc/logs/
-poc/**/*.jsonl
-poc/**/*.sqlite
+# 실행 산출물 (생성 문서·관측 로그·스크린샷·체크포인트·이벤트)
+out/
+backend/out/
+backend/output/
+backend/logs/
+backend/**/*.jsonl
+backend/**/*.sqlite

@@ -1,6 +1,6 @@
 """공통 실행 엔트리 — 그래프 stream(custom)을 소비해 observer로 흘리고 결과 반환.
 
-`python -m poc.common.run --smoke` 로 LLM 1회 왕복 + custom 이벤트 방출을 검증한다 (L0).
+`python -m backend.common.run --smoke` 로 LLM 1회 왕복 + custom 이벤트 방출을 검증한다 (L0).
 """
 from __future__ import annotations
 

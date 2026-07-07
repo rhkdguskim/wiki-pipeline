@@ -32,6 +32,14 @@ status: active
 - **sha 포인터 멱등성** — sha 전진은 submit 성공 후에만. SCM 무관 → [[concept-idempotent-sha]]
 - **사람 리뷰 게이트** — GitLab MR = GitHub PR, 둘 다 사람이 머지 (AI 자동 머지 금지) → [[decision-mr-review-gate]]
 
+## MVP 승격 + 다중 인스턴스 (2026-07-07)
+
+이 커넥터 인터페이스의 **GitHub 구현이 MVP로 앞당겨졌고**, 등록 단위가 "레포"에서
+**"SCM 인스턴스 × 레포"**로 확장됐다 → [[decision-scm-multi-instance-github-mvp]]. GitLabConnector를
+base_url/token 주입식으로 두면 **사내 GitLab과 gitlab.com이 동일 구현**으로 붙고, `scm_instances` 테이블이
+인스턴스별 kind·base_url·token을 보관한다. 여기 표의 GitHub 구현(compare/PR/PAT)이 그대로 MVP 착수 대상이 된다.
+이는 [[decision-mvp-scope]]의 "GitLab 1 커넥터" 절단선을 부분 번복한 것이다.
+
 ## 실측 확인 (2026-07-06) — GitLab 구현이 실물 API로 실증됨
 
 [[2026-07-06-wish-gitlab-api-survey]]에서 GitLab 커넥터의 3책임이 일반 권한으로 전부 200 확인됐다:

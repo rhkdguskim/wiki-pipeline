@@ -1,12 +1,12 @@
 """매뉴얼 파이프라인 CLI 엔트리.
 
-    python -m poc.manual_pipeline.main                      # 전체 실행 (시나리오+탐색 -> 매뉴얼)
-    python -m poc.manual_pipeline.main --smoke              # L1/L2: MCP 연결 + 도구 로드 + 관측 1회
-    python -m poc.manual_pipeline.main --scenarios path.json
-    python -m poc.manual_pipeline.main --themes user-manual
-    python -m poc.manual_pipeline.main --no-explore         # 시나리오만 (결정적)
-    python -m poc.manual_pipeline.main --explore-steps 16
-    python -m poc.manual_pipeline.main --resume manual-xxxxxxxx   # 체크포인트 중단 재개 (L4)
+    python -m backend.manual_pipeline.main                      # 전체 실행 (시나리오+탐색 -> 매뉴얼)
+    python -m backend.manual_pipeline.main --smoke              # L1/L2: MCP 연결 + 도구 로드 + 관측 1회
+    python -m backend.manual_pipeline.main --scenarios path.json
+    python -m backend.manual_pipeline.main --themes user-manual
+    python -m backend.manual_pipeline.main --no-explore         # 시나리오만 (결정적)
+    python -m backend.manual_pipeline.main --explore-steps 16
+    python -m backend.manual_pipeline.main --resume manual-xxxxxxxx   # 체크포인트 중단 재개 (L4)
 """
 from __future__ import annotations
 
