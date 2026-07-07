@@ -45,6 +45,7 @@
 
 - [[decision-manual-pipeline-separate]] — 매뉴얼 추출은 Docu-Automatic과 별개 파이프라인
 - [[decision-artifact-consumption]] — 소스 빌드 대신 릴리스 아티팩트 소비
+- [[decision-artifact-type-dispatch]] — 아티팩트 타입 dispatch = exe/msi만 구동 대상(nuget·container 제외) · 자산은 담당자가 대시보드 지정 · MCP가 전송+설치 실행(silent install)까지
 - [[decision-release-tag-trigger]] — 릴리스/버전 태그 트리거 (매뉴얼 파이프라인)
 - [[decision-hybrid-app-traversal]] — 하이브리드 순회 (시나리오 + 자율 탐색)
 - [[decision-commit-history-manual-diff]] — 커밋 히스토리 + 관측으로 매뉴얼 add/update/delete

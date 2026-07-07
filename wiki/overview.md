@@ -81,7 +81,10 @@ flowchart TB
 
 정적 흐름이 코드 diff를 읽는다면, 이 파이프라인은 **실행 앱을 실제 구동·관측**해 사용자/엔지니어 매뉴얼을
 만든다 → [[entity-manual-pipeline]]. **릴리스/버전 태그**가 트리거이며([[decision-release-tag-trigger]]),
-소스를 빌드하지 않고 **릴리스 아티팩트**를 소비한다([[decision-artifact-consumption]]).
+소스를 빌드하지 않고 **릴리스 아티팩트**를 소비한다([[decision-artifact-consumption]]). 대상은
+**Windows 설치본(exe/msi)** 으로 한정하고(nuget·container 제외), 릴리스 자산 중 구동할 설치본은
+**담당자가 대시보드에서 지정**하며, MCP가 **전송 + 설치 실행(silent install)** 까지 수행해 구동 상태로 만든다
+→ [[decision-artifact-type-dispatch]].
 
 ```mermaid
 flowchart TB
@@ -156,14 +159,15 @@ flowchart TB
 
 **MVP 절단선 확정** (2026-07-07):
 
-- **MVP = 정적 + 매뉴얼 두 파이프라인 모두** → [[decision-mvp-scope]]. 위키 후보안(정적만)을 사용자가 매뉴얼 포함으로 확대해 open→decision으로 굳었다 → [[question-mvp-scope]] ✅. 매뉴얼 포함으로 [[question-artifact-type-dispatch]] 등 매뉴얼 open 질문이 MVP 블로커로 승격. SCM 커넥터는 MVP에서 GitLab 1개만, GitHub는 이후.
+- **MVP = 정적 + 매뉴얼 두 파이프라인 모두** → [[decision-mvp-scope]]. 위키 후보안(정적만)을 사용자가 매뉴얼 포함으로 확대해 open→decision으로 굳었다 → [[question-mvp-scope]] ✅. 매뉴얼 포함으로 매뉴얼 open 질문이 MVP 블로커로 승격됐고, 그중 **아티팩트 타입 dispatch가 2026-07-07 해소**됐다 → [[question-artifact-type-dispatch]] ✅. SCM 커넥터는 MVP에서 GitLab 1개만, GitHub는 이후.
 - 등록 baseline = **A(null → 전체 코드베이스 initialize)**, 초기 전량 backfill을 정기 야간 배치와 분리된 1급 작업으로 → [[decision-registration-baseline]] · [[question-initial-backfill-baseline]] ✅
 - 방치 소스 = **운영자 수동 큐레이션**(자동 판정 없음) → [[decision-source-manual-curation]] · [[question-ci-less-source-policy]] ✅
 - requirements ↔ dev-guide 경계 = **통합 없이 독자 축으로 명시** → [[decision-requirements-devguide-boundary]] · [[question-requirements-devguide-boundary]] ✅
+- 아티팩트 타입 dispatch = **exe/msi만 구동 대상 · 담당자가 대시보드에서 자산 지정 · MCP가 전송+설치 실행(silent install)까지** → [[decision-artifact-type-dispatch]] · [[question-artifact-type-dispatch]] ✅. 매뉴얼 파이프라인이 Windows 설치본 대상으로 구체화됐다.
 
 **미해결 (열린 질문)**:
 
-- 매뉴얼이 MVP에 포함되면서 매뉴얼 파이프라인 open 질문이 블로커로 남아 있다 → [[question-artifact-type-dispatch]] · [[question-release-object-vs-tag-trigger]]
+- 매뉴얼 MVP 블로커 중 트리거 확정이 남아 있다 → [[question-release-object-vs-tag-trigger]] (아티팩트 타입 dispatch는 해소 → [[decision-artifact-type-dispatch]])
 - (해소) headless 인증 블로커는 자체 에이전트 전환으로 질문 자체가 사라졌다 → [[question-headless-claude-auth]] ✅
 
 **근거 실측**: 인프라·등록 결정은 사내 GitLab을 실제 로그인해 API 표면을 실측한 근거 위에 있다 —

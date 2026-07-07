@@ -28,7 +28,7 @@
 - [[question-release-object-vs-tag-trigger]] — 트리거 = 태그 vs Release 객체 (태그 규칙 4종·태그≫릴리스 → [[decision-release-tag-trigger]])
 - [[question-ci-less-source-policy]] ✅ — CI/릴리스 없는 방치 소스(ros-codec류) 처리 정책 (answered: 운영자 수동 큐레이션, 자동 판정 없음 → [[decision-source-manual-curation]])
 - [[question-existing-ci-docs-stage]] — 기존 CI docs stage(ros-sw-rcs)와 우리 자동화의 공존/대체
-- [[question-artifact-type-dispatch]] — 아티팩트 타입 소스별(exe/msi/nuget/container) 획득·기동 (→ [[decision-artifact-consumption]])
+- [[question-artifact-type-dispatch]] ✅ — 아티팩트 타입 소스별(exe/msi/nuget/container) 획득·기동 (answered: exe/msi만 구동 대상 · 담당자 자산 선택 · MCP 설치 실행까지 → [[decision-artifact-type-dispatch]])
 
 ### 매뉴얼 추출 파이프라인 (2026-07-05)
 

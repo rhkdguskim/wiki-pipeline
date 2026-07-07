@@ -19,6 +19,7 @@
 ### 매뉴얼 추출 파이프라인
 
 - [[summary-manual-extraction-pipeline]] — 매뉴얼 추출 파이프라인 요약: MCP 구동 · 아티팩트 소비 · 라이프사이클 diff
+- [[summary-artifact-type-dispatch]] — 아티팩트 타입 dispatch 결정 요약: exe/msi만 · 담당자 자산 선택 · MCP 설치 실행까지
 
 ### 코드 인덱스 파이프라인 (2026-07-06 범위 제외)
 

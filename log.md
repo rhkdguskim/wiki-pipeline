@@ -456,3 +456,9 @@
 - 모순·중복: 없음. decision-mvp-scope는 후보안 대비 "확대(번복 아님)"로 명시, decision-source-manual-curation은 compare 404 자동 비활성화(decision-branch-loss-policy)와 경계 명시 → 상충 회피.
 - [[schema]] 참조(정책 판단, 오탐): [[schema]]는 6개 카탈로그 파일(index+5개 *-index)의 헤더 "규약: [[schema]]"에만 존재. schema.md는 wiki/ 밖 루트 파일이나 실재하므로 파일-존재 기준 깨진 링크 아님. 링크 규약(schema.md L74-75)이 wiki↔raw만 명시하고 루트 파일 참조 예외를 규정하지 않는 점은 규약 공백 — 카탈로그 헤더의 관례적 [[schema]]는 허용 예외로 두되, 필요 시 schema.md 링크 규약에 "루트 문서(schema/overview) 참조 허용"을 명문화할 여지로 보고.
 - 보고(수정 안 함, 판단 필요): log.md L217 `[[lint-report-2026-07-06]]` — 대상 파일(wiki/meta/lint-report-2026-07-06.md)이 6861098에서 추가, 26f9f42에서 off-schema로 삭제됨. 현재 대상 없음이나 이는 append-only 감사 로그의 과거 이력 항목이라 당시엔 유효했음. 소급 수정은 이력 왜곡이므로 미수정, 보고만.
+
+## [2026-07-07] ingest | 아티팩트 타입 dispatch 결정
+- raw: [[2026-07-07-artifact-type-dispatch-decision]] (기존 raw 재사용, 불변)
+- 생성: summary-artifact-type-dispatch, decision-artifact-type-dispatch
+- 갱신: question-artifact-type-dispatch (open→answered · 답 링크 + 검토항목 인라인 답 · blocking 태그 없음 확인), overview (② 매뉴얼 절에 exe/msi·담당자 자산 선택·MCP 설치 실행 구체화 · MVP 절단선에 블로커 해소 항목 추가 · 미해결 절에서 제거), index (decision 48→49·summary 16→17·answered 22→23·raw 20→21·총 108→110), decision-index (매뉴얼 추출 파이프라인 그룹 등재), summary-index (매뉴얼 추출 파이프라인 그룹 등재), question-index (artifact-type-dispatch ✅ answered + 답 링크)
+- 3건 처리: exe/msi 한정 · 담당자 대시보드 자산 선택 · MCP 설치 실행까지 — 세 답이 밀접(담당자 명시 + Windows 설치본 집중)해 단일 decision 페이지 decision-artifact-type-dispatch로 묶음(메커니즘은 decision-artifact-consumption·decision-scenario-owner-dashboard·entity-remote-control-mcp 링크로 위임). container 제외 경계를 question-ci-less-source-policy와 "MVP 매뉴얼 대상 밖"으로 연결.
