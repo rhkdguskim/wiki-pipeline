@@ -20,7 +20,7 @@ poc/
 │   ├── textproc.py      #   <think>·서문 제거, 혼재 텍스트 JSON 회수
 │   ├── retry.py         #   지수 백오프 재시도
 │   ├── mcp_bridge.py    #   MCP SSE 동기 브리지 (async 도구 -> 동기 래핑, 기록은 콜백 주입)
-│   ├── docshub.py       #   docs-hub MR 게이트 스텁 (두 파이프라인의 유일한 공유 접점)
+│   ├── docshub.py       #   docs-hub/product-common MR 계획·제출 게이트
 │   └── run.py           #   run_graph·final_text + `--smoke`
 ├── common_pipeline/     # 파이프라인 공통 계층 (재사용 에이전트·오케스트레이션 패턴)
 │   ├── run_context.py   #   러너 스캐폴드 (run_id·observer·run 이벤트·자원 정리)
@@ -29,9 +29,11 @@ poc/
 │   ├── parallel.py      #   에이전트 병렬 분배 (완료 순서 스트리밍)
 │   ├── theme.py         #   테마 계약 (ThemeSpec·brief) — 레지스트리 데이터는 파이프라인 소유
 │   └── output.py        #   생성 문서 저장 (strip_reasoning + .md)
-├── dashboard/           # 관측 대시보드 (events JSONL 소비자 — 실시간 피드백 I/F)
-│   ├── serve.py         #   표준 라이브러리 HTTP 서버: JSONL 바이트 오프셋 증분 tail API
-│   └── index.html       #   토큰·경과시간 KPI + 누적 토큰 차트 + 스테이지 표 + 라이브 피드
+├── dashboard/           # Agent View 대시보드 (React/Vite + API-only backend)
+│   ├── serve.py         #   JSON API: run/events/source/docs-hub/product-common MR plan
+│   ├── store.py         #   control-plane SQLite: sources, branches, docs targets
+│   ├── dev_api_reload.py#   Python hot reload wrapper
+│   └── src/             #   AI agent형 KPI/trace/source/product-common UI
 ├── static_pipeline/     # ① 정적 (코드 diff -> 기술문서) — 구현 완료
 └── manual_pipeline/     # ② 매뉴얼 (앱 관측 -> 매뉴얼) — 구현 완료(실측 전)
     ├── observation.py   #   관측 로그 (JSONL 영속, 근거 블록/커버리지 재료 — 브리지 기록 콜백의 목적지)
@@ -72,8 +74,16 @@ python -m poc.static_pipeline.main            # .env의 sha 사용
 python -m poc.static_pipeline.main --from <sha> --to <sha>
 # 산출: poc/out/{theme}.md + poc/out/events-*.jsonl
 
-# 관측 대시보드 (실행 중/종료된 run 실시간 모니터링 — 토큰·경과시간·스테이지·피드)
-python -m poc.dashboard.serve                 # http://127.0.0.1:8420 (파이프라인과 별도 프로세스)
+# 관측 대시보드 API (정적 서빙 없음 — JSON API만)
+python -m poc.dashboard.serve                 # http://127.0.0.1:8420/api
+
+# 프런트엔드 (별도 React/Vite 서버, /api는 8420으로 프록시)
+cd poc/dashboard
+npm install
+npm run dev                                   # Vite URL에서 확인
+
+# Python API hot reload
+python -m poc.dashboard.dev_api_reload
 
 # ② 매뉴얼 파이프라인 (MCP 관측 -> 독자 2축 매뉴얼)
 python -m poc.manual_pipeline.main --smoke    # L1/L2: MCP 연결 + 도구 로드 + 관측 1회
@@ -107,8 +117,17 @@ compare `899f3d9d..8e5eddb6`(TcpServer accept 예외처리 FIX, 13파일 → 소
 위키 설계를 그대로 구현: 하이브리드 순회(시나리오=결정적 뼈대 + 자율 탐색), 관측 grounding
 (매뉴얼 주장은 관측 로그에만 매단다 — critic이 로그 대조 검증), 독자 2축(user/operator),
 커버리지 측정+누락 표시, DELETE는 deprecated 유예 표시만(물리 삭제 없음), 탐색 체크포인트
-중단 재개(`--resume`). 아티팩트 수집·배포·MR·버전 포인터 전진은 스텁.
+중단 재개(`--resume`). 아티팩트 수집·버전 포인터 전진은 스텁이고,
+product-common MR 제출은 대시보드 API에서 run별 계획 생성 후 명시 요청으로 수행한다.
 `--smoke`로 L1/L2부터 실측한다 (MCP 서버 도구 이름 확인 → 시나리오 파일 보정).
+
+## product-common 제출 흐름
+
+- 대상 repo: `http://wish.mirero.co.kr/mirero/project/pcc/product-common`
+- 설정/토큰: `poc/.env`의 `DOCSHUB_*`와 control-plane DB(`poc/out/control-plane.sqlite`)에 보관한다. API 응답에는 토큰 값을 반환하지 않고 `has_token`만 노출한다.
+- MR 계획: `GET /api/docs-hub/mr-plan?run=<run_id>&target=product-common`
+- MR 제출: `POST /api/docs-hub/submit-mr` with `{ "run": "<run_id>", "target": "product-common", "confirm": "product-common" }`
+- 경로 규칙: `source_doc_dir/{dev|release}/{pipeline}/...`로 산출물을 매핑한다. 기본 source doc_dir가 없으면 source id를 사용한다.
 
 ## 자격증명
 
