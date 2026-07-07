@@ -8,3 +8,24 @@
 
 # Obsidian 그래프 뷰 상태 (zoom/scale 등 개인 UI)
 **/.obsidian/graph.json
+
+# ── PoC (poc/) ──────────────────────────────────────────────
+# 자격증명 — 절대 커밋 금지 (MiniMax API 키·GitLab 토큰·MCP endpoint)
+.env
+**/.env
+!**/.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+poc/.venv/
+*.egg-info/
+
+# PoC 실행 산출물 (생성 문서·관측 로그·스크린샷·체크포인트)
+poc/out/
+poc/output/
+poc/logs/
+poc/**/*.jsonl
+poc/**/*.sqlite
