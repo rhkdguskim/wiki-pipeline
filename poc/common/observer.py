@@ -18,7 +18,8 @@ except Exception:
 
 _LAYER_INDENT = {"run": 0, "stage": 1, "engine_call": 2, "agent_step": 3}
 _STATUS_MARK = {"running": ".", "done": "OK", "failed": "XX"}
-_KIND_MARK = {"thinking": "[think]", "tool_use": "[tool]", "tool_result": "[<-]", "usage": "[usage]"}
+_KIND_MARK = {"thinking": "[think]", "tool_use": "[tool]", "tool_result": "[<-]",
+              "usage": "[usage]", "llm_retry": "[retry]"}
 
 
 class Observer:
@@ -62,6 +63,8 @@ class Observer:
             return f"  {mark} {ok} {d.get('preview', '')[:80]}"
         if kind == "usage":
             return f"  {mark} in={d.get('input_tokens')} out={d.get('output_tokens')}"
+        if kind == "llm_retry":
+            return f"  {mark} attempt={d.get('attempt')} ({d.get('error')})"
         return ""
 
     def close(self) -> None:

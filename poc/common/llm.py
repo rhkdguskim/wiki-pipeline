@@ -25,7 +25,7 @@ def build_chat_model(settings: Settings) -> BaseChatModel:
             model=settings.llm_model,
             temperature=settings.llm_temperature,
             max_tokens=settings.llm_max_tokens,
-            timeout=120,
+            timeout=settings.llm_timeout,
             max_retries=0,  # 재시도는 common/retry.py가 관측과 함께 담당
         )
 

@@ -26,8 +26,9 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.minimax.io/v1"
     llm_api_key: str = ""
     llm_model: str = "MiniMax-M3"
-    llm_max_tokens: int = 8192
+    llm_max_tokens: int = 32768
     llm_temperature: float = 0.2
+    llm_timeout: float = 180.0
 
     # ── 정적: 사내 GitLab ──
     gitlab_url: str = "http://wish.mirero.co.kr"

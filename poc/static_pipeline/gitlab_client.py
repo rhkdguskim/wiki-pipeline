@@ -41,13 +41,40 @@ class GitLabClient:
         return resp.text
 
     def list_tree(self, path: str = "", ref: str = "HEAD") -> list[dict]:
-        """디렉터리 트리 (name/type/path)."""
+        """디렉터리 트리 (name/type/path). 단일 페이지(최대 100)."""
         url = f"{self.base}/projects/{self.project}/repository/tree"
         resp = self._client.get(
             url, params={"path": path, "ref": ref, "per_page": 100}
         )
         resp.raise_for_status()
         return resp.json()
+
+    def list_tree_all(self, ref: str = "HEAD", recursive: bool = True) -> list[dict]:
+        """레포 전체 트리를 페이지네이션으로 끝까지 모은다 (init/backfill용)."""
+        url = f"{self.base}/projects/{self.project}/repository/tree"
+        out: list[dict] = []
+        page = 1
+        while True:
+            resp = self._client.get(url, params={
+                "ref": ref, "recursive": str(recursive).lower(),
+                "per_page": 100, "page": page,
+            })
+            resp.raise_for_status()
+            batch = resp.json()
+            if not batch:
+                break
+            out.extend(batch)
+            next_page = resp.headers.get("x-next-page", "")
+            if not next_page:
+                break
+            page = int(next_page)
+        return out
+
+    def default_branch(self) -> str:
+        url = f"{self.base}/projects/{self.project}"
+        resp = self._client.get(url)
+        resp.raise_for_status()
+        return resp.json().get("default_branch", "master")
 
     def close(self) -> None:
         self._client.close()

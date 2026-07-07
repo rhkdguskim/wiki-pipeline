@@ -23,6 +23,21 @@ def save_theme_doc(out_dir: Path, theme: str, content: str) -> Path:
     return path
 
 
+def _safe_module_name(module: str) -> str:
+    """모듈 경로를 파일시스템 안전한 폴더명으로 (Src/engine -> Src__engine)."""
+    return module.replace("/", "__").replace("\\", "__").replace("(root)", "_root")
+
+
+def save_init_doc(out_dir: Path, module: str, theme: str, content: str) -> Path:
+    """init/backfill: 모듈별 하위폴더에 테마 문서 저장 (out/init/<module>/<theme>.md)."""
+    cleaned = strip_reasoning(content)
+    mod_dir = out_dir / "init" / _safe_module_name(module)
+    mod_dir.mkdir(parents=True, exist_ok=True)
+    path = mod_dir / f"{theme}.md"
+    path.write_text(cleaned, encoding="utf-8")
+    return path
+
+
 def submit_mr_stub(theme: str, path: Path, enabled: bool) -> str:
     """docs-hub MR 제출 자리. PoC는 스텁."""
     if enabled:

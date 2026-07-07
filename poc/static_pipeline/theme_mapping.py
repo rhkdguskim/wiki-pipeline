@@ -10,9 +10,23 @@ from __future__ import annotations
 _SKIP_SUFFIX = (".lib", ".dll", ".exe", ".obj", ".pdb", ".png", ".jpg", ".ico", ".zip")
 _SKIP_DIR_HINT = ("_prebuilt", "/bin/", "/obj/", "node_modules")
 
+# 서드파티/vendored 라이브러리는 우리 코드가 아니므로 문서화 제외.
+# 경로 세그먼트 단위로 매칭 (예: "Src/3rdparty/..." -> "3rdparty" 세그먼트).
+_VENDORED_SEGMENTS = {
+    "3rdparty", "third_party", "thirdparty", "vendor", "vendored",
+    "external", "extern", "deps", "dependencies", "packages",
+    "node_modules", "submodules",
+}
+
+
+def is_vendored(path: str) -> bool:
+    """경로에 서드파티/외부 라이브러리 디렉터리 세그먼트가 있으면 True."""
+    segs = [s.lower() for s in path.replace("\\", "/").split("/")]
+    return any(s in _VENDORED_SEGMENTS for s in segs)
+
 
 def filter_source_files(changed: list[str]) -> list[str]:
-    """빌드 산출물·바이너리를 걸러 실제 소스만 남긴다."""
+    """빌드 산출물·바이너리·서드파티를 걸러 우리 소스만 남긴다."""
     out = []
     for p in changed:
         low = p.lower()
@@ -20,8 +34,26 @@ def filter_source_files(changed: list[str]) -> list[str]:
             continue
         if any(h in low for h in _SKIP_DIR_HINT):
             continue
+        if is_vendored(p):
+            continue
         out.append(p)
     return out
+
+
+def group_by_module(paths: list[str], depth: int = 2) -> dict[str, list[str]]:
+    """전체 파일 경로를 상위 디렉터리(모듈) 단위로 그룹핑 (init/backfill용).
+
+    depth=2면 'Src/engine/foo.cpp' -> 모듈 'Src/engine'. 대형 레포를 모듈로 쪼개
+    모듈당 테마 문서를 생성하면 한 프롬프트 폭발을 자연히 피한다.
+    빌드 산출물·바이너리는 먼저 걸러낸다.
+    """
+    sources = filter_source_files(paths)
+    groups: dict[str, list[str]] = {}
+    for p in sources:
+        parts = p.split("/")
+        module = "/".join(parts[:depth]) if len(parts) > depth else "/".join(parts[:-1]) or "(root)"
+        groups.setdefault(module, []).append(p)
+    return groups
 
 
 def themes_for_changes(changed: list[str], all_themes: list[str]) -> dict[str, list[str]]:
@@ -36,18 +68,31 @@ def themes_for_changes(changed: list[str], all_themes: list[str]) -> dict[str, l
     if not sources:
         return {}
 
-    req_hints = (
+    build_hints = (
         "cmake", ".csproj", ".vcxproj", "makefile", "package.json",
         "requirements.txt", ".gitlab-ci", "dockerfile", ".sln", "vcpkg",
     )
-    req_files = [f for f in sources if any(h in f.lower() for h in req_hints)]
+    api_hints = (
+        "api", "protocol", "endpoint", "handler", "route", "controller",
+        "dispatcher", ".proto", "swagger", "openapi", "rpc",
+    )
+    build_files = [f for f in sources if any(h in f.lower() for h in build_hints)]
+    api_files = [f for f in sources if any(h in f.lower() for h in api_hints)]
 
     result: dict[str, list[str]] = {}
     for theme in all_themes:
         if theme == "requirements":
-            if req_files:
-                result[theme] = req_files
+            if build_files:
+                result[theme] = build_files
+        elif theme == "dev-guide":
+            # 빌드/개발 환경 관련 파일 변경 시.
+            if build_files:
+                result[theme] = build_files
+        elif theme == "api-protocol":
+            # API/프로토콜성 파일 변경 시에만 (opt-in 성격).
+            if api_files:
+                result[theme] = api_files
         else:
-            # 구조/개요/컴포넌트/intro는 소스 변경 전체를 근거로.
+            # intro / architecture-overview / component-diagram: 소스 변경 전체를 근거로.
             result[theme] = sources
     return result

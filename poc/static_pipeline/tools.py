@@ -9,7 +9,7 @@ from langchain_core.tools import StructuredTool
 
 from .gitlab_client import GitLabClient
 
-_MAX_CHARS = 12000   # 파일 원문 잘라내기 (컨텍스트 폭주 방지)
+_MAX_CHARS = 40000   # 파일 원문 잘라내기. M3 1M 컨텍스트라 넉넉히 (재-read 유발 방지)
 
 
 def make_tools(client: GitLabClient, ref: str) -> list:

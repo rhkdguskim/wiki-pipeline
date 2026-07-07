@@ -15,6 +15,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 
 from . import events as ev
 from .agent_spec import AgentSpec
+from .retry import with_retry
 
 
 def _summarize_ai(msg: AIMessage) -> str:
@@ -47,17 +48,27 @@ def build_agent_graph(spec: AgentSpec, model: BaseChatModel):
     def _count_tool_turns(messages: list) -> int:
         return sum(1 for m in messages if isinstance(m, AIMessage) and m.tool_calls)
 
+    def _on_retry(attempt: int, exc: BaseException | None) -> None:
+        ev.emit(ev.make_event(
+            pipeline_id=spec.pipeline_id, run_id=spec.run_id,
+            layer="agent_step", stage=spec.stage,
+            detail={"kind": "llm_retry", "attempt": attempt,
+                    "error": f"{type(exc).__name__}" if exc else ""},
+        ))
+
     def agent_node(state: dict) -> dict[str, Any]:
         messages = state["messages"]
         # 도구 호출 한도 초과 시: 도구 없는 모델 + 강제 지시로 마무리.
         over_budget = spec.tools and _count_tool_turns(messages) >= spec.max_steps
         if over_budget:
-            resp: AIMessage = model.invoke(
+            call = lambda: model.invoke(
                 [SystemMessage(content=spec.system_prompt + _FORCE), *messages]
             )
         else:
             # 시스템 프롬프트를 매 호출 앞에 (Full Reset 성격 — 컨텍스트는 messages로만).
-            resp = llm_with_tools.invoke([sys_msg, *messages])
+            call = lambda: llm_with_tools.invoke([sys_msg, *messages])
+        # APITimeoutError 등 일시 오류는 지수 백오프로 재시도 (MiniMax M3 타임아웃 대비).
+        resp: AIMessage = with_retry(call, attempts=4, on_retry=_on_retry)
 
         ev.emit(ev.make_event(
             pipeline_id=spec.pipeline_id, run_id=spec.run_id,
