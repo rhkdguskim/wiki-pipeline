@@ -148,6 +148,9 @@ def _reduce_and_save(
 
     # 상태 전진 — 전 테마가 (경고 포함) 저장됐을 때만 last_processed_sha를 기록한다.
     # 위키 계약(concept-idempotent-sha): 성공 후에만 전진, 실패 시 상태 불변 -> 재실행 안전.
+    # state-advance 실패는 run 전체 실패로 취급한다 — 문서는 만들어졌어도 sha가
+    # 전진하지 않으면 다음 실행이 같은 작업을 또 하게 되므로 "완료"로 보고하면 안 된다
+    # (decision-state-advance-failure-propagates).
     ok_docs = [t for t, i in summary["docs"].items() if "error" not in i]
     if ok_docs and len(ok_docs) == len(themes):
         try:
@@ -162,9 +165,10 @@ def _reduce_and_save(
             summary["last_processed_sha"] = head_sha
             rev("stage", "state-advance", "done",
                 detail={"last_processed_sha": head_sha[:12], "file": sp.name})
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — 이벤트로 남기고 run 실패로 전파(재발생)
             rev("stage", "state-advance", "failed",
                 detail={"error": f"{type(e).__name__}: {e}"})
+            raise
     else:
         rev("stage", "state-advance", "done",
             detail={"skipped": f"테마 {len(ok_docs)}/{len(themes)}만 성공 — sha 전진 안 함"})

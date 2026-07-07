@@ -323,10 +323,13 @@ td.ellipsis, th.ellipsis { max-width: 220px; }
 .narrativeCard.failed { border-color: color-mix(in srgb, var(--red), transparent 60%); background: color-mix(in srgb, var(--red), transparent 95%); }
 .narrativeCard.failed strong { color: var(--red); }
 .narrativeCard.stalled { border-color: color-mix(in srgb, var(--amber), transparent 60%); }
+.narrativeCard.partial { border-color: color-mix(in srgb, var(--amber), transparent 55%); background: color-mix(in srgb, var(--amber), transparent 95%); }
+.narrativeCard.partial strong { color: var(--amber); }
 .narrativeDetail { margin-top: 6px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .narrativeOrb { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); color: var(--muted); }
 .narrativeCard.done .narrativeOrb { color: var(--green); }
 .narrativeCard.failed .narrativeOrb { color: var(--red); }
+.narrativeCard.partial .narrativeOrb { color: var(--amber); }
 .narrativeOrb .spinner { width: 22px; height: 22px; border-width: 3px; }
 .narrativeFootnote { justify-self: start; display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; color: var(--soft); font-size: 11px; cursor: pointer; padding: 4px 0; }
 .narrativeFootnote:hover { color: var(--muted); }
@@ -335,6 +338,7 @@ td.ellipsis, th.ellipsis { max-width: 220px; }
 .progressHead span:last-child { font-weight: 650; color: var(--ink); }
 .progressBar { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
 .progressFill { height: 100%; border-radius: 999px; background: var(--blue); transition: width .4s ease; }
+.progressFill.warn { background: var(--amber); }
 .progressFoot { display: flex; justify-content: space-between; font-size: 11px; color: var(--soft); margin-top: 8px; }
 
 .docList { display: grid; gap: 8px; margin: 0 0 10px; padding: 0; list-style: none; }

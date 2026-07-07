@@ -1,10 +1,16 @@
-import {CheckCircle2, FileText, GitPullRequest, Radio, XCircle} from 'lucide-react';
+import {AlertTriangle, CheckCircle2, FileText, GitPullRequest, Radio, XCircle} from 'lucide-react';
 import {narrateStage} from '../lib/stageNarrative.js';
 import {fmtDur, fmtNum} from '../lib/format.js';
 
 function currentSentence({state, S, runSummary, activeRun}) {
   if (state === 'done') {
     const count = runSummary?.generated?.length ?? [...S.stages.values()].filter(s => s.status === 'done').length;
+    const failedStages = runSummary?.kpi?.stage_failed || 0;
+    if (failedStages > 0) {
+      // 정상 종료됐지만 일부 단계가 실패로 남은 경우 — 100% 완료처럼 보이지 않게 알려준다.
+      return {tone: 'partial', text: `문서 ${count}건은 만들었지만 일부 단계가 실패했어요`,
+              detail: '진행률 아래에서 실패한 단계를 확인하세요'};
+    }
     return {tone: 'done', text: `문서 ${count}건 생성을 마쳤어요`};
   }
   if (state === 'failed') {
@@ -45,6 +51,7 @@ export function OverviewNarrative({S, live, state, stages, activeRun, runSummary
       <div className="narrativeOrb">
         {sentence.tone === 'done' && <CheckCircle2 size={22} />}
         {sentence.tone === 'failed' && <XCircle size={22} />}
+        {sentence.tone === 'partial' && <AlertTriangle size={22} />}
         {(sentence.tone === 'running' || sentence.tone === 'stalled') && <span className="spinner" />}
       </div>
       <div>
@@ -58,7 +65,7 @@ export function OverviewNarrative({S, live, state, stages, activeRun, runSummary
         <span>진행률</span>
         <span>{pct}% {unitLabel && `· ${unitLabel}`}</span>
       </div>
-      <div className="progressBar"><div className="progressFill" style={{width: `${pct}%`}} /></div>
+      <div className="progressBar"><div className={`progressFill ${sentence.tone === 'partial' ? 'warn' : ''}`} style={{width: `${pct}%`}} /></div>
       <div className="progressFoot">
         <span>{done}/{total} 단계 완료</span>
         <span>경과 {fmtDur(elapsedMs)}</span>

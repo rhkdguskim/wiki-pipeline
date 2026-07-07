@@ -100,7 +100,12 @@ def run_static(settings: Settings, from_sha: str, to_sha: str | None,
 
 
 def _advance(settings, client, to_sha: str, summary: dict, rev) -> None:
-    """last_processed_sha 전진 (성공 경로에서만 호출)."""
+    """last_processed_sha 전진 (성공 경로에서만 호출).
+
+    실패하면 이벤트만 남기고 끝내지 않는다 — 문서는 만들어졌어도 sha가 전진하지
+    않으면 run을 "완료"로 보고할 수 없다 (decision-state-advance-failure-propagates).
+    재발생시켜 호출부(run_static)의 RunContext가 run failed로 마무리하게 한다.
+    """
     try:
         full = to_sha if len(to_sha) == 40 else client.resolve_ref(to_sha)
         sp = save_state(
@@ -114,6 +119,7 @@ def _advance(settings, client, to_sha: str, summary: dict, rev) -> None:
         summary["last_processed_sha"] = full
         rev("stage", "state-advance", "done",
             detail={"last_processed_sha": full[:12], "file": sp.name})
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — 이벤트로 남기고 run 실패로 전파(재발생)
         rev("stage", "state-advance", "failed",
             detail={"error": f"{type(e).__name__}: {e}"})
+        raise
