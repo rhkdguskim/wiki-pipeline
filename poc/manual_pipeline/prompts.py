@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from .themes import get_manual_theme, manual_theme_brief
+from .themes import get_theme, theme_brief
 
 # ── 자율 탐색 (하이브리드 순회의 보완 단계) ──
 
@@ -49,11 +49,11 @@ _MANUAL_WRITER_RULES = """## 방법 (반드시 지켜라)
 
 def manual_writer_prompt(theme_key: str, evidence_block: str, scenarios_block: str,
                          coverage_block: str, run_ref: str) -> str:
-    t = get_manual_theme(theme_key)
+    t = get_theme(theme_key)
     return f"""당신은 실행 중인 앱을 관측한 기록으로 매뉴얼을 작성하는 전문 테크니컬 라이터다.
 
 ## 매뉴얼 테마 정의 (이 문서가 지켜야 할 계약)
-{manual_theme_brief(theme_key)}
+{theme_brief(theme_key)}
 
 ## 시나리오 (매뉴얼의 뼈대 — 결정적으로 수행된 작업 흐름과 그 의도)
 {scenarios_block}
@@ -80,12 +80,12 @@ generated_from: {run_ref}
 
 
 def manual_critic_prompt(theme_key: str, doc_markdown: str, evidence_block: str) -> str:
-    t = get_manual_theme(theme_key)
+    t = get_theme(theme_key)
     return f"""당신은 생성된 매뉴얼을 검증하는 엄격한 critic이다. 아래 문서를 3단계로 검증하라.
 사실 대조는 아래 **관측 로그**로만 한다 — 이 로그가 유일한 사실 근거다.
 
 ## 테마 정의 (검증 기준)
-{manual_theme_brief(theme_key)}
+{theme_brief(theme_key)}
 
 ## 검증 대상 문서
 ```markdown

@@ -17,7 +17,7 @@ from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from ..common import events as ev
-from ..common.run import run_graph
+from ..common.run import final_text, run_graph
 from ..common.textproc import extract_json_obj
 from .graph import build_explorer_graph
 from .mcp_client import McpBridge
@@ -75,15 +75,9 @@ def run_exploration(
             "messages": [HumanMessage(content=(
                 "앱 탐색을 시작하라. 화면 정보 확인부터 시작해 안전하게 순회하고, "
                 "끝나면 커버리지 JSON만 출력하라."))],
-            "phase": "explore",
         }
         final = run_graph(graph, initial, observer, config=config)
-        messages = final.get("messages", [])
-        text = ""
-        if messages:
-            last = messages[-1]
-            text = last.content if isinstance(last.content, str) else str(last.content)
-        coverage = extract_json_obj(text, "visited")
+        coverage = extract_json_obj(final_text(final), "visited")
         if not coverage:
             coverage = {"visited": [], "unreached": [],
                         "notes": "탐색 에이전트가 커버리지 JSON을 출력하지 않음"}

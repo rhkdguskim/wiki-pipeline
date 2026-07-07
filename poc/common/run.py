@@ -6,10 +6,9 @@ from __future__ import annotations
 
 import argparse
 import uuid
-from typing import Annotated, Any, TypedDict
+from typing import Any
 
 from langchain_core.messages import HumanMessage
-from langgraph.graph.message import add_messages
 
 from . import events as ev
 from .agent_spec import AgentSpec
@@ -19,11 +18,8 @@ from .llm import build_chat_model
 from .observer import Observer
 
 
-class _SmokeState(TypedDict):
-    messages: Annotated[list, add_messages]
-
-
-def run_graph(graph, initial_state: dict, observer: Observer, *, config: dict | None = None) -> dict:
+def run_graph(graph, initial_state: dict | None, observer: Observer, *,
+              config: dict | None = None) -> dict:
     """그래프를 custom+values 스트림으로 실행. custom 이벤트는 observer로, 최종 상태는 반환."""
     final_state: dict[str, Any] = {}
     for mode, chunk in graph.stream(
@@ -34,6 +30,15 @@ def run_graph(graph, initial_state: dict, observer: Observer, *, config: dict | 
         elif mode == "values":
             final_state = chunk
     return final_state
+
+
+def final_text(final_state: dict) -> str:
+    """그래프 최종 상태의 마지막 메시지 텍스트 (비문자열 콘텐츠 방어) — 공용 추출 경로."""
+    messages = final_state.get("messages") or []
+    if not messages:
+        return ""
+    last = messages[-1]
+    return last.content if isinstance(last.content, str) else str(last.content)
 
 
 def _smoke() -> int:
@@ -56,7 +61,6 @@ def _smoke() -> int:
         pipeline_id="smoke",
         system_prompt="You are a terse assistant. Answer in one short sentence.",
         tools=[],
-        state_schema=_SmokeState,
         run_id=run_id,
         stage="smoke",
     )
@@ -68,8 +72,7 @@ def _smoke() -> int:
             {"messages": [HumanMessage(content="Reply with exactly: PoC runtime OK")]},
             observer,
         )
-        last = final["messages"][-1]
-        text = last.content if isinstance(last.content, str) else str(last.content)
+        text = final_text(final)
         observer.sink(ev.make_event(
             pipeline_id="smoke", run_id=run_id, layer="run",
             stage="smoke-test", status="done",

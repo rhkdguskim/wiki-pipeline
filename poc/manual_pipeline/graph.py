@@ -3,6 +3,7 @@
 common.graph.build_agent_graph(tool-use 루프)를 재사용하고 AgentSpec만 갈아끼운다
 (정적 graph.py와 같은 계약). explorer만 MCP 도구 + 체크포인터를 쥔다 —
 writer/critic은 관측 로그(불변 기록)가 근거라 도구가 필요 없다.
+상태는 공용 AgentState(messages) — 매뉴얼 고유 상태 필드는 없다.
 """
 from __future__ import annotations
 
@@ -13,7 +14,6 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from ..common.agent_spec import AgentSpec
 from ..common.graph import build_agent_graph
 from .prompts import explorer_prompt, manual_critic_prompt, manual_writer_prompt
-from .state import ManualState
 
 
 def build_explorer_graph(
@@ -25,7 +25,7 @@ def build_explorer_graph(
     spec = AgentSpec(
         pipeline_id="manual",
         system_prompt=explorer_prompt(app, max_steps, scenario_titles),
-        tools=tools, state_schema=ManualState, run_id=run_id,
+        tools=tools, run_id=run_id,
         stage="explore", max_steps=max_steps, checkpointer=checkpointer,
     )
     return build_agent_graph(spec, model)
@@ -39,7 +39,7 @@ def build_manual_writer_graph(
         pipeline_id="manual",
         system_prompt=manual_writer_prompt(
             theme_key, evidence_block, scenarios_block, coverage_block, run_ref),
-        tools=[], state_schema=ManualState, run_id=run_id,
+        tools=[], run_id=run_id,
         stage=f"write:{theme_key}",
     )
     return build_agent_graph(spec, model)
@@ -52,7 +52,7 @@ def build_critic_graph(
     spec = AgentSpec(
         pipeline_id="manual",
         system_prompt=manual_critic_prompt(theme_key, doc_markdown, evidence_block),
-        tools=[], state_schema=ManualState, run_id=run_id,
+        tools=[], run_id=run_id,
         stage=stage,
     )
     return build_agent_graph(spec, model)

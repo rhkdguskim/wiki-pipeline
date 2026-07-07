@@ -1,6 +1,7 @@
 """init map 단계 — 단위별 요약 에이전트를 병렬로 분배하는 오케스트레이션 레이어.
 
-계획 단위(구간)마다 요약 에이전트 1개를 배정하고 ThreadPoolExecutor로 병렬 실행한다.
+계획 단위(구간)마다 요약 에이전트 1개를 배정하고 병렬 실행한다
+(골격은 common_pipeline.parallel.parallel_map).
 이전 설계(단위를 25파일 그룹으로 재분할 -> 에이전트 폭증)가 너무 느려서, 단위당 1에이전트
 + 높은 병렬도로 단순화했다. 요약은 reduce 단계(레포 수준 테마 문서 합성)의 근거가 된다.
 
@@ -9,25 +10,19 @@ map을 다시 돌리지 않는다 (--reuse-summaries).
 """
 from __future__ import annotations
 
-import concurrent.futures
 import json
 from pathlib import Path
-from typing import Annotated, TypedDict
 
 from langchain_core.messages import HumanMessage
-from langgraph.graph.message import add_messages
 
 from ..common.agent_spec import AgentSpec
 from ..common.graph import build_agent_graph
-from ..common.run import run_graph
+from ..common.run import final_text, run_graph
 from ..common.textproc import strip_reasoning
+from ..common_pipeline.parallel import parallel_map
 from .tools import make_tools
 
 _MAX_CONCURRENCY = 6   # 단위 요약 동시 실행 상한 (API rate 고려)
-
-
-class _SummaryState(TypedDict):
-    messages: Annotated[list, add_messages]
 
 
 def _summary_prompt(unit_name: str, kind: str, root_path: str, files: list[str]) -> str:
@@ -65,8 +60,7 @@ def _summarize_unit(model, client, ref, run_id, unit: dict, observer):
         pipeline_id="static",
         system_prompt=_summary_prompt(name, unit.get("kind", ""), unit["root_path"], unit["_files"]),
         tools=make_tools(client, ref=ref),
-        state_schema=_SummaryState, run_id=run_id,
-        stage=f"map:{name}", max_steps=8,
+        run_id=run_id, stage=f"map:{name}", max_steps=8,
     )
     graph = build_agent_graph(spec, model)
     final = run_graph(
@@ -74,9 +68,7 @@ def _summarize_unit(model, client, ref, run_id, unit: dict, observer):
         {"messages": [HumanMessage(content=f"단위 '{name}'을 스캔해 구조적 요약을 출력하라.")]},
         observer, config={"recursion_limit": 30},
     )
-    last = final["messages"][-1]
-    text = last.content if isinstance(last.content, str) else str(last.content)
-    return name, strip_reasoning(text)
+    return name, strip_reasoning(final_text(final))
 
 
 def map_unit_summaries(
@@ -100,24 +92,20 @@ def map_unit_summaries(
     emit_ctx("stage", "map", "running", detail={"units": len(units), "concurrency": _MAX_CONCURRENCY})
     results: list[tuple[str, str]] = []
     done = 0
-    with concurrent.futures.ThreadPoolExecutor(max_workers=_MAX_CONCURRENCY) as ex:
-        futs = {
-            ex.submit(_summarize_unit, model, client, ref, run_id, u, observer):
-                (u.get("name") or u["root_path"])
-            for u in units
-        }
-        for fut in concurrent.futures.as_completed(futs):
-            uname = futs[fut]
-            done += 1
-            try:
-                results.append(fut.result())
-                emit_ctx("stage", "map", "running",
-                         progress={"n": done, "m": len(units), "unit": "unit"},
-                         detail={"unit_done": uname})
-            except Exception as e:  # noqa: BLE001
-                emit_ctx("stage", "map", "running",
-                         progress={"n": done, "m": len(units), "unit": "unit"},
-                         detail={"unit_failed": uname, "error": f"{type(e).__name__}: {e}"})
+    for u, res, exc in parallel_map(
+            units, lambda u: _summarize_unit(model, client, ref, run_id, u, observer),
+            max_workers=_MAX_CONCURRENCY):
+        uname = u.get("name") or u["root_path"]
+        done += 1
+        if exc is None:
+            results.append(res)
+            emit_ctx("stage", "map", "running",
+                     progress={"n": done, "m": len(units), "unit": "unit"},
+                     detail={"unit_done": uname})
+        else:
+            emit_ctx("stage", "map", "running",
+                     progress={"n": done, "m": len(units), "unit": "unit"},
+                     detail={"unit_failed": uname, "error": f"{type(exc).__name__}: {exc}"})
 
     if cache_path:
         cache_path.parent.mkdir(parents=True, exist_ok=True)

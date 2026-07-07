@@ -84,5 +84,12 @@ class GitLabClient:
         resp.raise_for_status()
         return resp.json().get("default_branch", "master")
 
+    def project_name(self) -> str:
+        """프로젝트 표시 이름 (init 문서의 저장소 서술용)."""
+        url = f"{self.base}/projects/{self.project}"
+        resp = self._client.get(url)
+        resp.raise_for_status()
+        return resp.json().get("name", "")
+
     def close(self) -> None:
         self._client.close()

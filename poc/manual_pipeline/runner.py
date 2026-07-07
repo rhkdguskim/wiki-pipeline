@@ -10,24 +10,24 @@ entity-manual-pipeline의 실행 흐름을 PoC 범위로 구현한다:
   7) 보고          — 버전 포인터 전진은 MR 머지 후 (PoC 스텁, concept-idempotent-sha)
 
 판단(탐색·생성·검증)만 에이전트, 나머지는 일반 코드 — 정적 러너와 같은 계약.
+러너 골격(run_id·observer·run 이벤트·자원 정리)은 common_pipeline.run_context 공용.
 """
 from __future__ import annotations
 
 import json
-import uuid
 from pathlib import Path
 
 from ..common.config import Settings
 from ..common.docshub import submit_mr_stub
 from ..common.llm import build_chat_model
-from ..common.observer import Observer
-from .generate import generate_manual_with_critic
+from ..common_pipeline.output import save_doc
+from ..common_pipeline.run_context import RunContext
+from .generate import generate_with_critic
 from .lifecycle import judge_action, mark_deprecated_candidates
 from .mcp_client import McpBridge
 from .observation import ObservationLog
-from .output import save_manual_doc
 from .scenarios import load_scenarios, scenarios_summary
-from .themes import DEFAULT_MANUAL_THEMES
+from .themes import DEFAULT_THEMES
 from .traversal import run_exploration, run_scenarios
 
 
@@ -40,26 +40,24 @@ def run_manual(
     resume_run_id: str | None = None,
     no_explore: bool = False,
 ) -> dict:
-    run_id = resume_run_id or "manual-" + uuid.uuid4().hex[:8]
     resume = bool(resume_run_id)
     if explore_steps:
         settings.manual_explore_steps = explore_steps
-    themes = themes or settings.manual_theme_list or DEFAULT_MANUAL_THEMES
+    themes = themes or settings.manual_theme_list or DEFAULT_THEMES
 
-    observer = Observer(run_id, settings.out_path)
-    out_dir = settings.out_path / "manual"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    # 관측 JSONL은 run_id 단위 영속 — resume 시 이어서 기록·재사용한다.
-    log = ObservationLog.load(out_dir / f"observations-{run_id}.jsonl")
-    bridge = McpBridge(settings, log, out_dir / "shots", run_id)
-    rev = observer.emitter("manual", run_id)
-    summary: dict = {"run_id": run_id, "themes": {}, "observations": 0,
-                     "coverage": {}, "lifecycle": {}, "warned": []}
+    with RunContext("manual", settings, run_stage="manual-run",
+                    run_id=resume_run_id) as ctx:
+        rev = ctx.rev
+        out_dir = settings.out_path / "manual"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        # 관측 JSONL은 run_id 단위 영속 — resume 시 이어서 기록·재사용한다.
+        log = ctx.track(ObservationLog.load(out_dir / f"observations-{ctx.run_id}.jsonl"))
+        bridge = ctx.track(McpBridge(settings, log, out_dir / "shots", ctx.run_id))
+        summary: dict = {"run_id": ctx.run_id, "themes": {}, "observations": 0,
+                         "coverage": {}, "lifecycle": {}, "warned": []}
 
-    try:
-        rev("run", "manual-run", "running",
-            detail={"endpoint": settings.mcp_endpoint_url,
-                    "transport": settings.mcp_transport, "resume": resume})
+        ctx.start(detail={"endpoint": settings.mcp_endpoint_url,
+                          "transport": settings.mcp_transport, "resume": resume})
 
         # 1·2) 아티팩트·배포 — PoC 스텁 (흐름 자리 유지)
         rev("stage", "artifact", "done",
@@ -87,8 +85,8 @@ def run_manual(
             rev("stage", "traverse-explore", "running",
                 detail={"max_steps": settings.manual_explore_steps, "resume": resume})
             explore_cov = run_exploration(
-                model=model, bridge=bridge, settings=settings, run_id=run_id,
-                observer=observer, log=log, scenario_set=scenario_set,
+                model=model, bridge=bridge, settings=settings, run_id=ctx.run_id,
+                observer=ctx.observer, log=log, scenario_set=scenario_set,
                 resume=resume, out_dir=out_dir,
             )
             rev("stage", "traverse-explore", "done",
@@ -103,7 +101,7 @@ def run_manual(
             "note": ("visited/unreached는 탐색 에이전트 자기보고 기반 추정 — "
                      "전체 기능 집합 산정은 열린 문제(위키 decision-coverage-metric-gap)"),
         }
-        (out_dir / f"coverage-{run_id}.json").write_text(
+        (out_dir / f"coverage-{ctx.run_id}.json").write_text(
             json.dumps(coverage, ensure_ascii=False, indent=2), encoding="utf-8")
         summary["coverage"] = coverage
         summary["observations"] = len(log.items)
@@ -112,8 +110,7 @@ def run_manual(
                     "unreached": explore_cov.get("unreached", [])[:5]})
 
         if not log.items:
-            rev("run", "manual-run", "failed",
-                detail={"error": "관측 0건 — 시나리오·탐색 모두 근거를 만들지 못함"})
+            ctx.failed({"error": "관측 0건 — 시나리오·탐색 모두 근거를 만들지 못함"})
             return summary
 
         # 5) 매뉴얼 생성 + 라이프사이클 (concept-observation-grounding / manual-lifecycle-diff)
@@ -126,13 +123,13 @@ def run_manual(
             rev("engine_call", stage, "running",
                 progress={"n": i, "m": len(themes), "unit": "manual"},
                 detail={"lifecycle": action})
-            doc_md, verdict, warned = generate_manual_with_critic(
+            doc_md, verdict, warned = generate_with_critic(
                 model=model, theme_key=theme, evidence=evidence,
                 scenarios_block=scenarios_block, coverage_block=coverage_block,
-                run_id=run_id, run_ref=run_id, stage=stage,
-                observer=observer, emit_ctx=rev,
+                run_id=ctx.run_id, run_ref=ctx.run_id, stage=stage,
+                observer=ctx.observer, emit_ctx=rev,
             )
-            path = save_manual_doc(out_dir, theme, doc_md)
+            path = save_doc(out_dir, theme, doc_md)
             mr = submit_mr_stub(theme, path, settings.docshub_mr_enabled)   # 6) 제출
             summary["themes"][theme] = {
                 "file": str(path), "chars": path.stat().st_size,
@@ -151,58 +148,46 @@ def run_manual(
         rev("stage", "lifecycle", "done", detail={"deprecated_candidates": marked})
 
         # 7) 보고 — 버전 포인터 전진은 MR 머지 후에만 (PoC 스텁)
-        rev("run", "manual-run", "done",
-            detail={"themes": list(summary["themes"]), "observations": len(log.items),
-                    "note": "버전 포인터 전진은 MR 머지 후 — PoC 스텁"})
+        ctx.done(detail={"themes": list(summary["themes"]), "observations": len(log.items),
+                         "note": "버전 포인터 전진은 MR 머지 후 — PoC 스텁"})
         return summary
-    except Exception as e:  # noqa: BLE001
-        rev("run", "manual-run", "failed", detail={"error": f"{type(e).__name__}: {e}"})
-        raise
-    finally:
-        bridge.close()
-        log.close()
-        observer.close()
 
 
 def run_smoke(settings: Settings) -> int:
     """L1/L2 스모크: MCP 연결 + 도구 로드 + 관측 도구 1회 호출. LLM 불필요."""
-    run_id = "manual-smoke-" + uuid.uuid4().hex[:8]
-    observer = Observer(run_id, settings.out_path)
-    out_dir = settings.out_path / "manual"
-    log = ObservationLog(out_dir / f"observations-{run_id}.jsonl")
-    log.set_phase("smoke")
-    bridge = McpBridge(settings, log, out_dir / "shots", run_id)
-    rev = observer.emitter("manual", run_id)
-    try:
-        rev("run", "manual-smoke", "running", detail={"endpoint": settings.mcp_endpoint_url})
-        names = bridge.connect()
-        rev("stage", "connect", "done", detail={"tools": len(names)})
-        print(f"\n✓ MCP 연결: 도구 {len(names)}개 로드 (L1)")
-        print("  " + ", ".join(names[:12]) + (" ..." if len(names) > 12 else ""))
+    with RunContext("manual", settings, prefix="manual-smoke",
+                    run_stage="manual-smoke") as ctx:
+        rev = ctx.rev
+        out_dir = settings.out_path / "manual"
+        log = ctx.track(ObservationLog(out_dir / f"observations-{ctx.run_id}.jsonl"))
+        log.set_phase("smoke")
+        bridge = ctx.track(McpBridge(settings, log, out_dir / "shots", ctx.run_id))
+        try:
+            ctx.start(detail={"endpoint": settings.mcp_endpoint_url})
+            names = bridge.connect()
+            rev("stage", "connect", "done", detail={"tools": len(names)})
+            print(f"\n✓ MCP 연결: 도구 {len(names)}개 로드 (L1)")
+            print("  " + ", ".join(names[:12]) + (" ..." if len(names) > 12 else ""))
 
-        # 관측 도구 후보를 우선순위로 찾아 1회 호출 (L2: 관측 실증)
-        probe = None
-        for key in ("screen_info", "screenshot", "snapshot", "capture"):
-            probe = next((n for n in names if key in n.lower()), None)
+            # 관측 도구 후보를 우선순위로 찾아 1회 호출 (L2: 관측 실증)
+            probe = None
+            for key in ("screen_info", "screenshot", "snapshot", "capture"):
+                probe = next((n for n in names if key in n.lower()), None)
+                if probe:
+                    break
             if probe:
-                break
-        if probe:
-            ok, text = bridge.call(probe, {})
-            rev("stage", "observe", "done" if ok else "failed",
-                detail={"tool": probe, "preview": text[:200]})
-            print(f"\n{'✓' if ok else '✗'} 관측 도구 {probe}: {text[:200]}")
-        else:
-            print("\n· 관측 도구(screen/capture 계열)를 찾지 못함 — 도구 이름 확인 필요")
+                ok, text = bridge.call(probe, {})
+                rev("stage", "observe", "done" if ok else "failed",
+                    detail={"tool": probe, "preview": text[:200]})
+                print(f"\n{'✓' if ok else '✗'} 관측 도구 {probe}: {text[:200]}")
+            else:
+                print("\n· 관측 도구(screen/capture 계열)를 찾지 못함 — 도구 이름 확인 필요")
 
-        rev("run", "manual-smoke", "done", detail={"tools": len(names), "probe": probe})
-        print(f"✓ 이벤트 로그: {observer.jsonl_path}")
-        print(f"✓ 관측 로그: {log.path}")
-        return 0
-    except Exception as e:  # noqa: BLE001
-        rev("run", "manual-smoke", "failed", detail={"error": f"{type(e).__name__}: {e}"})
-        print(f"\n✗ 스모크 실패: {type(e).__name__}: {e}")
-        return 1
-    finally:
-        bridge.close()
-        log.close()
-        observer.close()
+            ctx.done(detail={"tools": len(names), "probe": probe})
+            print(f"✓ 이벤트 로그: {ctx.observer.jsonl_path}")
+            print(f"✓ 관측 로그: {log.path}")
+            return 0
+        except Exception as e:  # noqa: BLE001
+            ctx.failed({"error": f"{type(e).__name__}: {e}"})
+            print(f"\n✗ 스모크 실패: {type(e).__name__}: {e}")
+            return 1

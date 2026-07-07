@@ -5,7 +5,7 @@
 도구 호출 텍스트 유출은 다음 시도에서 도구를 떼어(no_tools) 구조적으로 차단한다.
 
 파이프라인별 차이(writer 구성·결정적 lint·critic 프롬프트·근거 소스)는 콜러블로
-주입받는다 — common은 파이프라인을 모른다 (agent_spec과 같은 계약).
+주입받는다 — 이 계층은 파이프라인을 모른다 (agent_spec과 같은 계약).
 """
 from __future__ import annotations
 
@@ -14,10 +14,14 @@ from typing import Callable
 
 from langchain_core.messages import HumanMessage
 
-from .run import run_graph
-from .textproc import extract_json_obj
+from ..common.run import final_text, run_graph
+from ..common.textproc import extract_json_obj
 
 MAX_RETRY = 2   # 원본 Hard Cap
+
+# critic류 판정 요청의 표준 지시문 (두 파이프라인 공통).
+CRITIC_ASK = ("이 문서를 3단계로 검증하라. 최종 출력은 반드시 JSON 오브젝트 하나만 — "
+              "그 외 텍스트·설명·도구 호출 흉내 금지.")
 
 # 모델이 도구 호출을 텍스트로 유출할 때 나타나는 마커 (공급자 무관).
 _GARBAGE_MARKERS = ("<tool_call>", "<invoke name=", "</invoke>")
@@ -35,6 +39,9 @@ def invalid_doc_reason(doc_md: str, *, fm_key: str = "theme:", min_len: int = 50
         return f"문서가 너무 짧다 ({len(doc_md)}자) — 완전한 문서를 출력할 것"
     if doc_md.count("```") % 2 != 0:
         return "코드 펜스(```)가 닫히지 않았다 — 문서가 중간에 잘린 것. 전체 문서를 완결해 출력할 것"
+    tail = [ln.strip() for ln in doc_md.rstrip().splitlines()[-2:]]
+    if tail and tail[-1].startswith("#"):
+        return f"문서가 빈 섹션 헤딩({tail[-1][:40]!r})으로 끝난다 — 내용이 잘린 것. 완결해 출력할 것"
     return None
 
 
@@ -47,21 +54,29 @@ def apply_warn_tag(doc_md: str) -> str:
 
 
 def run_json_verdict(
-    graph_factory: Callable[[], object], ask: str, observer, *,
-    key: str = "result", allowed: tuple = ("pass", "fail"),
-    rounds: int = 2, recursion_limit: int = 20, extra_state: dict | None = None,
+    graph_factory: Callable[..., object], observer, *,
+    ask: str = CRITIC_ASK, key: str = "result", allowed: tuple = ("pass", "fail"),
+    rounds: int = 3, recursion_limit: int = 20,
 ) -> dict:
-    """critic류 판정 1건 실행 — JSON 파싱 실패 시 그래프 재생성·재시도 후 fail 처리."""
-    for _round in range(rounds):
-        graph = graph_factory()
+    """critic류 판정 1건 실행 — JSON 파싱 실패 시 그래프 재생성·재시도 후 fail 처리.
+
+    마지막 라운드는 도구 없이(no_tools) 실행 — 판정자가 탐색하다 JSON을 못 내는 것을
+    구조적으로 차단한다 (writer의 no_tools 안전판과 같은 패턴). factory가 no_tools
+    인자를 안 받으면 기본 그래프로 폴백.
+    """
+    for round_no in range(rounds):
+        last_round = round_no == rounds - 1
+        try:
+            graph = graph_factory(no_tools=True) if last_round else graph_factory()
+        except TypeError:
+            graph = graph_factory()
+        prompt = ask if not last_round else (
+            ask + "\n\n[시스템] 도구 없이 지금까지의 근거만으로 즉시 JSON 판정만 출력하라.")
         final = run_graph(
-            graph,
-            {"messages": [HumanMessage(content=ask)], **(extra_state or {})},
+            graph, {"messages": [HumanMessage(content=prompt)]},
             observer, config={"recursion_limit": recursion_limit},
         )
-        last = final["messages"][-1]
-        text = last.content if isinstance(last.content, str) else str(last.content)
-        verdict = extract_json_obj(text, key)
+        verdict = extract_json_obj(final_text(final), key)
         if verdict.get(key) in allowed:
             return verdict
     return {"result": "fail",
@@ -82,7 +97,7 @@ def verified_generate(
     """write -> 형식검증 -> lint -> critic -> 재시도. (doc, verdict, warned) 반환.
 
     재시도는 재작성이 아니라 **수정**이다 — 직전의 형식 유효한 문서(prev_doc)를 피드백과
-    함께 넘겨 지적 부분만 고치게 한다 (원본 Docu-Automatic의 draft 핀포인트 수정 이식).
+    함께 넘겨 지적 부분만 고치게 한다 (compose_write_prompt가 표준 조립을 제공).
     매번 처음부터 다시 쓰면 다른 곳에 새 오류가 생기는 두더지잡기가 된다.
     """
     feedback: list[str] = []

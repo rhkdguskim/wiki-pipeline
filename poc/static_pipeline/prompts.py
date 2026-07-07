@@ -36,27 +36,6 @@ def plan_system_prompt(ref: str, top_level: list[str]) -> str:
 """
 
 
-UNIT_PLAN_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "units": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "root_path": {"type": "string"},
-                    "kind": {"type": "string"},
-                    "why": {"type": "string"},
-                },
-                "required": ["name", "root_path"],
-            },
-        }
-    },
-    "required": ["units"],
-}
-
-
 # ── docu-writer (문서 작성) ──
 
 _WRITER_RULES = """## 방법 (원본 docu-writer 규칙 — 엄격히 지켜라)
@@ -129,9 +108,10 @@ def repo_writer_prompt(theme_id: str, repo_name: str, ref: str, summaries_block:
              f"  담겨 있지만, 그대로 옮기지 마라. 이 문서의 do_not_cover에 걸리는 세부(클래스 명세,\n"
              f"  설정 상수·타임아웃 값, 내부 구현 방식, 메시지 코드)는 **버리고**, 컴포넌트·모듈\n"
              f"  수준으로 추상화해 서술한다. 요약의 세부는 '무엇이 있는지 아는 근거'로만 쓴다.\n"
-             f"- **수치 절제 규칙 — 매우 중요**: 버전 번호·개수·기본값(ON/OFF)·연도 같은 구체 수치는\n"
-             f"  위 요약 또는 직접 read_file로 확인한 내용에 **문자 그대로** 있을 때만 쓴다.\n"
-             f"  기억·추정으로 수치를 만들어내지 마라 — 불확실하면 수치 없이 서술하거나 생략한다.\n"
+             f"- **수치·명칭 절제 규칙 — 매우 중요**: 버전 번호·개수·기본값(ON/OFF)·연도 같은 구체\n"
+             f"  수치와, 기술 스택 구성요소 이름(라이브러리·미들웨어·프레임워크·툴킷 — 예: 특정 웹서버,\n"
+             f"  특정 GUI 툴킷)은 위 요약 또는 직접 read_file로 확인한 내용에 **문자 그대로** 있을 때만\n"
+             f"  쓴다. 기억·추정·일반 상식으로 만들어내지 마라 — 불확실하면 생략한다.\n"
              f"- **다이어그램 근거 규칙**: mermaid의 노드·엣지(의존 관계)는 요약의 '의존·통신' 항목에\n"
              f"  명시된 관계만 그린다. 그럴듯해 보여도 요약에 없는 화살표는 추가하지 마라.\n"
              f"- 표를 적극 활용하라: 컴포넌트 역할 표, 기술 스택 표, 포트/의존성 표 등.\n"
@@ -181,16 +161,3 @@ def critic_prompt(theme_id: str, doc_markdown: str, source_files_read: list[str]
 {{"result": "pass|fail", "stage1_valid": true, "theme_fitness": "pass|fail", "grounding": "pass|fail", "feedback": ["라인/근거를 포함한 구체 지적 (fail 시)"]}}
 result는 stage1_valid AND theme_fitness==pass AND grounding==pass 일 때만 pass.
 """
-
-
-CRITIC_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "result": {"type": "string"},
-        "stage1_valid": {"type": "boolean"},
-        "theme_fitness": {"type": "string"},
-        "grounding": {"type": "string"},
-        "feedback": {"type": "array", "items": {"type": "string"}},
-    },
-    "required": ["result"],
-}

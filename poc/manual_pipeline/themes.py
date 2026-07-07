@@ -2,28 +2,17 @@
 
 decision-manual-taxonomy-two-reader: 산출 매뉴얼은 **독자** 기준 2축으로만 나눈다 —
 사용자(작업 중심 how-to) / 운영파트·셋업자(설치·설정·트러블슈팅). 형식 축(how-to vs
-레퍼런스)은 도입하지 않는다. 정적 파이프라인 themes.py와 같은 사상(데이터로 열어 확장
-용이)이되, 파이프라인이 별개이므로 레지스트리도 별개다 (decision-manual-pipeline-separate).
+레퍼런스)은 도입하지 않는다. 스키마·brief 렌더링은 common_pipeline.theme 공용 계약을
+쓰고 이 모듈은 데이터만 소유한다 — 파이프라인이 별개이므로 레지스트리도 별개다
+(decision-manual-pipeline-separate). 정적 themes.py와 같은 모양(THEMES·DEFAULT_THEMES·
+get_theme·theme_brief)이라 두 파이프라인이 같은 이름 계약으로 테마를 소비한다.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from ..common_pipeline.theme import ThemeSpec, brief, lookup
 
-
-@dataclass(frozen=True)
-class ManualTheme:
-    id: str                        # 최종 문서 frontmatter의 theme 값
-    name: str                      # 사람이 읽는 이름
-    audience_axis: str             # "user" | "operator" — 독자 축 (1차 분류)
-    perspective: str               # 이 매뉴얼이 취하는 관점
-    audience: str                  # 대상 독자 서술
-    writing_style: str
-    must_cover: list[str] = field(default_factory=list)
-    do_not_cover: list[str] = field(default_factory=list)
-
-
-MANUAL_THEMES: dict[str, ManualTheme] = {
-    "user-manual": ManualTheme(
+THEMES: dict[str, ThemeSpec] = {
+    "user-manual": ThemeSpec(
         id="manual/user-guide",
         name="사용자 매뉴얼",
         audience_axis="user",
@@ -42,7 +31,7 @@ MANUAL_THEMES: dict[str, ManualTheme] = {
             "관측되지 않은 기능의 추측 서술",
         ],
     ),
-    "operator-manual": ManualTheme(
+    "operator-manual": ThemeSpec(
         id="manual/operator-setup",
         name="운영파트(셋업자) 매뉴얼",
         audience_axis="operator",
@@ -63,26 +52,13 @@ MANUAL_THEMES: dict[str, ManualTheme] = {
     ),
 }
 
-DEFAULT_MANUAL_THEMES = list(MANUAL_THEMES)
+DEFAULT_THEMES = list(THEMES)
 
 
-def get_manual_theme(theme_key: str) -> ManualTheme:
-    if theme_key not in MANUAL_THEMES:
-        raise KeyError(f"알 수 없는 매뉴얼 테마: {theme_key!r}. 등록: {list(MANUAL_THEMES)}")
-    return MANUAL_THEMES[theme_key]
+def get_theme(theme_key: str) -> ThemeSpec:
+    return lookup(THEMES, theme_key)
 
 
-def manual_theme_brief(theme_key: str) -> str:
-    """프롬프트에 넣을 테마 정의 블록 (정적 theme_brief와 같은 계약)."""
-    t = get_manual_theme(theme_key)
-    must = "\n".join(f"    - {m}" for m in t.must_cover)
-    dont = "\n".join(f"    - {d}" for d in t.do_not_cover)
-    return (
-        f"- 테마: **{t.name}** (`{t.id}`)\n"
-        f"- 독자 축(audience_axis): {t.audience_axis}\n"
-        f"- 관점(perspective): {t.perspective}\n"
-        f"- 대상 독자(audience): {t.audience}\n"
-        f"- 서술 방식(writing_style): {t.writing_style}\n"
-        f"- 반드시 다룰 것(must_cover):\n{must}\n"
-        f"- 절대 다루지 말 것(do_not_cover):\n{dont}"
-    )
+def theme_brief(theme_key: str) -> str:
+    """프롬프트에 넣을 테마 정의 블록 (common_pipeline.theme.brief 렌더링)."""
+    return brief(lookup(THEMES, theme_key))

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .themes import MANUAL_THEMES
+from .themes import THEMES
 
 _DEPRECATED_MARK = "status: deprecated-candidate"
 _DEPRECATED_TAG = (
@@ -32,7 +32,7 @@ def mark_deprecated_candidates(out_dir: Path, generated: list[str]) -> list[str]
     등록된 테마인데 이번 실행 대상이 아니었던 문서(--themes 부분 실행)는 건드리지
     않는다 — 관측하지 않았을 뿐 제거 신호가 아니다.
     """
-    keep = set(MANUAL_THEMES) | set(generated)
+    keep = set(THEMES) | set(generated)
     marked: list[str] = []
     for p in sorted(out_dir.glob("*.md")):
         if p.stem in keep:

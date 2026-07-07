@@ -1,33 +1,22 @@
-"""테마 레지스트리 (데이터 주도).
+"""정적 테마 레지스트리 (데이터 주도).
 
 원본 Docu-Automatic의 theme-definitions/themes/*.yaml 필드를 그대로 채택:
   id, name, section, perspective, audience, writing_style, must_cover, do_not_cover.
 원본 4테마 + 위키 확장 2테마(dev-guide, api-protocol). 원본은 테마 하드코딩·확장경로
 부재가 약점이었으므로(Explore 분석 §7-2), 여기서는 데이터로 열어 추가가 쉽다.
 
+스키마(ThemeSpec)와 brief 렌더링은 common_pipeline.theme 공용 계약을 쓰고,
+이 모듈은 **데이터만** 소유한다 (매뉴얼 themes.py와 같은 모양).
 writer는 perspective/writing_style/must_cover/do_not_cover를 준수하고,
 critic Stage2가 이 정의로 5기준(perspective·do_not_cover·must_cover·audience·writing_style)을 AND 검증한다.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
-
-@dataclass(frozen=True)
-class Theme:
-    id: str                       # 최종 문서 frontmatter의 theme 값
-    name: str                     # 사람이 읽는 이름
-    section: str                  # 섹션 (getting-started / architecture / ...)
-    perspective: str              # 이 문서가 취하는 관점
-    audience: str                 # 대상 독자
-    writing_style: str            # 서술형 / 참조형 / 절차형 ...
-    must_cover: list[str] = field(default_factory=list)
-    do_not_cover: list[str] = field(default_factory=list)
-
+from ..common_pipeline.theme import ThemeSpec, brief, lookup
 
 # 원본 4테마 (themes/*.yaml 실값) + 확장 2테마.
-THEMES: dict[str, Theme] = {
-    "intro": Theme(
+THEMES: dict[str, ThemeSpec] = {
+    "intro": ThemeSpec(
         id="getting-started/intro",
         name="개요",
         section="getting-started",
@@ -46,7 +35,7 @@ THEMES: dict[str, Theme] = {
             "내부 구현 세부사항",
         ],
     ),
-    "requirements": Theme(
+    "requirements": ThemeSpec(
         id="getting-started/requirements",
         name="시스템 요구사항",
         section="getting-started",
@@ -65,7 +54,7 @@ THEMES: dict[str, Theme] = {
             "소스에서 빌드·개발하는 환경 (→ dev-guide)",
         ],
     ),
-    "architecture-overview": Theme(
+    "architecture-overview": ThemeSpec(
         id="architecture/overview",
         name="제품 아키텍처",
         section="architecture",
@@ -83,7 +72,7 @@ THEMES: dict[str, Theme] = {
             "API 상세 명세 (→ api)",
         ],
     ),
-    "component-diagram": Theme(
+    "component-diagram": ThemeSpec(
         id="architecture/component-diagram",
         name="컴포넌트 다이어그램",
         section="architecture",
@@ -100,7 +89,7 @@ THEMES: dict[str, Theme] = {
         ],
     ),
     # ── 확장 (위키 decision-theme-scope-expansion) ──
-    "dev-guide": Theme(
+    "dev-guide": ThemeSpec(
         id="development/dev-guide",
         name="개발 가이드",
         section="development",
@@ -117,7 +106,7 @@ THEMES: dict[str, Theme] = {
             "API 상세 명세 (→ api-protocol)",
         ],
     ),
-    "api-protocol": Theme(
+    "api-protocol": ThemeSpec(
         id="api/api-protocol",
         name="API·프로토콜",
         section="api",
@@ -138,25 +127,13 @@ THEMES: dict[str, Theme] = {
 
 # PoC 기본 활성 테마 (원본 4 + 확장 2). 실제 활성화는 소스별 체크리스트가 결정하나
 # (decision-theme-activation-checklist), PoC는 전부 켠다.
-DEFAULT_THEMES = list(THEMES.keys())
+DEFAULT_THEMES = list(THEMES)
 
 
-def get_theme(theme_id: str) -> Theme:
-    if theme_id not in THEMES:
-        raise KeyError(f"알 수 없는 테마: {theme_id!r}. 등록된 테마: {list(THEMES)}")
-    return THEMES[theme_id]
+def get_theme(theme_id: str) -> ThemeSpec:
+    return lookup(THEMES, theme_id)
 
 
 def theme_brief(theme_id: str) -> str:
-    """프롬프트에 넣을 테마 정의 블록 (perspective·audience·style·must/do-not)."""
-    t = get_theme(theme_id)
-    must = "\n".join(f"    - {m}" for m in t.must_cover)
-    dont = "\n".join(f"    - {d}" for d in t.do_not_cover)
-    return (
-        f"- 테마: **{t.name}** (`{t.id}`)\n"
-        f"- 관점(perspective): {t.perspective}\n"
-        f"- 대상 독자(audience): {t.audience}\n"
-        f"- 서술 방식(writing_style): {t.writing_style}\n"
-        f"- 반드시 다룰 것(must_cover):\n{must}\n"
-        f"- 절대 다루지 말 것(do_not_cover):\n{dont}"
-    )
+    """프롬프트에 넣을 테마 정의 블록 (common_pipeline.theme.brief 렌더링)."""
+    return brief(lookup(THEMES, theme_id))

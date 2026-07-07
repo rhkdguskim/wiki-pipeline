@@ -40,22 +40,6 @@ def filter_source_files(changed: list[str]) -> list[str]:
     return out
 
 
-def group_by_module(paths: list[str], depth: int = 2) -> dict[str, list[str]]:
-    """전체 파일 경로를 상위 디렉터리(모듈) 단위로 그룹핑 (init/backfill용).
-
-    depth=2면 'Src/engine/foo.cpp' -> 모듈 'Src/engine'. 대형 레포를 모듈로 쪼개
-    모듈당 테마 문서를 생성하면 한 프롬프트 폭발을 자연히 피한다.
-    빌드 산출물·바이너리는 먼저 걸러낸다.
-    """
-    sources = filter_source_files(paths)
-    groups: dict[str, list[str]] = {}
-    for p in sources:
-        parts = p.split("/")
-        module = "/".join(parts[:depth]) if len(parts) > depth else "/".join(parts[:-1]) or "(root)"
-        groups.setdefault(module, []).append(p)
-    return groups
-
-
 def themes_for_changes(changed: list[str], all_themes: list[str]) -> dict[str, list[str]]:
     """테마 -> 그 테마에 관련된 변경 파일 목록.
 

@@ -1,55 +1,17 @@
 """write -> 검증(mermaid lint + critic) -> 재시도 (정적 어댑터, diff/init 러너 공용).
 
-재시도 정책·형식 검증·JSON 판정 회수는 common.verify로 이동했다. 여기는 정적 고유
-부분만 남는다 — writer 그래프 실행(도구 유출 시 no_tools 재시도 프롬프트), mermaid lint,
-frontmatter source_files 추출, 소스 대조 critic 그래프 구성.
+재시도 루프·형식검증·수정모드 프롬프트 합성·JSON 판정 회수는 common_pipeline 공용
+(verify·writer). 여기는 정적 고유 부분만 남는다 — mermaid lint, frontmatter
+source_files 추출, 소스 대조 critic 그래프 구성.
 """
 from __future__ import annotations
 
 import re
 
-from langchain_core.messages import HumanMessage
-
-from ..common.run import run_graph
-from ..common.textproc import strip_reasoning
-from ..common.verify import run_json_verdict, verified_generate
+from ..common_pipeline.verify import run_json_verdict, verified_generate
+from ..common_pipeline.writer import compose_write_prompt, run_writer
 from .graph import build_critic_graph
 from .mermaid_lint import lint_mermaid
-
-# StaticState 초기값 (그래프는 messages만 읽지만 스키마 계약 유지).
-_STATE_EXTRA = {"theme": "", "changed_files": [], "from_sha": "", "to_sha": ""}
-
-
-def _run_writer(writer_graph_factory, base_prompt, feedback, observer, *,
-                no_tools=False, prev_doc: str | None = None):
-    """writer 그래프 1회 실행 -> 문서 마크다운(<think>·서문 제거) 반환.
-
-    prev_doc이 있으면 '수정 모드' — 이전 문서를 기반으로 지적 부분만 고치게 한다
-    (재작성 시 다른 곳에 새 할루시네이션이 생기는 두더지잡기 방지).
-    """
-    prompt = base_prompt
-    if prev_doc:
-        prompt += (
-            "\n\n## 이전 문서 (수정 기반 — 아래 피드백 부분만 고치고 나머지는 그대로 유지하라)\n"
-            "<<<DOC_BEGIN>>>\n" + prev_doc + "\n<<<DOC_END>>>\n"
-            "위 문서에서 지적된 부분만 최소로 수정한 **전체 문서**를 다시 출력하라. "
-            "지적되지 않은 문장·표·다이어그램은 바꾸지 마라."
-        )
-    if feedback:
-        fb = "\n".join(f"  - {f}" for f in feedback)
-        prompt += f"\n\n## 검증 피드백 (지적된 부분만 핀포인트 수정, 전면 재작성 금지)\n{fb}"
-    if no_tools:
-        prompt += ("\n\n## 이번 턴 제약\n도구가 비활성화됐다. 추가 탐색 없이 지금 가진 근거"
-                   "(요약·피드백)만으로 완전한 문서를 즉시 출력하라.")
-    graph = writer_graph_factory(no_tools=no_tools)
-    final = run_graph(
-        graph,
-        {"messages": [HumanMessage(content=prompt)], **_STATE_EXTRA},
-        observer, config={"recursion_limit": 25},
-    )
-    last = final["messages"][-1]
-    text = last.content if isinstance(last.content, str) else str(last.content)
-    return strip_reasoning(text)
 
 
 def _extract_source_files(doc_md: str) -> list[str]:
@@ -70,25 +32,25 @@ def generate_with_critic(
 ):
     """write -> 형식검증 -> mermaid lint -> critic(grounding) -> 재시도.
 
-    (doc, verdict, warned) 반환 — 루프 자체는 common.verify.verified_generate.
+    (doc, verdict, warned) 반환 — 루프는 common_pipeline.verify.verified_generate.
     """
 
     def write(feedback: list[str], no_tools: bool, prev_doc: str | None = None) -> str:
-        return _run_writer(writer_graph_factory, base_prompt, feedback, observer,
-                           no_tools=no_tools, prev_doc=prev_doc)
+        prompt = compose_write_prompt(base_prompt, feedback=feedback,
+                                      prev_doc=prev_doc, no_tools=no_tools)
+        return run_writer(writer_graph_factory(no_tools=no_tools), prompt, observer)
 
     def critic(doc_md: str) -> dict:
         src = _extract_source_files(doc_md)
 
-        def factory():
+        def factory(no_tools: bool = False):
             return build_critic_graph(
                 model=model, client=client, theme=theme, doc_markdown=doc_md,
                 source_files_read=src, ref=ref, run_id=run_id, stage=f"critic:{stage}",
+                no_tools=no_tools,
             )
 
-        ask = ("이 문서를 3단계로 검증하라. 최종 출력은 반드시 JSON 오브젝트 하나만 — "
-               "그 외 텍스트·설명·도구 호출 흉내 금지.")
-        return run_json_verdict(factory, ask, observer, extra_state=_STATE_EXTRA)
+        return run_json_verdict(factory, observer)
 
     return verified_generate(
         write=write, critic=critic, lint=lint_mermaid, lint_name="mermaid",
