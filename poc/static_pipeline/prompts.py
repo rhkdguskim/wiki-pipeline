@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+from ..common_pipeline.verify import DOC_END_MARKER
 from .themes import theme_brief
 
 # ── init 계획 단계 (에이전트가 문서화 단위 결정) ──
@@ -54,7 +55,9 @@ theme: {theme_id}
 source_files: [실제로 Read/인용한 파일 경로들 — 최소 1개]
 {origin_line}
 ---
-- 그 아래 마크다운 본문. 한국어. <think> 등 사고 과정은 최종 출력에 넣지 말 것."""
+- 그 아래 마크다운 본문. 한국어. <think> 등 사고 과정은 최종 출력에 넣지 말 것.
+- 문서 맨 마지막 줄에 정확히 `{end_marker}` 를 붙인다 — 문서가 끝까지 완결됐다는
+  표시다. 이 마커 없이 끝나면 잘린 문서로 판정돼 재작성된다."""
 
 
 def _writer_prompt(*, theme_id: str, scope_block: str, origin_line: str) -> str:
@@ -68,7 +71,7 @@ def _writer_prompt(*, theme_id: str, scope_block: str, origin_line: str) -> str:
 
 {_WRITER_RULES}
 
-{_WRITER_OUTPUT.format(theme_id=theme_id, origin_line=origin_line)}
+{_WRITER_OUTPUT.format(theme_id=theme_id, origin_line=origin_line, end_marker=DOC_END_MARKER)}
 """
 
 
@@ -108,16 +111,24 @@ def repo_writer_prompt(theme_id: str, repo_name: str, ref: str, summaries_block:
              f"  담겨 있지만, 그대로 옮기지 마라. 이 문서의 do_not_cover에 걸리는 세부(클래스 명세,\n"
              f"  설정 상수·타임아웃 값, 내부 구현 방식, 메시지 코드)는 **버리고**, 컴포넌트·모듈\n"
              f"  수준으로 추상화해 서술한다. 요약의 세부는 '무엇이 있는지 아는 근거'로만 쓴다.\n"
-             f"- **수치·명칭 절제 규칙 — 매우 중요**: 버전 번호·개수·기본값(ON/OFF)·연도 같은 구체\n"
-             f"  수치와, 기술 스택 구성요소 이름(라이브러리·미들웨어·프레임워크·툴킷 — 예: 특정 웹서버,\n"
-             f"  특정 GUI 툴킷)은 위 요약 또는 직접 read_file로 확인한 내용에 **문자 그대로** 있을 때만\n"
-             f"  쓴다. 기억·추정·일반 상식으로 만들어내지 마라 — 불확실하면 생략한다.\n"
+             f"- **수치·명칭 절제 규칙 — 매우 중요**: 버전 번호·개수·단계 수·포트 번호·기본값(ON/OFF)·\n"
+             f"  연도 같은 구체 수치와, 기술 스택 구성요소 이름(라이브러리·미들웨어·프레임워크·툴킷 —\n"
+             f"  예: 특정 웹서버, 특정 GUI 툴킷)은 위 요약 또는 직접 read_file로 확인한 내용에 **문자\n"
+             f"  그대로** 있을 때만 쓴다. 기억·추정·일반 상식으로 만들어내지 마라 — 불확실하면 쓰지\n"
+             f"  말고, 꼭 언급해야 하면 '(요약에서 확인되지 않음)'을 붙인다.\n"
+             f"- **인용 경로 정직성 — 매우 중요**: frontmatter source_files와 본문의 파일/디렉터리\n"
+             f"  경로는 read_file로 직접 열었거나 위 요약에 문자 그대로 등장하는 것만 쓴다. 존재를\n"
+             f"  확인하지 않은 솔루션 파일·문서 경로를 만들어 넣지 말고, 디렉터리 트리를 '예상'으로\n"
+             f"  그리지 마라 — critic이 경로 하나하나 실재 여부를 대조한다.\n"
              f"- **다이어그램 근거 규칙**: mermaid의 노드·엣지(의존 관계)는 요약의 '의존·통신' 항목에\n"
              f"  명시된 관계만 그린다. 그럴듯해 보여도 요약에 없는 화살표는 추가하지 마라.\n"
+             f"- **mermaid 문법 규칙**: 엣지 라벨(`-->|...|`)에는 HTML 태그(`<br/>`)·괄호를 넣지 마라 —\n"
+             f"  짧은 평문만. 부가 설명은 노드 라벨(`[\"...\"]` 따옴표 안)이나 본문 문장으로 옮긴다.\n"
              f"- 표를 적극 활용하라: 컴포넌트 역할 표, 기술 스택 표, 포트/의존성 표 등.\n"
              f"- 다이어그램이 must_cover에 있으면 mermaid로 그린다 (graph TB / sequenceDiagram 등).\n"
              f"- 특정 사실 확인이 필요할 때만 read_file (최대 4회). 탐색보다 종합에 집중하라.\n"
-             f"- **분량: 본문 5,000~15,000자.** 장황한 나열 대신 핵심 위주 — 표와 다이어그램으로 압축하라.\n"
+             f"- **분량: 본문 5,000~15,000자 — 상한을 넘기지 마라.** 길수록 출력이 중간에 잘릴 위험이\n"
+             f"  커진다. 장황한 나열 대신 핵심 위주 — 표와 다이어그램으로 압축하라.\n"
              f"- 서드파티 라이브러리는 이름·용도·통합 지점만 짧게.")
     return _writer_prompt(theme_id=theme_id, scope_block=scope,
                           origin_line=f"generated_from: {ref[:10]} (init)")

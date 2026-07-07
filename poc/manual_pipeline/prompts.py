@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+from ..common_pipeline.verify import DOC_END_MARKER
 from .themes import get_theme, theme_brief
 
 # ── 자율 탐색 (하이브리드 순회의 보완 단계) ──
@@ -73,7 +74,9 @@ audience_axis: {t.audience_axis}
 source_observations: [근거로 인용한 관측 태그 — 예: o1-o42]
 generated_from: {run_ref}
 ---
-- 그 아래 마크다운 본문. 한국어. <think> 등 사고 과정은 최종 출력에 넣지 말 것."""
+- 그 아래 마크다운 본문. 한국어. <think> 등 사고 과정은 최종 출력에 넣지 말 것.
+- 문서 맨 마지막 줄에 정확히 `{DOC_END_MARKER}` 를 붙인다 — 문서가 끝까지 완결됐다는
+  표시다. 이 마커 없이 끝나면 잘린 문서로 판정돼 재작성된다."""
 
 
 # ── critic (검증) — Stage1(frontmatter) + Stage2(테마 적합성) + Stage3(관측 grounding) ──

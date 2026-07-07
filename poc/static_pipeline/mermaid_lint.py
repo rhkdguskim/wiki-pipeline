@@ -109,6 +109,36 @@ def _try_mmdc(blocks: list[str]) -> list[str]:
     return errs
 
 
+# ── 결정적 정규화 (lint 이전 단계) ──
+# 엣지 라벨(-->|...|)은 mermaid 문법의 취약 지점 — HTML 태그(<br/>)와 괄호가
+# 파서를 깨뜨린다. init 실측에서 writer가 lint 피드백을 3회 받고도 같은 지점에서
+# 반복 실패했다 — 재시도로 고칠 게 아니라 코드로 고친다. 노드 라벨(["..."])은
+# <br/>·괄호가 유효하므로 건드리지 않는다.
+_EDGE_LABEL_RE = re.compile(r"([<>ox]?(?:-{2,}|={2,}|-\.+-)[>ox]?\s*\|)([^|\n]+)(\|)")
+_BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
+_LABEL_SPECIALS = set('()[]{}<>')
+
+
+def _fix_edge_label(m: re.Match) -> str:
+    label = _BR_RE.sub(" ", m.group(2))
+    label = re.sub(r"\s+", " ", label).strip()
+    core = label.strip('"').strip()
+    if any(c in core for c in _LABEL_SPECIALS):
+        label = '"' + core.replace('"', "'") + '"'
+    return f"{m.group(1)}{label}{m.group(3)}"
+
+
+def sanitize_mermaid(markdown: str) -> str:
+    """flowchart/graph 블록의 엣지 라벨을 파서 안전 형태로 정규화 (그 외 블록 불변)."""
+    def _fix(m: re.Match) -> str:
+        block = m.group(1)
+        first = next((ln for ln in block.splitlines() if ln.strip()), "").strip().lower()
+        if not first.startswith(("graph", "flowchart")):
+            return m.group(0)
+        return m.group(0).replace(block, _EDGE_LABEL_RE.sub(_fix_edge_label, block), 1)
+    return _FENCE_RE.sub(_fix, markdown)
+
+
 def lint_mermaid(markdown: str, use_mmdc: bool = True) -> list[str]:
     """문서 내 모든 mermaid 블록을 검증. 문제 사유 목록 반환(빈 목록=통과)."""
     blocks = [m.group(1) for m in _FENCE_RE.finditer(markdown)]

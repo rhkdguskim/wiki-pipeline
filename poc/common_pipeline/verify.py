@@ -28,8 +28,15 @@ _GARBAGE_MARKERS = ("<tool_call>", "<invoke name=", "</invoke>")
 # 공급자별 내부 태그 형식(]<]provider[>[ 등)을 공급자 이름과 무관하게 매칭.
 _PROVIDER_TAG_RE = re.compile(r"\]<\]\w+\[>\[")
 
+# 완결 마커 계약: writer 프롬프트가 문서 마지막 줄에 이 마커를 붙이게 하고,
+# 형식 검증이 마커 부재=절단으로 잡는다. 모델의 조기 종료(max_tokens와 무관하게
+# 긴 문서를 쓰다 멈추는 것)는 펜스/헤딩 검사로 못 잡는 경우가 많다 — 표 행이나
+# 단어 중간에서 끊기기 때문. 마커는 렌더링에 안 보이는 HTML 주석이고 저장 전 제거된다.
+DOC_END_MARKER = "<!-- DOC-END -->"
 
-def invalid_doc_reason(doc_md: str, *, fm_key: str = "theme:", min_len: int = 500) -> str | None:
+
+def invalid_doc_reason(doc_md: str, *, fm_key: str = "theme:", min_len: int = 500,
+                       end_marker: str | None = None) -> str | None:
     """문서 형식 검증 (결정적). 문제 있으면 사유 반환, 정상이면 None."""
     if any(g in doc_md for g in _GARBAGE_MARKERS) or _PROVIDER_TAG_RE.search(doc_md):
         return "출력에 도구 호출 텍스트가 섞였다 — 도구를 흉내내지 말고 문서만 출력할 것"
@@ -42,7 +49,23 @@ def invalid_doc_reason(doc_md: str, *, fm_key: str = "theme:", min_len: int = 50
     tail = [ln.strip() for ln in doc_md.rstrip().splitlines()[-2:]]
     if tail and tail[-1].startswith("#"):
         return f"문서가 빈 섹션 헤딩({tail[-1][:40]!r})으로 끝난다 — 내용이 잘린 것. 완결해 출력할 것"
+    body = doc_md.rstrip()
+    if end_marker and body.endswith(end_marker):
+        body = body[: -len(end_marker)].rstrip()
+    last = next((ln.rstrip() for ln in reversed(body.splitlines()) if ln.strip()), "")
+    if last.startswith("|") and not last.endswith("|"):
+        return "문서가 표 행 중간에서 끊겼다 — 잘린 것. 전체 문서를 완결해 출력할 것"
+    if end_marker and not doc_md.rstrip().endswith(end_marker):
+        return (f"문서 끝에 완결 마커({end_marker})가 없다 — 출력이 잘렸거나 마커를 빠뜨린 것. "
+                f"전체 문서를 완결하고 마지막 줄에 마커를 붙여 출력할 것")
     return None
+
+
+def strip_end_marker(doc_md: str, end_marker: str | None) -> str:
+    """저장·검증 대상 문서에서 완결 마커 제거 (마커는 형식 검증용일 뿐 내용이 아니다)."""
+    if end_marker and doc_md.rstrip().endswith(end_marker):
+        return doc_md.rstrip()[: -len(end_marker)].rstrip() + "\n"
+    return doc_md
 
 
 def apply_warn_tag(doc_md: str) -> str:
@@ -93,6 +116,7 @@ def verified_generate(
     stage: str,
     max_retry: int = MAX_RETRY,
     min_len: int = 500,
+    end_marker: str | None = None,                     # 완결 마커 계약 (DOC_END_MARKER)
 ) -> tuple[str, dict, bool]:
     """write -> 형식검증 -> lint -> critic -> 재시도. (doc, verdict, warned) 반환.
 
@@ -114,7 +138,7 @@ def verified_generate(
         doc_md = write(feedback, force_no_tools, last_valid_doc)
 
         # 0) 형식 검증 (결정적) — 쓰레기 출력이면 critic 없이 즉시 재시도.
-        invalid = invalid_doc_reason(doc_md, min_len=min_len)
+        invalid = invalid_doc_reason(doc_md, min_len=min_len, end_marker=end_marker)
         if invalid:
             if "도구 호출 텍스트" in invalid:
                 force_no_tools = True
@@ -141,7 +165,7 @@ def verified_generate(
         if verdict.get("result") == "pass" and not lint_errs:
             emit_ctx("engine_call", stage, "running",
                      detail={"phase": "verify", "verdict": "pass", "attempt": attempt + 1})
-            return doc_md, verdict, False
+            return strip_end_marker(doc_md, end_marker), verdict, False
 
         # 실패 사유 합치기: lint 오류 + critic 피드백 -> writer 핀포인트 수정
         feedback = list(verdict.get("feedback", []) or [])
@@ -154,4 +178,4 @@ def verified_generate(
                  detail={"phase": "verify", "verdict": "fail",
                          "feedback": feedback[:3], "attempt": attempt + 1})
 
-    return apply_warn_tag(doc_md), verdict, True
+    return apply_warn_tag(strip_end_marker(doc_md, end_marker)), verdict, True

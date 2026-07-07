@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import re
 
-from ..common_pipeline.verify import run_json_verdict, verified_generate
+from ..common_pipeline.verify import DOC_END_MARKER, run_json_verdict, verified_generate
 from ..common_pipeline.writer import compose_write_prompt, run_writer
 from .graph import build_critic_graph
-from .mermaid_lint import lint_mermaid
+from .mermaid_lint import lint_mermaid, sanitize_mermaid
 
 
 def _extract_source_files(doc_md: str) -> list[str]:
@@ -38,7 +38,9 @@ def generate_with_critic(
     def write(feedback: list[str], no_tools: bool, prev_doc: str | None = None) -> str:
         prompt = compose_write_prompt(base_prompt, feedback=feedback,
                                       prev_doc=prev_doc, no_tools=no_tools)
-        return run_writer(writer_graph_factory(no_tools=no_tools), prompt, observer)
+        doc = run_writer(writer_graph_factory(no_tools=no_tools), prompt, observer)
+        # 엣지 라벨 문법(<br/>·괄호)은 재시도 대신 결정적으로 정규화 — lint 전에 고친다.
+        return sanitize_mermaid(doc)
 
     def critic(doc_md: str) -> dict:
         src = _extract_source_files(doc_md)
@@ -54,5 +56,5 @@ def generate_with_critic(
 
     return verified_generate(
         write=write, critic=critic, lint=lint_mermaid, lint_name="mermaid",
-        emit_ctx=emit_ctx, stage=stage,
+        emit_ctx=emit_ctx, stage=stage, end_marker=DOC_END_MARKER,
     )
