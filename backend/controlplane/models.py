@@ -119,6 +119,24 @@ class RunEvent(Base):
     payload: Mapped[str] = mapped_column(Text, default="{}")   # 원본 이벤트 JSON
 
 
+class RunModelUsage(Base):
+    """모델별 토큰 사용량 — run_events 보존 정책과 별도로 장기 집계한다."""
+
+    __tablename__ = "run_model_usage"
+    __table_args__ = (UniqueConstraint("run_id", "provider", "model"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(String(120), index=True)
+    source_id: Mapped[str] = mapped_column(String(64), default="", index=True)
+    pipeline_id: Mapped[str] = mapped_column(String(32), default="")
+    provider: Mapped[str] = mapped_column(String(80), default="")
+    model: Mapped[str] = mapped_column(String(200), default="")
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    calls: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class DocTarget(Base):
     """docs-hub 제출 대상 (product-common 등)."""
 

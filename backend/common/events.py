@@ -75,22 +75,52 @@ def emit(event: ProgressEvent) -> None:
 
 # ── agent_step detail 빌더 (decision-agent-step-observability 매핑) ──
 
+def feedback(title: str, body: str = "", severity: str = "info") -> dict:
+    return {"title": title, "body": body or title, "severity": severity}
+
+
 def thinking(summary: str) -> dict:
-    return {"kind": "thinking", "summary": summary}
+    return {
+        "kind": "thinking",
+        "summary": summary,
+        "feedback": feedback("Agent response", summary),
+    }
 
 
 def tool_use(tool: str, tool_input: Any) -> dict:
-    return {"kind": "tool_use", "tool": tool, "input": tool_input}
+    return {
+        "kind": "tool_use",
+        "tool": tool,
+        "input": tool_input,
+        "feedback": feedback("Tool call", f"{tool} 실행"),
+    }
 
 
 def tool_result(ok: bool, preview: str = "") -> dict:
-    return {"kind": "tool_result", "ok": ok, "preview": preview[:500]}
+    return {
+        "kind": "tool_result",
+        "ok": ok,
+        "preview": preview[:500],
+        "feedback": feedback("Tool result", preview[:160], "info" if ok else "error"),
+    }
 
 
 def usage(input_tokens: int, output_tokens: int, **extra: Any) -> dict:
+    total_tokens = input_tokens + output_tokens
     return {
         "kind": "usage",
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+        "feedback": feedback("Token usage", f"in={input_tokens} out={output_tokens} total={total_tokens}"),
         **extra,
+    }
+
+
+def llm_retry(attempt: int, error: str = "") -> dict:
+    return {
+        "kind": "llm_retry",
+        "attempt": attempt,
+        "error": error,
+        "feedback": feedback("LLM retry", f"attempt={attempt} {error}".strip(), "warning"),
     }

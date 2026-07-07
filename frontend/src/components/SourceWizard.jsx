@@ -1,5 +1,5 @@
 import {useMemo, useState} from 'react';
-import {CheckCircle2, ChevronLeft, ChevronRight, Github, Gitlab, Play, Plus, ShieldCheck, X, XCircle} from 'lucide-react';
+import {CheckCircle2, ChevronLeft, ChevronRight, GitBranch, Play, Plus, Server, ShieldCheck, X, XCircle} from 'lucide-react';
 import {useInstancesQuery, usePreflightSourceMutation, useSaveSourceMutation} from '../hooks/queries.js';
 
 const THEME_OPTIONS = ['intro', 'requirements', 'architecture-overview', 'component-diagram', 'dev-guide', 'api-protocol'];
@@ -123,10 +123,10 @@ export function SourceWizard({onClose, onCreated, onTriggerSuggested}) {
         <div className="wizardBody">
           {step === 0 && <div className="wizardProviderGrid">
             <button type="button" className={form.kind === 'gitlab' ? 'providerCard active' : 'providerCard'} onClick={() => { set('kind', 'gitlab'); set('instanceId', ''); set('instanceMode', 'existing'); }}>
-              <Gitlab size={28} /><strong>GitLab</strong><small>사내 GitLab · gitlab.com</small>
+              <Server size={28} /><strong>GitLab</strong><small>사내 GitLab · gitlab.com</small>
             </button>
             <button type="button" className={form.kind === 'github' ? 'providerCard active' : 'providerCard'} onClick={() => { set('kind', 'github'); set('instanceId', ''); set('instanceMode', 'existing'); }}>
-              <Github size={28} /><strong>GitHub</strong><small>github.com</small>
+              <GitBranch size={28} /><strong>GitHub</strong><small>github.com</small>
             </button>
           </div>}
 
@@ -147,15 +147,15 @@ export function SourceWizard({onClose, onCreated, onTriggerSuggested}) {
             ) : (
               <div className="formGrid">
                 <label className="span2">{isGithub ? 'URL (비우면 github.com)' : 'GitLab URL'}<input value={form.newInstanceUrl} onChange={e => set('newInstanceUrl', e.target.value)} placeholder={isGithub ? 'https://github.com (기본)' : 'http://wish.mirero.co.kr'} /></label>
-                <label>Token header<input value={form.newInstanceTokenHeader} onChange={e => set('newInstanceTokenHeader', e.target.value)} /></label>
-                <label>Token<input value={form.newInstanceToken} onChange={e => set('newInstanceToken', e.target.value)} type="password" placeholder="인스턴스 공용 토큰" /></label>
+                <label>토큰 헤더<input value={form.newInstanceTokenHeader} onChange={e => set('newInstanceTokenHeader', e.target.value)} /></label>
+                <label>토큰<input value={form.newInstanceToken} onChange={e => set('newInstanceToken', e.target.value)} type="password" placeholder="인스턴스 공용 토큰" /></label>
               </div>
             )}
           </div>}
 
           {step === 2 && <div className="wizardPane">
             <div className="formGrid">
-              <label className="span2">{isGithub ? 'Repo (owner/repo)' : 'Project ID 또는 full path'}<input value={form.projectId} onChange={e => set('projectId', e.target.value)} placeholder={isGithub ? 'owner/repo' : '947 또는 mirero/project/x'} /></label>
+              <label className="span2">{isGithub ? '레포 (owner/repo)' : '프로젝트 ID 또는 전체 경로'}<input value={form.projectId} onChange={e => set('projectId', e.target.value)} placeholder={isGithub ? 'owner/repo' : '947 또는 mirero/project/x'} /></label>
               <label className="span2">소스 전용 토큰 (선택 — 비우면 인스턴스 토큰 사용)<input value={form.sourceToken} onChange={e => set('sourceToken', e.target.value)} type="password" placeholder="비워두면 인스턴스 토큰 사용" /></label>
             </div>
           </div>}
@@ -178,11 +178,11 @@ export function SourceWizard({onClose, onCreated, onTriggerSuggested}) {
 
           {step === 4 && <div className="wizardPane">
             <div className="formGrid">
-              <label>Dev branch<select value={form.devBranch} onChange={e => set('devBranch', e.target.value)}>
+              <label>dev 브랜치<select value={form.devBranch} onChange={e => set('devBranch', e.target.value)}>
                 <option value="">선택</option>
                 {(preflightResult?.branches || []).map(b => <option key={b} value={b}>{b}</option>)}
               </select></label>
-              <label>Release branch<select value={form.releaseBranch} onChange={e => set('releaseBranch', e.target.value)}>
+              <label>release 브랜치<select value={form.releaseBranch} onChange={e => set('releaseBranch', e.target.value)}>
                 <option value="">(default branch 사용)</option>
                 {(preflightResult?.branches || []).map(b => <option key={b} value={b}>{b}</option>)}
               </select></label>

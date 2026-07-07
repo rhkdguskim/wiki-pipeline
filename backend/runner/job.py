@@ -15,7 +15,7 @@ from pathlib import Path
 from ..common.config import Settings, load_settings
 from ..common.docshub import build_mr_plan, submit_change_request
 from ..common.observer import Observer
-from ..connectors.base import ScmAuthError, ScmNotFoundError
+from ..connectors.base import ScmAuthError, ScmNotFoundError, ScmRateLimitError
 from .client import ControlPlaneClient, WebhookEventSink
 
 
@@ -101,6 +101,8 @@ def submit_to_targets(summary: dict, settings: Settings, ctx: dict) -> dict:
 def classify_error(exc: BaseException) -> str:
     if isinstance(exc, ScmNotFoundError):
         return "not_found"
+    if isinstance(exc, ScmRateLimitError):  # ScmAuthError보다 먼저 검사 (rate limit도 403)
+        return "rate_limited"
     if isinstance(exc, ScmAuthError):
         return "auth"
     return ""

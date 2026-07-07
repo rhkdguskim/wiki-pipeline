@@ -172,6 +172,27 @@ def test_compare_404_disables_source(client, monkeypatch):
     assert resp.status_code == 400
 
 
+def test_rate_limited_failure_does_not_disable_or_flag_auth(client, monkeypatch):
+    """SCM API rate limit(decision-scm-rate-limit-not-auth): 토큰은 유효하므로
+    auth 알림 대상이 아니고, 자동 비활성화도 되지 않아야 한다 (compare 404와 대비)."""
+    _create_source(client, monkeypatch)
+    run_id = client.post("/api/runs/trigger", headers=ADMIN,
+                         json={"source_id": "demo", "launch": False}).json()["run_id"]
+    resp = client.post("/api/webhook/complete", headers=RUNNER, json={
+        "run_id": run_id, "status": "failed",
+        "error": "ScmRateLimitError: GitHub API rate limit exceeded",
+        "error_kind": "rate_limited",
+    })
+    assert resp.status_code == 200 and resp.json()["source_disabled"] is False
+    src = client.get("/api/sources", headers=ADMIN).json()[0]
+    assert src["enabled"] is True
+    assert src["disabled_reason"] == ""
+    # rate limit은 일시적 — 소스는 여전히 트리거 가능
+    resp = client.post("/api/runs/trigger", headers=ADMIN,
+                       json={"source_id": "demo", "launch": False})
+    assert resp.status_code == 200
+
+
 def test_source_preflight_without_saving(client, monkeypatch):
     """등록 마법사 사전 검증 — DB에 아무것도 저장하지 않고 커넥터 검증만."""
     import backend.connectors as connectors_pkg

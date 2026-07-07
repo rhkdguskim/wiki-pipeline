@@ -10,7 +10,26 @@ from urllib.parse import quote
 import httpx
 
 from ..common.retry import with_retry
-from .base import ChangeRequest, ProjectInfo, ScmAuthError, ScmConnector, ScmError, ScmNotFoundError
+from .base import (
+    ChangeRequest,
+    ProjectInfo,
+    ScmAuthError,
+    ScmConnector,
+    ScmError,
+    ScmNotFoundError,
+    ScmRateLimitError,
+)
+
+
+def _is_rate_limited(resp: httpx.Response) -> bool:
+    """GitLab rate limit 신호: 429, 또는 RateLimit-Remaining: 0 / Retry-After 헤더."""
+    if resp.status_code == 429:
+        return True
+    if resp.headers.get("ratelimit-remaining") == "0":
+        return True
+    if resp.status_code in (403, 429) and resp.headers.get("retry-after"):
+        return True
+    return False
 
 
 def _wrap_http_error(e: httpx.HTTPStatusError) -> ScmError:
@@ -19,6 +38,8 @@ def _wrap_http_error(e: httpx.HTTPStatusError) -> ScmError:
     msg = f"GitLab API {e.request.method} {e.request.url} failed: HTTP {code} {body}"
     if code == 404:
         return ScmNotFoundError(msg)
+    if _is_rate_limited(e.response):
+        return ScmRateLimitError(msg, status_code=code)
     if code in (401, 403):
         return ScmAuthError(msg, status_code=code)
     return ScmError(msg, status_code=code)

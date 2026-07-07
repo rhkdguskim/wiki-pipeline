@@ -30,7 +30,17 @@ export function useRunsQuery() {
 }
 
 export function useDbRunsQuery(limit = 100) {
-  return useQuery({queryKey: ['dbRuns', limit], queryFn: () => getDbRuns(limit), refetchInterval: RUNS_MS});
+  return useQuery({queryKey: ['dbRuns', 'all', limit], queryFn: () => getDbRuns(limit), refetchInterval: RUNS_MS});
+}
+
+// 소스별 run 히스토리 — 소스 상세 뷰 전용, 파라미터화 키로 캐시 분리
+export function useSourceRunsQuery(sourceId, limit = 100) {
+  return useQuery({
+    queryKey: ['dbRuns', sourceId],
+    queryFn: () => getDbRuns(limit, sourceId),
+    enabled: !!sourceId,
+    refetchInterval: RUNS_MS,
+  });
 }
 
 export function useCostsQuery() {
@@ -59,6 +69,7 @@ export function useMrPlanQuery(runId, target = 'product-common') {
     queryKey: ['mrPlan', runId, target],
     queryFn: () => getMrPlan(runId, target),
     enabled: !!runId,
+    refetchInterval: RUNS_MS,
   });
 }
 

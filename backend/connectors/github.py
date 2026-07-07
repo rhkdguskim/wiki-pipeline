@@ -13,11 +13,33 @@ from urllib.parse import quote
 import httpx
 
 from ..common.retry import with_retry
-from .base import ChangeRequest, ProjectInfo, ScmAuthError, ScmConnector, ScmError, ScmNotFoundError
+from .base import (
+    ChangeRequest,
+    ProjectInfo,
+    ScmAuthError,
+    ScmConnector,
+    ScmError,
+    ScmNotFoundError,
+    ScmRateLimitError,
+)
 
 _API_VERSION = "2022-11-28"
 # compare API는 페이지당 최대 300개 파일을 돌려준다 — 페이지네이션으로 끝까지 수집.
 _MAX_COMPARE_PAGES = 20
+
+
+def _is_rate_limited(resp: httpx.Response) -> bool:
+    """GitHub rate limit 신호: 1차(primary) 한도는 403 + X-RateLimit-Remaining: 0,
+    2차(secondary/abuse) 한도는 403/429 + Retry-After 헤더 또는 본문에 "rate limit" 문구."""
+    if resp.status_code == 429:
+        return True
+    if resp.status_code != 403:
+        return False
+    if resp.headers.get("x-ratelimit-remaining") == "0":
+        return True
+    if resp.headers.get("retry-after"):
+        return True
+    return "rate limit" in resp.text.lower()
 
 
 def _wrap_http_error(e: httpx.HTTPStatusError) -> ScmError:
@@ -26,6 +48,8 @@ def _wrap_http_error(e: httpx.HTTPStatusError) -> ScmError:
     msg = f"GitHub API {e.request.method} {e.request.url} failed: HTTP {code} {body}"
     if code == 404:
         return ScmNotFoundError(msg)
+    if _is_rate_limited(e.response):
+        return ScmRateLimitError(msg, status_code=code)
     if code in (401, 403):
         return ScmAuthError(msg, status_code=code)
     return ScmError(msg, status_code=code)

@@ -6,7 +6,7 @@ export function StageTable({S, live}) {
   return (
     <div className="tableScroll">
       <table>
-        <thead><tr><th>스테이지</th><th>상태</th><th>소요</th><th>in</th><th>out</th><th>도구</th></tr></thead>
+        <thead><tr><th>스테이지</th><th>상태</th><th>소요</th><th>입력</th><th>출력</th><th>도구</th></tr></thead>
         <tbody>
           {rows.map(([name, s]) => {
             const active = s.status == null && live && Date.now() - s.lastTs < 45000;

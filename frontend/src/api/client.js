@@ -6,8 +6,18 @@ export const api = (url, opts = {}) => {
 };
 
 async function asJson(r) {
-  const data = await r.json();
-  if (!r.ok) throw new Error(data.error || data.detail || `요청 실패 (${r.status})`);
+  const raw = await r.text();
+  let data = null;
+  if (raw) {
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      // 서버가 JSON이 아닌 응답(프록시 오류 페이지, 빈 본문 등)을 준 경우 —
+      // 파싱 예외를 그대로 던지지 않고 사람이 읽을 수 있는 오류로 정규화한다.
+      throw new Error(r.ok ? '응답을 해석할 수 없습니다 (JSON 아님)' : `요청 실패 (${r.status})`);
+    }
+  }
+  if (!r.ok) throw new Error(data?.error || data?.detail || `요청 실패 (${r.status})`);
   return data;
 }
 
@@ -39,7 +49,8 @@ export const saveDocTarget = (form, existing) =>
 
 export const getRuns = () => api('/api/runs').then(asJson);
 
-export const getDbRuns = (limit = 100) => api(`/api/runs/db?limit=${limit}`).then(asJson);
+export const getDbRuns = (limit = 100, sourceId = '') =>
+  api(`/api/runs/db?limit=${limit}${sourceId ? `&source=${encodeURIComponent(sourceId)}` : ''}`).then(asJson);
 
 export const triggerRun = (sourceId, mode = 'auto') =>
   api('/api/runs/trigger', jsonBody({source_id: sourceId, mode}, 'POST')).then(asJson);

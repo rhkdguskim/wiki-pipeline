@@ -169,6 +169,12 @@ class RunService:
             elif error_kind == "auth":
                 self.notifier.auth_revoked(where=f"source {source.label}",
                                            detail=str(report.get("error") or ""))
+            elif error_kind == "rate_limited":
+                # SCM API rate limit — 토큰은 정상이다. 담당자 알림만 보내고 auth 알림/
+                # 자동 비활성화는 하지 않는다 (decision-scm-rate-limit-not-auth).
+                self.notifier.run_failed(source_label=source.label, run_id=run_id,
+                                         error=str(report.get("error") or ""),
+                                         owner_email=source.owner_email)
             else:
                 self.notifier.run_failed(source_label=source.label, run_id=run_id,
                                          error=str(report.get("error") or ""),

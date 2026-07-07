@@ -33,6 +33,11 @@ class ScmAuthError(ScmError):
     """401/403 — 토큰 무효·권한 부족. admin 알림 대상 (decision-engine-api-key-auth 준용)."""
 
 
+class ScmRateLimitError(ScmError):
+    """403/429 API rate limit — 토큰은 유효하다. 일시적 오류이므로 auth 알림/자동 비활성화 대상이
+    아니다 (decision-scm-rate-limit-not-auth). run은 실패로 기록되되 재시도 시 자연 복구된다."""
+
+
 @dataclass(frozen=True)
 class ProjectInfo:
     """verify_access()·project_info()의 결과 — 등록 자동 조회에 사용."""

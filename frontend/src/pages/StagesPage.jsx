@@ -1,5 +1,5 @@
-import {StageTable} from '../components/StageTable.jsx';
+import {StageChecklist} from '../components/StageChecklist.jsx';
 
 export function StagesPage({S, live}) {
-  return <section className="panel"><div className="panelHead"><h2>스테이지 진행</h2></div><StageTable S={S} live={live} /></section>;
+  return <section className="panel"><div className="panelHead"><h2>진행 단계</h2></div><StageChecklist S={S} live={live} /></section>;
 }

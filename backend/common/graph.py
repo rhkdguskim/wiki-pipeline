@@ -31,7 +31,19 @@ def _summarize_ai(msg: AIMessage) -> str:
 
 def _extract_usage(msg: AIMessage) -> tuple[int, int]:
     meta = getattr(msg, "usage_metadata", None) or {}
-    return int(meta.get("input_tokens", 0)), int(meta.get("output_tokens", 0))
+    if meta:
+        return int(meta.get("input_tokens", 0)), int(meta.get("output_tokens", 0))
+    response_meta = getattr(msg, "response_metadata", None) or {}
+    token_usage = response_meta.get("token_usage") or response_meta.get("usage") or {}
+    return (
+        int(token_usage.get("input_tokens") or token_usage.get("prompt_tokens") or 0),
+        int(token_usage.get("output_tokens") or token_usage.get("completion_tokens") or 0),
+    )
+
+
+def _response_model_name(msg: AIMessage, fallback: str) -> str:
+    response_meta = getattr(msg, "response_metadata", None) or {}
+    return str(response_meta.get("model_name") or response_meta.get("model") or fallback or "")
 
 
 def build_agent_graph(spec: AgentSpec, model: BaseChatModel):
@@ -54,8 +66,7 @@ def build_agent_graph(spec: AgentSpec, model: BaseChatModel):
         ev.emit(ev.make_event(
             pipeline_id=spec.pipeline_id, run_id=spec.run_id,
             layer="agent_step", stage=spec.stage,
-            detail={"kind": "llm_retry", "attempt": attempt,
-                    "error": f"{type(exc).__name__}" if exc else ""},
+            detail=ev.llm_retry(attempt, f"{type(exc).__name__}" if exc else ""),
         ))
 
     def agent_node(state: dict) -> dict[str, Any]:
@@ -70,7 +81,8 @@ def build_agent_graph(spec: AgentSpec, model: BaseChatModel):
             # 시스템 프롬프트를 매 호출 앞에 (Full Reset 성격 — 컨텍스트는 messages로만).
             call = lambda: llm_with_tools.invoke([sys_msg, *messages])
         # APITimeoutError 등 일시 오류는 지수 백오프로 재시도 (공급자 무관).
-        resp: AIMessage = with_retry(call, attempts=cached_settings().llm_retry_attempts, on_retry=_on_retry)
+        settings = cached_settings()
+        resp: AIMessage = with_retry(call, attempts=settings.llm_retry_attempts, on_retry=_on_retry)
 
         ev.emit(ev.make_event(
             pipeline_id=spec.pipeline_id, run_id=spec.run_id,
@@ -82,7 +94,11 @@ def build_agent_graph(spec: AgentSpec, model: BaseChatModel):
             ev.emit(ev.make_event(
                 pipeline_id=spec.pipeline_id, run_id=spec.run_id,
                 layer="agent_step", stage=spec.stage,
-                detail=ev.usage(in_tok, out_tok),
+                detail=ev.usage(
+                    in_tok, out_tok,
+                    provider=settings.llm_provider,
+                    model=_response_model_name(resp, settings.llm_model),
+                ),
             ))
         return {"messages": [resp]}
 

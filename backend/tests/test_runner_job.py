@@ -11,7 +11,7 @@ import backend.connectors as connectors_pkg
 import backend.static_pipeline.init_runner as init_runner_mod
 import backend.static_pipeline.runner as static_runner_mod
 from backend.common.config import Settings
-from backend.connectors.base import ScmAuthError, ScmNotFoundError, ScmError
+from backend.connectors.base import ScmAuthError, ScmNotFoundError, ScmError, ScmRateLimitError
 from backend.connectors.gitlab import GitLabConnector
 from backend.runner.client import ControlPlaneClient, WebhookEventSink
 from backend.runner import job
@@ -72,6 +72,7 @@ def test_decide_mode():
 def test_classify_error():
     assert job.classify_error(ScmNotFoundError("x")) == "not_found"
     assert job.classify_error(ScmAuthError("x")) == "auth"
+    assert job.classify_error(ScmRateLimitError("x")) == "rate_limited"
     assert job.classify_error(ScmError("x")) == ""
     assert job.classify_error(RuntimeError("x")) == ""
 
