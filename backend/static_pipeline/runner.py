@@ -20,10 +20,10 @@ from .themes import DEFAULT_THEMES
 
 
 def run_static(settings: Settings, from_sha: str, to_sha: str | None,
-               themes: list[str] | None = None) -> dict:
+               themes: list[str] | None = None, run_id: str | None = None) -> dict:
     themes = themes or DEFAULT_THEMES
 
-    with RunContext("static", settings, run_stage="static-diff") as ctx:
+    with RunContext("static", settings, run_stage="static-diff", run_id=run_id) as ctx:
         rev = ctx.rev
         client = ctx.track(connector_for_settings(settings))
         model = build_chat_model(settings)

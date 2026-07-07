@@ -24,6 +24,18 @@ _KIND_MARK = {"thinking": "[think]", "tool_use": "[tool]", "tool_result": "[<-]"
 
 
 class Observer:
+    # 프로세스 전역 추가 싱크 (예: Control Plane webhook push — decision-observability-event-contract).
+    # 러너 프로세스가 기동 시 등록하고, 로컬 JSONL은 감사 사본으로 항상 남는다.
+    _global_sinks: list = []
+
+    @classmethod
+    def register_global_sink(cls, fn) -> None:
+        cls._global_sinks.append(fn)
+
+    @classmethod
+    def clear_global_sinks(cls) -> None:
+        cls._global_sinks.clear()
+
     def __init__(self, run_id: str, out_dir: Path):
         self.run_id = run_id
         self.jsonl_path = out_dir / f"events-{run_id}.jsonl"
@@ -32,7 +44,7 @@ class Observer:
         self._lock = threading.Lock()
 
     def sink(self, event: dict[str, Any]) -> None:
-        """이벤트 1건을 콘솔+JSONL로. 러너·노드·병렬 워커 어디서든 호출 가능 (스레드 안전)."""
+        """이벤트 1건을 콘솔+JSONL(+전역 싱크)로. 어디서든 호출 가능 (스레드 안전)."""
         line = self._format(event)
         payload = json.dumps(event, ensure_ascii=False) + "\n"
         with self._lock:
@@ -44,6 +56,11 @@ class Observer:
                 print(line)
             except UnicodeEncodeError:
                 print(line.encode("ascii", "replace").decode("ascii"))
+        for fn in self._global_sinks:
+            try:
+                fn(event)   # 전역 싱크(비동기 배치 큐)는 자체적으로 논블로킹이어야 한다
+            except Exception:  # noqa: BLE001 — 관측 실패가 파이프라인을 죽이면 안 된다
+                pass
 
     def _format(self, e: dict[str, Any]) -> str:
         indent = "  " * _LAYER_INDENT.get(e.get("layer", "run"), 0)

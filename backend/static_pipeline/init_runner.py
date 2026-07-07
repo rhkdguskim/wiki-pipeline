@@ -182,10 +182,12 @@ def run_init(
     themes: list[str] | None = None,
     max_units: int | None = None,
     reuse_summaries: bool = False,
+    run_id: str | None = None,
 ) -> dict:
     themes = themes or _DEFAULT_INIT_THEMES
 
-    with RunContext("static", settings, prefix="init", run_stage="static-init") as ctx:
+    with RunContext("static", settings, prefix="init", run_stage="static-init",
+                    run_id=run_id) as ctx:
         rev = ctx.rev
         client = ctx.track(connector_for_settings(settings))
         model = build_chat_model(settings)

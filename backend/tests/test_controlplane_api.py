@@ -172,6 +172,19 @@ def test_compare_404_disables_source(client, monkeypatch):
     assert resp.status_code == 400
 
 
+def test_runner_context_returns_decrypted_token(client, monkeypatch):
+    _create_source(client, monkeypatch, verify=False)
+    run_id = client.post("/api/runs/trigger", headers=ADMIN,
+                         json={"source_id": "demo", "launch": False}).json()["run_id"]
+    # runner 토큰 필수
+    assert client.get(f"/api/runner/context?run={run_id}").status_code == 401
+    ctx = client.get(f"/api/runner/context?run={run_id}", headers=RUNNER).json()
+    assert ctx["source"]["token"] == "secret-token"   # 복호화되어 러너에게만 내려간다
+    assert ctx["source"]["repo"] == "grp/demo"
+    assert ctx["branch"]["role"] == "dev"
+    assert ctx["run"]["run_id"] == run_id
+
+
 def test_doc_target_and_mr_plan_requires_run(client):
     resp = client.post("/api/docs-hub", headers=ADMIN, json={
         "id": "product-common", "label": "product-common", "kind": "gitlab",

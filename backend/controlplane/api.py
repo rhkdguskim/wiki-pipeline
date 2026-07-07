@@ -407,6 +407,51 @@ def submit_mr(request: Request, db=Depends(_db), payload: dict = Body(...)) -> d
     return {"ok": True, "plan": plan, "result": result}
 
 
+# ── runner 컨텍스트 (Data Plane 전용 — 토큰이 복호화되어 내려간다) ──
+
+@router.get("/api/runner/context", dependencies=[Depends(require_runner_token)])
+def runner_context(request: Request, db=Depends(_db), run: str = Query("")) -> dict:
+    """러너가 실행에 필요한 전부를 1회 조회 — 소스·인스턴스·브랜치·doc target.
+
+    runner 토큰 전용. 일반 API와 달리 커넥터 토큰을 복호화해 포함하므로
+    이 엔드포인트는 절대 프런트가 호출하지 않는다.
+    """
+    st = _state(request)
+    run = _check_run_id(run)
+    from .models import Run, SourceBranch
+    run_row = db.get(Run, run)
+    if run_row is None:
+        raise HTTPException(404, f"run 없음: {run}")
+    source = db.get(Source, run_row.source_id)
+    if source is None:
+        raise HTTPException(404, f"source 없음: {run_row.source_id}")
+    inst = db.get(ScmInstance, source.instance_id)
+    branch = db.query(SourceBranch).filter_by(
+        source_id=source.id, role=run_row.branch_role or "dev").first()
+    box = st.box
+    token = box.decrypt(source.token) if source.token else (box.decrypt(inst.token) if inst.token else "")
+    targets = db.query(DocTarget).filter(DocTarget.enabled.is_(True)).all()
+    return {
+        "run": {"run_id": run_row.id, "mode": run_row.mode,
+                "branch_role": run_row.branch_role, "pipeline_id": run_row.pipeline_id},
+        "source": {
+            "id": source.id, "label": source.label, "kind": inst.kind if inst else "gitlab",
+            "url": inst.base_url if inst else "", "repo": source.repo,
+            "token": token,
+            "token_header": inst.token_header if inst else "PRIVATE-TOKEN",
+            "themes": source.themes, "doc_dir": source.doc_dir,
+        },
+        "branch": {
+            "role": branch.role if branch else "dev",
+            "branch": branch.branch if branch else "",
+            "baseline_sha": branch.baseline_sha if branch else "",
+            "last_processed_sha": branch.last_processed_sha if branch else "",
+            "enabled": branch.enabled if branch else False,
+        },
+        "doc_targets": [st.registration.doc_target_view(t, with_token=True) for t in targets],
+    }
+
+
 # ── webhook (Data Plane -> Control Plane) ───────────────────
 
 @router.post("/api/webhook/events", dependencies=[Depends(require_runner_token)])
