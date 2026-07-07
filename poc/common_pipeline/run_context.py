@@ -16,7 +16,9 @@ from ..common.observer import Observer
 class RunContext:
     def __init__(self, pipeline_id: str, settings: Settings, *, run_stage: str,
                  prefix: str | None = None, run_id: str | None = None):
-        self.run_id = run_id or f"{prefix or pipeline_id}-{uuid.uuid4().hex[:8]}"
+        source_id = getattr(settings, "source_id", "")
+        stem = "-".join(x for x in [prefix or pipeline_id, source_id] if x)
+        self.run_id = run_id or f"{stem}-{uuid.uuid4().hex[:8]}"
         self.settings = settings
         self.run_stage = run_stage
         self.observer = Observer(self.run_id, settings.out_path)

@@ -13,17 +13,22 @@ from __future__ import annotations
 import datetime as _dt
 import json
 from pathlib import Path
+import re
 
 _STATE_FILE = "_state.json"
+_SOURCE_ID_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
-def _state_path(out_dir: Path) -> Path:
-    return out_dir / _STATE_FILE
+def _state_path(out_dir: Path, source_id: str | None = None) -> Path:
+    if not source_id:
+        return out_dir / _STATE_FILE
+    safe = _SOURCE_ID_RE.sub("-", source_id.strip()).strip("-").lower()
+    return out_dir / f"_state-{safe or 'source'}.json"
 
 
-def load_state(out_dir: Path) -> dict | None:
+def load_state(out_dir: Path, source_id: str | None = None) -> dict | None:
     """상태 로드. 없거나 깨졌으면 None (= last_processed_sha null -> init 대상)."""
-    p = _state_path(out_dir)
+    p = _state_path(out_dir, source_id)
     if not p.exists():
         return None
     try:
@@ -35,10 +40,10 @@ def load_state(out_dir: Path) -> dict | None:
 
 def save_state(
     out_dir: Path, *, project_id: str, last_processed_sha: str,
-    ref: str, op: str, extra: dict | None = None,
+    ref: str, op: str, extra: dict | None = None, source_id: str | None = None,
 ) -> Path:
     """성공한 실행이 끝난 뒤에만 호출 — sha 포인터 전진."""
-    p = _state_path(out_dir)
+    p = _state_path(out_dir, source_id)
     prev = None
     if p.exists():
         try:
@@ -47,6 +52,7 @@ def save_state(
             prev = None
     data = {
         "project_id": str(project_id),
+        "source_id": source_id or "",
         "last_processed_sha": last_processed_sha,
         "ref": ref,
         "last_op": op,                       # "init" | "diff"
