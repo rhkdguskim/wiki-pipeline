@@ -1,6 +1,8 @@
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
 import {
-  getSources, saveSource, verifySource, preflightSource,
+  getSources, getSchedules, saveSource, saveSourceSchedule,
+  createSourceSchedule, updateSourceSchedule, deleteSourceSchedule,
+  verifySource, preflightSource,
   getInstances, saveInstance,
   getDocTargets, saveDocTarget,
   getRuns, getDbRuns, triggerRun,
@@ -15,6 +17,10 @@ const HEALTH_MS = 30000;
 
 export function useSourcesQuery() {
   return useQuery({queryKey: ['sources'], queryFn: getSources, refetchInterval: RUNS_MS});
+}
+
+export function useSchedulesQuery() {
+  return useQuery({queryKey: ['schedules'], queryFn: getSchedules, refetchInterval: RUNS_MS});
 }
 
 export function useInstancesQuery() {
@@ -79,7 +85,54 @@ export function useSaveSourceMutation() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({form, existing}) => saveSource(form, existing),
-    onSuccess: () => qc.invalidateQueries({queryKey: ['sources']}),
+    onSuccess: () => {
+      qc.invalidateQueries({queryKey: ['sources']});
+      qc.invalidateQueries({queryKey: ['schedules']});
+    },
+  });
+}
+
+export function useSaveSourceScheduleMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({sourceId, schedule}) => saveSourceSchedule(sourceId, schedule),
+    onSuccess: () => {
+      qc.invalidateQueries({queryKey: ['sources']});
+      qc.invalidateQueries({queryKey: ['schedules']});
+    },
+  });
+}
+
+export function useCreateSourceScheduleMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({sourceId, schedule}) => createSourceSchedule(sourceId, schedule),
+    onSuccess: () => {
+      qc.invalidateQueries({queryKey: ['sources']});
+      qc.invalidateQueries({queryKey: ['schedules']});
+    },
+  });
+}
+
+export function useUpdateSourceScheduleMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({sourceId, scheduleId, schedule}) => updateSourceSchedule(sourceId, scheduleId, schedule),
+    onSuccess: () => {
+      qc.invalidateQueries({queryKey: ['sources']});
+      qc.invalidateQueries({queryKey: ['schedules']});
+    },
+  });
+}
+
+export function useDeleteSourceScheduleMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({sourceId, scheduleId}) => deleteSourceSchedule(sourceId, scheduleId),
+    onSuccess: () => {
+      qc.invalidateQueries({queryKey: ['sources']});
+      qc.invalidateQueries({queryKey: ['schedules']});
+    },
   });
 }
 

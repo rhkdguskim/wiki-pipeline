@@ -84,6 +84,59 @@ def test_source_registration_with_verify(client, monkeypatch):
     assert "secret-token" not in str(view)
 
 
+def test_source_schedule_management(client, monkeypatch):
+    _patch_fake_connector(client, monkeypatch)
+    resp = client.post("/api/sources", headers=ADMIN, json={
+        "id": "demo", "label": "Demo", "kind": "gitlab",
+        "url": "http://gitlab.local", "project_id": "grp/demo",
+        "token": "secret-token", "dev_branch": "main",
+        "schedule_time": "09:30", "schedule_weekdays": ["mon", "wed", "fri"],
+        "verify": False,
+    })
+    assert resp.status_code == 201, resp.text
+    view = resp.json()
+    assert view["schedule_cron"] == "30 9 * * mon,wed,fri"
+    assert view["schedule"]["time"] == "09:30"
+    assert view["schedule"]["weekdays"] == ["mon", "wed", "fri"]
+    assert len(view["schedules"]) == 1
+    assert view["schedules"][0]["pipeline_id"] == "static"
+
+    schedules = client.get("/api/schedules", headers=ADMIN).json()
+    assert schedules[0]["source_id"] == "demo"
+    assert schedules[0]["description"] == "월·수·금 09:30 KST"
+    assert schedules[0]["pipeline_id"] == "static"
+    assert schedules[0]["next_run_at"]
+
+    resp = client.patch("/api/sources/demo/schedule", headers=ADMIN, json={
+        "schedule_time": "21:15", "schedule_weekdays": ["tue", "thu"],
+    })
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["schedules"][0]["schedule_cron"] == "15 21 * * tue,thu"
+
+    resp = client.post("/api/sources/demo/schedules", headers=ADMIN, json={
+        "label": "릴리스 브랜치 점검",
+        "pipeline_id": "static", "mode": "diff", "branch_role": "release",
+        "schedule_time": "06:45", "schedule_weekdays": ["sat"],
+    })
+    assert resp.status_code == 201, resp.text
+    schedule_id = resp.json()["id"]
+    assert resp.json()["mode"] == "diff"
+    assert resp.json()["branch_role"] == "release"
+    assert resp.json()["schedule_cron"] == "45 6 * * sat"
+
+    schedules = client.get("/api/schedules", headers=ADMIN).json()
+    assert len(schedules) == 2
+    assert {s["branch_role"] for s in schedules} == {"dev", "release"}
+
+    resp = client.delete(f"/api/sources/demo/schedules/{schedule_id}", headers=ADMIN)
+    assert resp.status_code == 200
+
+    resp = client.patch("/api/sources/demo/schedule", headers=ADMIN, json={
+        "schedule_time": "25:00", "schedule_weekdays": ["mon"],
+    })
+    assert resp.status_code == 400
+
+
 def test_instance_crud(client):
     resp = client.post("/api/instances", headers=ADMIN, json={
         "id": "github-com", "kind": "github", "label": "GitHub.com", "token": "gh-tok",

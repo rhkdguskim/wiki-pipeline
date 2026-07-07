@@ -16,7 +16,8 @@ from fastapi import (APIRouter, Body, Depends, HTTPException, Query, Request,
 
 from ..common.docshub import build_mr_plan, submit_change_request
 from . import projection
-from .models import DocTarget, ScmInstance, Source
+from .models import DocTarget, ScmInstance, Source, SourceSchedule
+from .schedule import normalize_schedule_payload
 
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
@@ -84,7 +85,9 @@ def index() -> dict:
         "service": "wiki-pipeline control plane",
         "endpoints": [
             "/api/runs", "/api/runs/db", "POST /api/runs/trigger",
-            "/api/sources", "POST /api/sources", "PATCH /api/sources/{id}",
+            "/api/sources", "/api/schedules", "POST /api/sources", "PATCH /api/sources/{id}",
+            "PATCH /api/sources/{id}/schedule",
+            "POST /api/sources/{id}/schedules", "PATCH /api/sources/{id}/schedules/{schedule_id}",
             "POST /api/sources/validate", "POST /api/sources/{id}/verify",
             "/api/instances", "POST /api/instances",
             "/api/docs-hub", "/api/docs-hub/mr-plan?run=<id>&target=<id>",
@@ -229,6 +232,28 @@ def list_sources(request: Request, db=Depends(_db)) -> list[dict]:
     return [st.registration.source_view(db, s) for s in sources]
 
 
+@router.get("/api/schedules", dependencies=[Depends(require_api_token)])
+def list_schedules(request: Request, db=Depends(_db)) -> list[dict]:
+    return _state(request).scheduler.list_schedules(db)
+
+
+def _apply_schedule_payload(row: SourceSchedule, payload: dict) -> SourceSchedule:
+    row.label = str(payload.get("label") or row.label or "정적 문서 자동화")
+    row.pipeline_id = str(payload.get("pipeline_id") or row.pipeline_id or "static")
+    row.mode = str(payload.get("mode") or row.mode or "auto")
+    row.branch_role = str(payload.get("branch_role") or row.branch_role or "dev")
+    row.cron = normalize_schedule_payload(payload, row.cron)
+    if "enabled" in payload:
+        row.enabled = bool(payload["enabled"])
+    if row.pipeline_id not in ("static",):
+        raise ValueError(f"지원하지 않는 pipeline_id: {row.pipeline_id}")
+    if row.mode not in ("auto", "init", "diff"):
+        raise ValueError(f"지원하지 않는 mode: {row.mode}")
+    if row.branch_role not in ("dev", "release"):
+        raise ValueError(f"지원하지 않는 branch_role: {row.branch_role}")
+    return row
+
+
 @router.post("/api/sources/validate", dependencies=[Depends(require_api_token)])
 def validate_source(payload: dict = Body(...)) -> dict:
     return _validate_source_payload(payload)
@@ -314,6 +339,84 @@ def update_source(source_id: str, request: Request, db=Depends(_db),
     view = st.registration.source_view(db, source)
     view["verification"] = verification
     return view
+
+
+@router.patch("/api/sources/{source_id}/schedule", dependencies=[Depends(require_api_token)])
+def update_source_schedule(source_id: str, request: Request, db=Depends(_db),
+                           payload: dict = Body(...)) -> dict:
+    st = _state(request)
+    source = db.get(Source, source_id)
+    if source is None:
+        raise HTTPException(404, f"source 없음: {source_id}")
+    try:
+        if source.schedules:
+            _apply_schedule_payload(source.schedules[0], payload)
+            source.schedule_cron = source.schedules[0].cron
+        else:
+            source.schedule_cron = normalize_schedule_payload(payload, source.schedule_cron)
+            db.add(SourceSchedule(source=source, label="정적 문서 자동화",
+                                  pipeline_id="static", mode="auto",
+                                  branch_role="dev", cron=source.schedule_cron,
+                                  enabled=True))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    db.commit()
+    st.scheduler.reload_jobs()
+    st.broadcaster.publish({"type": "sources_changed"})
+    return st.registration.source_view(db, source)
+
+
+@router.post("/api/sources/{source_id}/schedules", status_code=201,
+             dependencies=[Depends(require_api_token)])
+def create_source_schedule(source_id: str, request: Request, db=Depends(_db),
+                           payload: dict = Body(...)) -> dict:
+    st = _state(request)
+    source = db.get(Source, source_id)
+    if source is None:
+        raise HTTPException(404, f"source 없음: {source_id}")
+    row = SourceSchedule(source=source)
+    try:
+        _apply_schedule_payload(row, payload)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    db.add(row)
+    db.commit()
+    st.scheduler.reload_jobs()
+    st.broadcaster.publish({"type": "sources_changed"})
+    return st.registration.schedule_view(row)
+
+
+@router.patch("/api/sources/{source_id}/schedules/{schedule_id}",
+              dependencies=[Depends(require_api_token)])
+def update_source_schedule_row(source_id: str, schedule_id: int, request: Request,
+                               db=Depends(_db), payload: dict = Body(...)) -> dict:
+    st = _state(request)
+    row = db.get(SourceSchedule, schedule_id)
+    if row is None or row.source_id != source_id:
+        raise HTTPException(404, f"schedule 없음: {schedule_id}")
+    try:
+        _apply_schedule_payload(row, payload)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    db.commit()
+    st.scheduler.reload_jobs()
+    st.broadcaster.publish({"type": "sources_changed"})
+    return st.registration.schedule_view(row)
+
+
+@router.delete("/api/sources/{source_id}/schedules/{schedule_id}",
+               dependencies=[Depends(require_api_token)])
+def delete_source_schedule(source_id: str, schedule_id: int, request: Request,
+                           db=Depends(_db)) -> dict:
+    st = _state(request)
+    row = db.get(SourceSchedule, schedule_id)
+    if row is None or row.source_id != source_id:
+        raise HTTPException(404, f"schedule 없음: {schedule_id}")
+    db.delete(row)
+    db.commit()
+    st.scheduler.reload_jobs()
+    st.broadcaster.publish({"type": "sources_changed"})
+    return {"ok": True, "deleted": schedule_id}
 
 
 @router.post("/api/sources/{source_id}/verify", dependencies=[Depends(require_api_token)])

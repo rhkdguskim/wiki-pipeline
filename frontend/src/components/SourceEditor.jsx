@@ -26,7 +26,6 @@ export function SourceEditor({form, onChange, onSave, onVerify, onTrigger, busy,
       <label>release 브랜치<input value={fieldValue(form, 'release_branch')} onChange={e => set('release_branch', e.target.value)} placeholder="비우면 default branch" /></label>
       <label className="span2">테마<input value={fieldValue(form, 'themes')} onChange={e => set('themes', e.target.value)} /></label>
       <label>담당자 이메일<input value={fieldValue(form, 'owner_email')} onChange={e => set('owner_email', e.target.value)} placeholder="실패 알림 수신자" /></label>
-      <label>스케줄 cron<input value={fieldValue(form, 'schedule_cron')} onChange={e => set('schedule_cron', e.target.value)} placeholder="비우면 평일 20:00" /></label>
       <label>토큰 헤더<input value={fieldValue(form, 'token_header') || 'PRIVATE-TOKEN'} onChange={e => set('token_header', e.target.value)} /></label>
       <label>토큰<input value={fieldValue(form, 'token')} onChange={e => set('token', e.target.value)} placeholder="저장 시에만 사용, 응답에는 표시 안 됨" type="password" /></label>
       <label className="checkRow"><input type="checkbox" checked={form.enabled !== false} onChange={e => set('enabled', e.target.checked)} />활성 (배치 대상)</label>

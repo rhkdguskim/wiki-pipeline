@@ -2,12 +2,15 @@ import {useState} from 'react';
 import {ArrowLeft, GitBranch, History, Play, ShieldCheck} from 'lucide-react';
 import {SourceEditor} from '../components/SourceEditor.jsx';
 import {SourceRunHistory} from '../components/SourceRunHistory.jsx';
+import {SourceSchedulesPanel} from '../components/SourceSchedulesPanel.jsx';
 import {EmptyState} from '../components/EmptyState.jsx';
 import {PageHeader} from '../components/PageHeader.jsx';
+import {formatSchedule} from '../lib/schedule.js';
 
 export function SourceDetailPage({
   source, runs, onBack, onSelectRun, onTrigger, onVerify, verifyResult,
   editForm, onEditFormChange, onSaveEdit, saveBusy, saveMessage,
+  onCreateSchedule, onUpdateSchedule, onDeleteSchedule, scheduleBusy,
 }) {
   const [editing, setEditing] = useState(false);
   if (!source) return <EmptyState title="소스를 찾을 수 없습니다" actionLabel="목록으로" onAction={onBack} />;
@@ -39,7 +42,7 @@ export function SourceDetailPage({
           <dt>인스턴스</dt><dd>{source.instance_label || source.url || '-'}</dd>
           <dt>repo</dt><dd className="mono">{source.project_id}</dd>
           <dt>doc_dir</dt><dd className="mono">{source.doc_dir || '-'}</dd>
-          <dt>스케줄</dt><dd>{source.schedule_cron || '(평일 20:00 기본)'}</dd>
+          <dt>스케줄</dt><dd>{source.schedules?.length ? `${source.schedules.length}개` : formatSchedule(source)}</dd>
           <dt>담당자</dt><dd>{source.owner_email || '-'}</dd>
         </dl>
       </section>
@@ -60,6 +63,17 @@ export function SourceDetailPage({
         </dl>
       </section>
     </div>
+
+    <section className="panel" style={{marginTop: 12}}>
+      <div className="panelHead"><h2>자동 실행 스케줄</h2><p className="panelHint">저장소별로 여러 파이프라인 스케줄을 등록합니다</p></div>
+      <SourceSchedulesPanel
+        source={source}
+        onCreate={onCreateSchedule}
+        onUpdate={onUpdateSchedule}
+        onDelete={onDeleteSchedule}
+        busy={scheduleBusy}
+      />
+    </section>
 
     <section className="panel" style={{marginTop: 12}}>
       <div className="panelHead"><h2>에이전트 run 히스토리</h2></div>

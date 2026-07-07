@@ -182,11 +182,23 @@ td:not(:first-child), th:not(:first-child) { text-align: right; font-variant-num
 .editorHead p { color: var(--muted); font-size: 12px; margin-top: 4px; }
 .formGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .formGrid label { display: grid; gap: 5px; color: var(--soft); font-size: 11px; font-weight: 700; text-transform: uppercase; }
-.formGrid label.span2 { grid-column: 1 / -1; }
+.formGrid .span2 { grid-column: 1 / -1; }
 .formGrid input, .formGrid select { min-width: 0; height: 34px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); padding: 0 9px; outline: none; text-transform: none; font-weight: 500; }
 .formGrid input:focus, .formGrid select:focus { border-color: var(--blue); }
 .formMessage { color: var(--muted); font-size: 12px; line-height: 1.4; }
 .emptyPanel { min-height: 160px; display: grid; place-items: center; color: var(--soft); border: 1px dashed var(--line); border-radius: 8px; }
+
+.scheduleEditor { border: 1px solid var(--line); border-radius: 8px; background: var(--agent); padding: 12px; display: grid; gap: 10px; }
+.scheduleStack { display: grid; gap: 10px; }
+.scheduleEditorHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); }
+.scheduleEditorHead span { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 720; }
+.scheduleEditorHead small { color: var(--soft); font-size: 11px; }
+.scheduleEditor p { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.weekdayToggleGroup { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.weekdayToggle { min-width: 0; height: 32px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--muted); cursor: pointer; font-weight: 700; }
+.weekdayToggle.active { background: var(--ink); border-color: var(--ink); color: var(--surface); }
+.weekdayToggle:hover { border-color: var(--line-strong); color: var(--ink); }
+.weekdayToggle.active:hover { color: var(--surface); }
 
 .verifyBox { display: grid; gap: 4px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 12px; }
 .verifyBox p { display: flex; align-items: center; gap: 6px; color: var(--muted); }
@@ -391,7 +403,8 @@ td.ellipsis, th.ellipsis { max-width: 220px; }
   .kpiGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .missionKpis { grid-template-columns: 1fr; }
   .formGrid { grid-template-columns: 1fr; }
-  .formGrid label.span2 { grid-column: auto; }
+  .formGrid .span2 { grid-column: auto; }
+  .weekdayToggleGroup { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .feedRow { grid-template-columns: 62px 52px minmax(0, 1fr); }
   .feedText { grid-column: 1 / -1; }
 }

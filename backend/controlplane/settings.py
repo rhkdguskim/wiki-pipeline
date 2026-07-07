@@ -43,7 +43,7 @@ class ControlPlaneSettings(BaseSettings):
     smtp_starttls: bool = True
 
     # ── 스케줄 기본값 (decision-nightly-batch: 평일 20:00) ──
-    default_schedule_cron: str = "0 20 * * 1-5"
+    default_schedule_cron: str = "0 20 * * mon-fri"
     scheduler_enabled: bool = True
 
     # ── 이벤트 보존 정책 — 완료 run의 상세 이벤트를 N일 후 정리 (0=무제한) ──

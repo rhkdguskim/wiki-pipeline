@@ -14,7 +14,8 @@ from sqlalchemy.orm import Session
 
 from ...connectors import ScmConnector, make_connector
 from ..crypto import SecretBox
-from ..models import DocTarget, ScmInstance, Source, SourceBranch
+from ..models import DocTarget, ScmInstance, Source, SourceBranch, SourceSchedule
+from ..schedule import normalize_schedule_payload, parse_cron
 
 _ID_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -107,7 +108,7 @@ class RegistrationService:
         source.label = str(payload.get("label") or source.label or sid)
         source.themes = str(payload.get("themes") or source.themes or "")
         source.owner_email = str(payload.get("owner_email") or source.owner_email or "")
-        source.schedule_cron = str(payload.get("schedule_cron") or source.schedule_cron or "")
+        source.schedule_cron = normalize_schedule_payload(payload, source.schedule_cron)
         if "enabled" in payload:
             source.enabled = bool(payload["enabled"])
             if source.enabled:
@@ -118,6 +119,17 @@ class RegistrationService:
         if payload.get("doc_dir"):
             source.doc_dir = str(payload["doc_dir"])
         db.flush()
+
+        if source.schedule_cron and not source.schedules:
+            db.add(SourceSchedule(
+                source=source,
+                label="정적 문서 자동화",
+                pipeline_id=str(payload.get("pipeline_id") or "static"),
+                mode=str(payload.get("mode") or "auto"),
+                branch_role=str(payload.get("branch_role") or "dev"),
+                cron=source.schedule_cron,
+                enabled=True,
+            ))
 
         verification: dict = {"verified": False}
         if verify:
@@ -187,6 +199,8 @@ class RegistrationService:
             "themes": source.themes,
             "owner_email": source.owner_email,
             "schedule_cron": source.schedule_cron,
+            "schedule": parse_cron(source.schedule_cron),
+            "schedules": [self.schedule_view(row) for row in source.schedules],
             "enabled": source.enabled,
             "disabled_reason": source.disabled_reason,
             "has_token": bool(source.token or (inst.token if inst else "")),
@@ -195,6 +209,20 @@ class RegistrationService:
             "last_processed_sha": (dev.last_processed_sha if dev else "") or "",
             "release_last_processed_sha": (release.last_processed_sha if release else "") or "",
             "updated_at": source.updated_at.isoformat() if source.updated_at else "",
+        }
+
+    def schedule_view(self, row: SourceSchedule) -> dict:
+        return {
+            "id": row.id,
+            "source_id": row.source_id,
+            "label": row.label,
+            "pipeline_id": row.pipeline_id,
+            "mode": row.mode,
+            "branch_role": row.branch_role,
+            "schedule_cron": row.cron,
+            "schedule": parse_cron(row.cron),
+            "enabled": row.enabled,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else "",
         }
 
     # ── docs-hub 타깃 ────────────────────────────────────────

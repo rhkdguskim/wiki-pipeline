@@ -27,9 +27,23 @@ function jsonBody(payload, method) {
 
 export const getSources = () => api('/api/sources').then(asJson);
 
+export const getSchedules = () => api('/api/schedules').then(asJson);
+
 export const saveSource = (form, existing) =>
   api(existing ? `/api/sources/${encodeURIComponent(form.id)}` : '/api/sources',
     jsonBody(form, existing ? 'PATCH' : 'POST')).then(asJson);
+
+export const saveSourceSchedule = (sourceId, schedule) =>
+  api(`/api/sources/${encodeURIComponent(sourceId)}/schedule`, jsonBody(schedule, 'PATCH')).then(asJson);
+
+export const createSourceSchedule = (sourceId, schedule) =>
+  api(`/api/sources/${encodeURIComponent(sourceId)}/schedules`, jsonBody(schedule, 'POST')).then(asJson);
+
+export const updateSourceSchedule = (sourceId, scheduleId, schedule) =>
+  api(`/api/sources/${encodeURIComponent(sourceId)}/schedules/${encodeURIComponent(scheduleId)}`, jsonBody(schedule, 'PATCH')).then(asJson);
+
+export const deleteSourceSchedule = (sourceId, scheduleId) =>
+  api(`/api/sources/${encodeURIComponent(sourceId)}/schedules/${encodeURIComponent(scheduleId)}`, {method: 'DELETE'}).then(asJson);
 
 export const verifySource = id => api(`/api/sources/${encodeURIComponent(id)}/verify`, {method: 'POST'}).then(asJson);
 

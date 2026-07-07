@@ -62,6 +62,7 @@ class Source(Base):
 
     instance: Mapped[ScmInstance] = relationship(back_populates="sources")
     branches: Mapped[list["SourceBranch"]] = relationship(back_populates="source")
+    schedules: Mapped[list["SourceSchedule"]] = relationship(back_populates="source")
 
 
 class SourceBranch(Base):
@@ -80,6 +81,25 @@ class SourceBranch(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     source: Mapped[Source] = relationship(back_populates="branches")
+
+
+class SourceSchedule(Base):
+    """저장소별 자동 실행 스케줄. 한 source에 여러 파이프라인 스케줄을 둘 수 있다."""
+
+    __tablename__ = "source_schedules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source_id: Mapped[str] = mapped_column(ForeignKey("sources.id"), index=True)
+    label: Mapped[str] = mapped_column(String(120), default="")
+    pipeline_id: Mapped[str] = mapped_column(String(32), default="static")
+    mode: Mapped[str] = mapped_column(String(16), default="auto")
+    branch_role: Mapped[str] = mapped_column(String(16), default="dev")
+    cron: Mapped[str] = mapped_column(String(100), default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    source: Mapped[Source] = relationship(back_populates="schedules")
 
 
 class Run(Base):

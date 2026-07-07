@@ -1,6 +1,7 @@
 import {useMemo, useState} from 'react';
-import {CheckCircle2, ChevronLeft, ChevronRight, GitBranch, Play, Plus, Server, ShieldCheck, X, XCircle} from 'lucide-react';
+import {CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, GitBranch, Play, Plus, Server, ShieldCheck, X, XCircle} from 'lucide-react';
 import {useInstancesQuery, usePreflightSourceMutation, useSaveSourceMutation} from '../hooks/queries.js';
+import {buildCron, formatSchedule, WEEKDAYS} from '../lib/schedule.js';
 
 const THEME_OPTIONS = ['intro', 'requirements', 'architecture-overview', 'component-diagram', 'dev-guide', 'api-protocol'];
 const STEPS = ['프로바이더', '인스턴스', '레포', '검증', '브랜치', '옵션', '저장'];
@@ -18,7 +19,8 @@ const emptyWizard = {
   devBranch: '',
   releaseBranch: '',
   themes: ['intro', 'requirements', 'architecture-overview', 'component-diagram'],
-  scheduleCron: '',
+  scheduleTime: '20:00',
+  scheduleWeekdays: ['mon', 'tue', 'wed', 'thu', 'fri'],
   ownerEmail: '',
 };
 
@@ -78,6 +80,13 @@ export function SourceWizard({onClose, onCreated, onTriggerSuggested}) {
   const back = () => setStep(s => Math.max(s - 1, 0));
 
   const toggleTheme = t => set('themes', form.themes.includes(t) ? form.themes.filter(x => x !== t) : [...form.themes, t]);
+  const toggleWeekday = day => {
+    const selected = form.scheduleWeekdays.includes(day)
+      ? form.scheduleWeekdays.filter(d => d !== day)
+      : [...form.scheduleWeekdays, day];
+    const ordered = WEEKDAYS.map(d => d.id).filter(d => selected.includes(d));
+    if (ordered.length) set('scheduleWeekdays', ordered);
+  };
 
   const save = async () => {
     setSaveMessage('');
@@ -96,7 +105,9 @@ export function SourceWizard({onClose, onCreated, onTriggerSuggested}) {
       release_branch: form.releaseBranch,
       themes: form.themes.join(','),
       owner_email: form.ownerEmail,
-      schedule_cron: form.scheduleCron,
+      schedule_time: form.scheduleTime,
+      schedule_weekdays: form.scheduleWeekdays,
+      schedule_cron: buildCron(form.scheduleTime, form.scheduleWeekdays),
       enabled: true,
       verify: false,
     };
@@ -199,7 +210,23 @@ export function SourceWizard({onClose, onCreated, onTriggerSuggested}) {
                   ))}
                 </div>
               </label>
-              <label>스케줄 cron<input value={form.scheduleCron} onChange={e => set('scheduleCron', e.target.value)} placeholder="비우면 평일 20:00" /></label>
+              <div className="scheduleEditor span2">
+                <div className="scheduleEditorHead">
+                  <span><CalendarClock size={14} />자동 실행 스케줄</span>
+                  <small>{formatSchedule({time: form.scheduleTime, weekdays: form.scheduleWeekdays})}</small>
+                </div>
+                <label>실행 시간<input type="time" value={form.scheduleTime} onChange={e => set('scheduleTime', e.target.value)} /></label>
+                <div className="weekdayToggleGroup" role="group" aria-label="실행 요일">
+                  {WEEKDAYS.map(day => <button
+                    key={day.id}
+                    type="button"
+                    className={form.scheduleWeekdays.includes(day.id) ? 'weekdayToggle active' : 'weekdayToggle'}
+                    onClick={() => toggleWeekday(day.id)}
+                  >
+                    {day.label}
+                  </button>)}
+                </div>
+              </div>
               <label>담당자 이메일<input value={form.ownerEmail} onChange={e => set('ownerEmail', e.target.value)} placeholder="실패 알림 수신자" /></label>
             </div>
           </div>}

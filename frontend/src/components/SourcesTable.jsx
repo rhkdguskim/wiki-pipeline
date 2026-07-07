@@ -1,4 +1,5 @@
 import {Pencil, Play, ShieldCheck} from 'lucide-react';
+import {formatSchedule} from '../lib/schedule.js';
 
 export function SourcesTable({sources, onOpenDetail, onVerify, onTrigger, onEdit, onToggleEnabled}) {
   return <div className="tableScroll">
@@ -17,7 +18,7 @@ export function SourcesTable({sources, onOpenDetail, onVerify, onTrigger, onEdit
           <td>{s.dev_branch || '-'}</td>
           <td>{s.release_branch || '-'}</td>
           <td className="mono">{s.last_processed_sha ? s.last_processed_sha.slice(0, 10) : '-'}</td>
-          <td>{s.schedule_cron || '(기본)'}</td>
+          <td>{s.schedules?.length > 1 ? `${s.schedules.length}개` : formatSchedule(s.schedules?.[0] || s)}</td>
           <td>
             <span className={`stageState ${s.enabled ? 'done' : 'idle'}`}><span />{s.enabled ? '활성' : '비활성'}</span>
             {!s.enabled && s.disabled_reason && <div className="errText">{s.disabled_reason}</div>}

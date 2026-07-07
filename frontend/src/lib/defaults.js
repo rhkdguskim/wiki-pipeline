@@ -11,6 +11,8 @@ export const blankSource = {
   themes: 'intro,requirements,architecture-overview,component-diagram',
   owner_email: '',
   schedule_cron: '',
+  schedule_time: '20:00',
+  schedule_weekdays: ['mon', 'tue', 'wed', 'thu', 'fri'],
   enabled: true,
 };
 

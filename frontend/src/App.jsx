@@ -5,6 +5,8 @@ import {
   useSourceRunsQuery, useCostsQuery, useOverviewQuery, useHealthQuery, useMrPlanQuery,
   useSaveSourceMutation, useVerifySourceMutation, useSaveInstanceMutation,
   useSaveDocTargetMutation, useTriggerRunMutation, useSubmitMrMutation,
+  useCreateSourceScheduleMutation, useUpdateSourceScheduleMutation,
+  useDeleteSourceScheduleMutation,
 } from './hooks/queries.js';
 import {useRunStream} from './hooks/useRunStream.js';
 import {useLiveSocket} from './hooks/useLiveSocket.js';
@@ -65,6 +67,9 @@ export function App() {
   const saveDocTargetMutation = useSaveDocTargetMutation();
   const triggerRunMutation = useTriggerRunMutation();
   const submitMrMutation = useSubmitMrMutation();
+  const createScheduleMutation = useCreateSourceScheduleMutation();
+  const updateScheduleMutation = useUpdateSourceScheduleMutation();
+  const deleteScheduleMutation = useDeleteSourceScheduleMutation();
 
   const {S, lastAge, runSummary} = useRunStream(runId);
   const mrPlanQuery = useMrPlanQuery(runId, 'product-common');
@@ -158,8 +163,44 @@ export function App() {
     }
   };
 
+  const createSourceSchedule = async (schedule) => {
+    if (!sourceDetailId) return;
+    try {
+      await createScheduleMutation.mutateAsync({sourceId: sourceDetailId, schedule});
+      pushToast('스케줄이 추가되었습니다', 'success');
+    } catch (e) {
+      pushToast(e.message, 'error');
+    }
+  };
+
+  const updateSourceSchedule = async (scheduleId, schedule) => {
+    if (!sourceDetailId) return;
+    try {
+      await updateScheduleMutation.mutateAsync({sourceId: sourceDetailId, scheduleId, schedule});
+      pushToast('스케줄이 저장되었습니다', 'success');
+    } catch (e) {
+      pushToast(e.message, 'error');
+    }
+  };
+
+  const deleteSourceSchedule = async (scheduleId) => {
+    if (!sourceDetailId) return;
+    try {
+      await deleteScheduleMutation.mutateAsync({sourceId: sourceDetailId, scheduleId});
+      pushToast('스케줄이 삭제되었습니다', 'success');
+    } catch (e) {
+      pushToast(e.message, 'error');
+    }
+  };
+
   const selectSourceForEdit = (s) => {
-    setSourceForm({...s, themes: (s.themes || []).join(','), token: ''});
+    setSourceForm({
+      ...s,
+      themes: Array.isArray(s.themes) ? s.themes.join(',') : (s.themes || ''),
+      schedule_time: s.schedule?.time || '20:00',
+      schedule_weekdays: s.schedule?.weekdays || ['mon', 'tue', 'wed', 'thu', 'fri'],
+      token: '',
+    });
     setVerifyResult(null);
   };
 
@@ -196,6 +237,10 @@ export function App() {
             onSaveEdit={saveSource}
             saveBusy={saveSourceMutation.isPending}
             saveMessage=""
+            onCreateSchedule={createSourceSchedule}
+            onUpdateSchedule={updateSourceSchedule}
+            onDeleteSchedule={deleteSourceSchedule}
+            scheduleBusy={createScheduleMutation.isPending || updateScheduleMutation.isPending || deleteScheduleMutation.isPending}
           />
           : <RepositoriesPage
             instances={instances}
