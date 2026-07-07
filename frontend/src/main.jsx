@@ -25,6 +25,13 @@ import {
 } from 'lucide-react';
 import './styles.css';
 
+// Control Plane 자체 토큰 인증 (CONTROL_API_TOKENS 설정 시): localStorage.cp_token을 모든 API 호출에 첨부
+const api = (url, opts = {}) => {
+  const token = localStorage.getItem("cp_token");
+  const headers = {...(opts.headers || {}), ...(token ? {"X-Api-Token": token} : {})};
+  return fetch(url, {...opts, headers});
+};
+
 const POLL_MS = 1500;
 const RUNS_MS = 10000;
 const STALL_SEC = 90;
@@ -470,17 +477,17 @@ function App() {
   const polling = useRef(false);
 
   const refreshSources = async () => {
-    const r = await fetch('/api/sources');
+    const r = await api('/api/sources');
     setSources(await r.json());
   };
   const refreshDocTargets = async () => {
-    const r = await fetch('/api/docs-hub');
+    const r = await api('/api/docs-hub');
     const data = await r.json();
     setDocTargets(data.targets || []);
     setTargetForm(data.targets?.[0] || defaultDocTarget);
   };
   const refreshRuns = async () => {
-    const r = await fetch('/api/runs');
+    const r = await api('/api/runs');
     const data = await r.json();
     setRuns(data);
     if (!runId && data.length) setRunId(data[0].run_id);
@@ -497,7 +504,7 @@ function App() {
     setSaveMessage('');
     try {
       const existing = sources.some(s => s.id === sourceForm.id);
-      const r = await fetch(existing ? `/api/sources/${encodeURIComponent(sourceForm.id)}` : '/api/sources', {
+      const r = await api(existing ? `/api/sources/${encodeURIComponent(sourceForm.id)}` : '/api/sources', {
         method: existing ? 'PATCH' : 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(sourceForm),
@@ -519,7 +526,7 @@ function App() {
     try {
       const id = targetForm.id || 'product-common';
       const existing = docTargets.some(t => t.id === id);
-      const r = await fetch(existing ? `/api/docs-hub/${encodeURIComponent(id)}` : '/api/docs-hub', {
+      const r = await api(existing ? `/api/docs-hub/${encodeURIComponent(id)}` : '/api/docs-hub', {
         method: existing ? 'PATCH' : 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(targetForm),
@@ -546,7 +553,7 @@ function App() {
 
   const refreshMrPlan = async () => {
     if (!runId) return;
-    const r = await fetch(`/api/docs-hub/mr-plan?run=${encodeURIComponent(runId)}&target=product-common`);
+    const r = await api(`/api/docs-hub/mr-plan?run=${encodeURIComponent(runId)}&target=product-common`);
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'MR 계획 조회 실패');
     setMrPlan(data);
@@ -557,7 +564,7 @@ function App() {
     setMrBusy(true);
     setMrMessage('');
     try {
-      const r = await fetch('/api/docs-hub/submit-mr', {
+      const r = await api('/api/docs-hub/submit-mr', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({run: runId, target: 'product-common', confirm: 'product-common'}),
@@ -578,7 +585,7 @@ function App() {
     let cancelled = false;
     async function fetchSummary() {
       try {
-        const r = await fetch(`/api/run-summary?run=${encodeURIComponent(runId)}`);
+        const r = await api(`/api/run-summary?run=${encodeURIComponent(runId)}`);
         if (!r.ok) return;
         const data = await r.json();
         if (!cancelled) setRunSummary(data);
@@ -602,7 +609,7 @@ function App() {
         let changed = false;
         let nextState = S;
         for (let i = 0; i < 50; i++) {
-          const r = await fetch(`/api/events?run=${encodeURIComponent(runId)}&offset=${nextOffset}`);
+          const r = await api(`/api/events?run=${encodeURIComponent(runId)}&offset=${nextOffset}`);
           const data = await r.json();
           if (data.error) break;
           nextOffset = data.offset;

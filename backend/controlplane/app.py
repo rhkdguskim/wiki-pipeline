@@ -90,6 +90,15 @@ def create_app(settings: ControlPlaneSettings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
+    # 기존 대시보드 계약 호환: 에러 응답에 FastAPI 기본 "detail"과 함께 "error" 키 제공.
+    from fastapi import HTTPException as _HTTPException
+    from fastapi.responses import JSONResponse
+
+    @app.exception_handler(_HTTPException)
+    async def _http_error(request, exc: _HTTPException):
+        return JSONResponse(status_code=exc.status_code,
+                            content={"error": str(exc.detail), "detail": exc.detail})
+
     engine = make_engine(settings.db_url)
     init_db(engine)
     session_factory = make_session_factory(engine)
