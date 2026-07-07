@@ -23,6 +23,10 @@ venv/
 poc/.venv/
 *.egg-info/
 
+# Dashboard frontend dependencies
+node_modules/
+poc/dashboard/node_modules/
+
 # PoC 실행 산출물 (생성 문서·관측 로그·스크린샷·체크포인트)
 poc/out/
 poc/output/
