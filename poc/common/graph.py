@@ -43,7 +43,8 @@ def build_agent_graph(spec: AgentSpec, model: BaseChatModel):
     llm_with_tools = model.bind_tools(spec.tools) if spec.tools else model
     sys_msg = SystemMessage(content=spec.system_prompt)
     _FORCE = ("\n\n[시스템] 도구 호출 한도에 도달했다. 더는 도구를 쓰지 말고, "
-              "지금까지 읽은 근거만으로 최종 문서를 즉시 완성해 출력하라.")
+              "지금까지 읽은 근거만으로 최종 문서를 즉시 완성해 출력하라. "
+              "도구 호출을 텍스트로 흉내내지 마라(<tool_call> 등 금지) — 문서 본문만 출력한다.")
 
     def _count_tool_turns(messages: list) -> int:
         return sum(1 for m in messages if isinstance(m, AIMessage) and m.tool_calls)
@@ -67,7 +68,7 @@ def build_agent_graph(spec: AgentSpec, model: BaseChatModel):
         else:
             # 시스템 프롬프트를 매 호출 앞에 (Full Reset 성격 — 컨텍스트는 messages로만).
             call = lambda: llm_with_tools.invoke([sys_msg, *messages])
-        # APITimeoutError 등 일시 오류는 지수 백오프로 재시도 (MiniMax M3 타임아웃 대비).
+        # APITimeoutError 등 일시 오류는 지수 백오프로 재시도 (공급자 무관).
         resp: AIMessage = with_retry(call, attempts=4, on_retry=_on_retry)
 
         ev.emit(ev.make_event(

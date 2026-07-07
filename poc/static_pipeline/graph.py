@@ -12,21 +12,22 @@ from ..common.graph import build_agent_graph
 from .gitlab_client import GitLabClient
 from .prompts import (
     critic_prompt,
-    deep_writer_prompt,
     diff_writer_prompt,
     init_writer_prompt,
+    repo_writer_prompt,
 )
 from .state import StaticState
 from .tools import make_tools
 
 
 def build_diff_writer_graph(
-    *, model, client, theme, changed_files, from_sha, to_sha, run_id, max_steps=6,
+    *, model, client, theme, changed_files, from_sha, to_sha, run_id,
+    max_steps=6, no_tools=False,
 ):
     spec = AgentSpec(
         pipeline_id="static",
         system_prompt=diff_writer_prompt(theme, changed_files, from_sha, to_sha),
-        tools=make_tools(client, ref=to_sha),
+        tools=[] if no_tools else make_tools(client, ref=to_sha),
         state_schema=StaticState, run_id=run_id,
         stage=f"write:{theme}", max_steps=max_steps,
     )
@@ -34,28 +35,34 @@ def build_diff_writer_graph(
 
 
 def build_init_writer_graph(
-    *, model, client, theme, unit, unit_files, ref, run_id, max_steps=6,
+    *, model, client, theme, unit, unit_files, ref, run_id,
+    max_steps=6, no_tools=False,
 ):
     spec = AgentSpec(
         pipeline_id="static",
         system_prompt=init_writer_prompt(theme, unit, unit_files, ref),
-        tools=make_tools(client, ref=ref),
+        tools=[] if no_tools else make_tools(client, ref=ref),
         state_schema=StaticState, run_id=run_id,
         stage=f"write:{unit}:{theme}", max_steps=max_steps,
     )
     return build_agent_graph(spec, model)
 
 
-def build_deep_writer_graph(
-    *, model, client, theme, unit, ref, summaries_block, source_files, run_id, max_steps=4,
+def build_repo_writer_graph(
+    *, model, client, theme, repo_name, ref, summaries_block, run_id,
+    max_steps=8, no_tools=False,
 ):
-    """deep init reduce 단계 writer — 하위 요약을 근거로 단위 문서 합성."""
+    """init reduce 단계 writer — 단위 요약들을 근거로 레포 전체 테마 문서 합성.
+
+    no_tools=True 면 도구를 아예 바인딩하지 않는다 — 모델이 도구 호출을 텍스트로
+    유출(형식 실패)한 뒤의 재시도에서 요약만으로 합성을 강제하는 안전판.
+    """
     spec = AgentSpec(
         pipeline_id="static",
-        system_prompt=deep_writer_prompt(theme, unit, ref, summaries_block, source_files),
-        tools=make_tools(client, ref=ref),
+        system_prompt=repo_writer_prompt(theme, repo_name, ref, summaries_block),
+        tools=[] if no_tools else make_tools(client, ref=ref),
         state_schema=StaticState, run_id=run_id,
-        stage=f"reduce:{unit}:{theme}", max_steps=max_steps,
+        stage=f"reduce:{theme}", max_steps=max_steps,
     )
     return build_agent_graph(spec, model)
 

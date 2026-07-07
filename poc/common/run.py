@@ -1,6 +1,6 @@
 """공통 실행 엔트리 — 그래프 stream(custom)을 소비해 observer로 흘리고 결과 반환.
 
-`python -m poc.common.run --smoke` 로 M3 1회 왕복 + custom 이벤트 방출을 검증한다 (L0).
+`python -m poc.common.run --smoke` 로 LLM 1회 왕복 + custom 이벤트 방출을 검증한다 (L0).
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def run_graph(graph, initial_state: dict, observer: Observer, *, config: dict | 
 
 
 def _smoke() -> int:
-    """공통 런타임 스모크: 도구 없는 에이전트로 M3 왕복 + 이벤트 방출 확인."""
+    """공통 런타임 스모크: 도구 없는 에이전트로 LLM 왕복 + 이벤트 방출 확인."""
     settings = load_settings()
     if not settings.llm_api_key:
         print("✗ LLM_API_KEY 가 .env 에 없습니다.")
@@ -75,7 +75,7 @@ def _smoke() -> int:
             stage="smoke-test", status="done",
             detail={"reply": text[:200]},
         ))
-        print(f"\n✓ M3 응답: {text!r}")
+        print(f"\n✓ LLM 응답: {text!r}")
         print(f"✓ 이벤트 로그: {observer.jsonl_path}")
         return 0
     except Exception as e:  # noqa: BLE001
@@ -92,7 +92,7 @@ def _smoke() -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="공통 런타임 실행")
-    parser.add_argument("--smoke", action="store_true", help="M3 왕복 + 이벤트 방출 스모크 테스트")
+    parser.add_argument("--smoke", action="store_true", help="LLM 왕복 + 이벤트 방출 스모크 테스트")
     args = parser.parse_args()
     if args.smoke:
         return _smoke()

@@ -113,24 +113,34 @@ def init_writer_prompt(theme_id: str, unit: str, unit_files: list[str], ref: str
                           origin_line=f"generated_from: {ref[:10]} (init)")
 
 
-def deep_writer_prompt(theme_id: str, unit: str, ref: str, summaries_block: str,
-                       source_files: list[str]) -> str:
-    """deep init reduce 단계 — 하위 그룹 요약(전체 스캔 결과)을 근거로 단위 문서 합성.
+def repo_writer_prompt(theme_id: str, repo_name: str, ref: str, summaries_block: str) -> str:
+    """init reduce 단계 — 단위별 스캔 요약을 근거로 **저장소 전체** 테마 문서 합성.
 
-    writer는 이미 map 단계가 전체를 훑어 만든 요약을 근거로 삼는다. 필요하면 read_file로
-    특정 파일을 추가 확인할 수 있으나, 요약이 전체 커버리지를 보장한다.
+    어떤 저장소든(언어·구조 무관) 레포 전체를 조망하는 문서 1편/테마. map 단계가 전체를
+    훑어 만든 단위 요약들이 1차 근거이며, 특정 사실 확인이 필요할 때만 read_file로 보강한다.
     """
-    src = ", ".join(source_files[:12])
-    scope = (f"- 모드: **최초 문서화(init, deep-scan)** — 현재 상태 기준\n"
-             f"- 대상 단위: **{unit}** (버전 {ref[:10]})\n"
-             f"- 이 단위 **전체를 하위 그룹별로 스캔한 요약**이 아래에 있다. 이 요약들이 근거다:\n\n"
+    scope = (f"- 모드: **최초 문서화(init, 전체 레포 스캔)** — 현재 상태 기준\n"
+             f"- 대상: 저장소 **{repo_name}** 전체 (버전 {ref[:10]})\n"
+             f"- 아래는 이 저장소를 단위별로 병렬 스캔한 요약이다. **이 요약들이 1차 근거다**:\n\n"
              f"{summaries_block}\n\n"
-             f"- 대표 소스 파일: {src}\n"
-             f"- 위 요약으로 단위 전체를 조망해 문서를 쓴다. 특정 사실 확인이 필요하면 read_file로 보강하되,\n"
-             f"  요약이 전체 커버리지를 담고 있으니 탐색은 최소화하고 종합에 집중하라.\n"
-             f"- 서드파티/외부 라이브러리는 상세 대신 이름·용도·통합 지점만 짧게.")
+             f"- 요약을 종합해 저장소 **전체** 관점의 문서를 쓴다 — 단위를 하나씩 나열하는 게 아니라\n"
+             f"  시스템 전체 그림으로 재구성한다 (레이어/역할 축으로 묶기).\n"
+             f"- **고도(altitude) 규칙 — 매우 중요**: 위 단위 요약에는 클래스/함수/상수 수준의 세부가\n"
+             f"  담겨 있지만, 그대로 옮기지 마라. 이 문서의 do_not_cover에 걸리는 세부(클래스 명세,\n"
+             f"  설정 상수·타임아웃 값, 내부 구현 방식, 메시지 코드)는 **버리고**, 컴포넌트·모듈\n"
+             f"  수준으로 추상화해 서술한다. 요약의 세부는 '무엇이 있는지 아는 근거'로만 쓴다.\n"
+             f"- **수치 절제 규칙 — 매우 중요**: 버전 번호·개수·기본값(ON/OFF)·연도 같은 구체 수치는\n"
+             f"  위 요약 또는 직접 read_file로 확인한 내용에 **문자 그대로** 있을 때만 쓴다.\n"
+             f"  기억·추정으로 수치를 만들어내지 마라 — 불확실하면 수치 없이 서술하거나 생략한다.\n"
+             f"- **다이어그램 근거 규칙**: mermaid의 노드·엣지(의존 관계)는 요약의 '의존·통신' 항목에\n"
+             f"  명시된 관계만 그린다. 그럴듯해 보여도 요약에 없는 화살표는 추가하지 마라.\n"
+             f"- 표를 적극 활용하라: 컴포넌트 역할 표, 기술 스택 표, 포트/의존성 표 등.\n"
+             f"- 다이어그램이 must_cover에 있으면 mermaid로 그린다 (graph TB / sequenceDiagram 등).\n"
+             f"- 특정 사실 확인이 필요할 때만 read_file (최대 4회). 탐색보다 종합에 집중하라.\n"
+             f"- **분량: 본문 5,000~15,000자.** 장황한 나열 대신 핵심 위주 — 표와 다이어그램으로 압축하라.\n"
+             f"- 서드파티 라이브러리는 이름·용도·통합 지점만 짧게.")
     return _writer_prompt(theme_id=theme_id, scope_block=scope,
-                          origin_line=f"generated_from: {ref[:10]} (init, deep-scan)")
+                          origin_line=f"generated_from: {ref[:10]} (init)")
 
 
 # ── critic (검증) — Stage1(frontmatter) + Stage2(테마 적합성) + grounding ──

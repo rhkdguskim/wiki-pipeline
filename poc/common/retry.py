@@ -1,7 +1,7 @@
 """LLM 호출·도구 실행 재시도 (tenacity 래핑).
 
 일시적 오류(네트워크·타임아웃·rate limit·5xx)에만 재시도하고, 재시도를 콜백으로 관측한다.
-MiniMax M3가 긴 컨텍스트에서 종종 APITimeoutError를 내므로 이를 반드시 재시도 대상에 포함한다.
+공급자에 따라 긴 컨텍스트에서 APITimeoutError가 잦으므로 이를 재시도 대상에 포함한다.
 """
 from __future__ import annotations
 

@@ -1,0 +1,27 @@
+{
+  "_comment": "시나리오 세트 (PoC 로컬 파일 — 실제 시스템은 대시보드/서버 DB, decision-scenario-owner-dashboard). tool 이름은 연결된 MCP 서버(MiVncManagerMcpServer 등)의 실제 도구 목록에 맞춰 수정한다 (--smoke 로 목록 확인).",
+  "app": "sample-app",
+  "scenarios": [
+    {
+      "id": "observe-desktop",
+      "title": "초기 화면 관측",
+      "goal": "앱 초기 화면·창 구성·주요 컨트롤을 관측한다",
+      "audience": "user",
+      "steps": [
+        { "tool": "vnc_screen_info", "args": {}, "note": "화면 해상도·연결 상태 확인" },
+        { "tool": "vnc_window_list", "args": {}, "note": "떠 있는 창 목록 관측" },
+        { "tool": "vnc_screenshot", "args": {}, "note": "초기 화면 캡처" }
+      ]
+    },
+    {
+      "id": "observe-environment",
+      "title": "실행 환경 관측",
+      "goal": "운영 관점에서 실행 중인 프로세스·리소스 상태를 관측한다",
+      "audience": "operator",
+      "steps": [
+        { "tool": "vnc_get_os_info", "args": {}, "note": "OS·환경 정보" },
+        { "tool": "vnc_get_resource_info", "args": {}, "note": "CPU/메모리 등 리소스 상태" }
+      ]
+    }
+  ]
+}

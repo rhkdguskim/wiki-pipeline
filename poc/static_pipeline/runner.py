@@ -7,19 +7,20 @@ from __future__ import annotations
 
 import uuid
 
-from ..common import events as ev
 from ..common.config import Settings
+from ..common.docshub import submit_mr_stub
 from ..common.llm import build_chat_model
 from ..common.observer import Observer
 from .generate import generate_with_critic
 from .gitlab_client import GitLabClient
 from .graph import build_diff_writer_graph
-from .output import save_theme_doc, submit_mr_stub
+from .output import save_theme_doc
+from .pipeline_state import save_state
 from .themes import DEFAULT_THEMES
 from .theme_mapping import filter_source_files, themes_for_changes
 
 
-def run_static(settings: Settings, from_sha: str, to_sha: str,
+def run_static(settings: Settings, from_sha: str, to_sha: str | None,
                themes: list[str] | None = None) -> dict:
     run_id = "static-" + uuid.uuid4().hex[:8]
     observer = Observer(run_id, settings.out_path)
@@ -28,13 +29,12 @@ def run_static(settings: Settings, from_sha: str, to_sha: str,
     themes = themes or DEFAULT_THEMES
     summary: dict = {"run_id": run_id, "themes": {}, "changed": 0, "sources": 0, "warned": []}
 
-    def rev(layer, stage, status="running", progress=None, detail=None):
-        observer.sink(ev.make_event(
-            pipeline_id="static", run_id=run_id, layer=layer,
-            stage=stage, status=status, progress=progress, detail=detail,
-        ))
+    rev = observer.emitter("static", run_id)
 
     try:
+        # to_sha 미지정(상태 기반 증분)이면 default branch HEAD로 해석.
+        if not to_sha or to_sha.upper() == "HEAD":
+            to_sha = client.resolve_ref(client.default_branch())
         rev("run", "static-diff", "running", detail={"from": from_sha[:10], "to": to_sha[:10]})
 
         rev("stage", "compare", "running")
@@ -46,6 +46,8 @@ def run_static(settings: Settings, from_sha: str, to_sha: str,
         rev("stage", "compare", "done", detail={"changed": len(changed), "sources": len(sources)})
 
         if not sources:
+            # 변경 없음도 성공 — "여기까지 봤다"로 sha 전진 (재실행 시 같은 구간 재검사 방지).
+            _advance(settings, client, to_sha, summary, rev)
             rev("run", "static-diff", "done", detail={"note": "문서화할 소스 변경 없음"})
             return summary
 
@@ -59,10 +61,11 @@ def run_static(settings: Settings, from_sha: str, to_sha: str,
             rev("engine_call", stage, "running",
                 progress={"n": i, "m": len(theme_ids), "unit": "theme"})
 
-            def factory(_t=theme, _f=files):
+            def factory(_t=theme, _f=files, no_tools=False):
                 return build_diff_writer_graph(
                     model=model, client=client, theme=_t, changed_files=_f,
                     from_sha=from_sha, to_sha=to_sha, run_id=run_id,
+                    no_tools=no_tools,
                 )
 
             base_prompt = (
@@ -87,6 +90,8 @@ def run_static(settings: Settings, from_sha: str, to_sha: str,
                 detail={"saved": path.name, "verdict": verdict.get("result"),
                         "warned": warned, "mr": mr})
 
+        # 상태 전진 — 성공 후에만 (concept-idempotent-sha). 실패 시 상태 불변.
+        _advance(settings, client, to_sha, summary, rev)
         rev("run", "static-diff", "done",
             detail={"generated": list(summary["themes"].keys()), "warned": summary["warned"]})
         return summary
@@ -96,3 +101,20 @@ def run_static(settings: Settings, from_sha: str, to_sha: str,
     finally:
         client.close()
         observer.close()
+
+
+def _advance(settings, client, to_sha: str, summary: dict, rev) -> None:
+    """last_processed_sha 전진 (성공 경로에서만 호출)."""
+    try:
+        full = to_sha if len(to_sha) == 40 else client.resolve_ref(to_sha)
+        sp = save_state(
+            settings.out_path, project_id=settings.gitlab_project_id,
+            last_processed_sha=full, ref=to_sha, op="diff",
+            extra={"themes": list(summary["themes"].keys())},
+        )
+        summary["last_processed_sha"] = full
+        rev("stage", "state-advance", "done",
+            detail={"last_processed_sha": full[:12], "file": sp.name})
+    except Exception as e:  # noqa: BLE001
+        rev("stage", "state-advance", "failed",
+            detail={"error": f"{type(e).__name__}: {e}"})

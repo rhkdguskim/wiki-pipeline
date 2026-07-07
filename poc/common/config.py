@@ -21,30 +21,37 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # ── LLM (공급자 중립) ──
-    llm_provider: str = "minimax"
-    llm_base_url: str = "https://api.minimax.io/v1"
+    # ── LLM (공급자 중립 — 공급자·엔드포인트·모델은 전부 .env로) ──
+    llm_provider: str = "openai-compatible"
+    llm_base_url: str = ""
     llm_api_key: str = ""
-    llm_model: str = "MiniMax-M3"
-    llm_max_tokens: int = 32768
+    llm_model: str = ""
+    llm_max_tokens: int = 65536
     llm_temperature: float = 0.2
     llm_timeout: float = 180.0
 
-    # ── 정적: 사내 GitLab ──
-    gitlab_url: str = "http://wish.mirero.co.kr"
+    # ── 정적: GitLab (대상 인스턴스·프로젝트는 전부 .env로 — 코드에 특정 레포 가정 없음) ──
+    gitlab_url: str = ""
     gitlab_token: str = ""
     gitlab_token_header: str = "PRIVATE-TOKEN"
-    gitlab_project_id: str = "947"
+    gitlab_project_id: str = ""
     static_from_sha: str = ""
     static_to_sha: str = ""
     static_themes: str = "intro,requirements,architecture-overview,component-diagram"
 
-    # ── 매뉴얼: 원격제어 MCP ──
-    mcp_endpoint_url: str = "http://110.110.10.70:9200/sse"
+    # ── 매뉴얼: 원격제어 MCP (endpoint는 .env로) ──
+    mcp_endpoint_url: str = ""
     mcp_transport: str = "sse"
     mcp_session_host: str = ""
     mcp_session_port: str = ""
     omniparser_url: str = ""
+
+    # ── 매뉴얼: 순회·생성 ──
+    manual_scenario_file: str = "./manual_pipeline/scenarios/sample.json"
+    manual_themes: str = "user-manual,operator-manual"
+    manual_explore_steps: int = 12       # 자율 탐색 도구 호출 예산
+    manual_tool_allowlist: str = ""      # 비우면 MCP 도구 전체 노출 (토큰 매칭, 쉼표구분)
+    manual_tool_timeout: float = 90.0    # 도구 1회 호출 타임아웃(초)
 
     # ── docs-hub (PoC=스텁) ──
     docshub_mr_enabled: bool = False
@@ -57,6 +64,19 @@ class Settings(BaseSettings):
     @property
     def theme_list(self) -> list[str]:
         return [t.strip() for t in self.static_themes.split(",") if t.strip()]
+
+    @property
+    def manual_theme_list(self) -> list[str]:
+        return [t.strip() for t in self.manual_themes.split(",") if t.strip()]
+
+    @property
+    def manual_scenario_path(self) -> Path:
+        p = Path(self.manual_scenario_file)
+        return p if p.is_absolute() else (_POC_DIR / p).resolve()
+
+    @property
+    def manual_allowlist(self) -> list[str]:
+        return [t.strip().lower() for t in self.manual_tool_allowlist.split(",") if t.strip()]
 
     @property
     def out_path(self) -> Path:

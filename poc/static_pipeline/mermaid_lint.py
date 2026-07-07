@@ -69,6 +69,23 @@ def _lint_one(block: str, idx: int) -> list[str]:
     return errs
 
 
+def _mmdc_reason(output: str) -> str:
+    """mmdc stderr에서 사람이 고칠 수 있는 파싱 오류 문맥을 추출.
+
+    스택트레이스 마지막 줄 대신 'Parse error on line N: ... Expecting ...' 블록을 찾는다 —
+    writer가 피드백으로 받았을 때 어느 줄을 어떻게 고칠지 알 수 있어야 한다.
+    """
+    lines = output.strip().splitlines()
+    for i, ln in enumerate(lines):
+        low = ln.strip()
+        if "Parse error" in low or "Expecting" in low or "Syntax error" in low:
+            return " | ".join(x.strip() for x in lines[i:i + 4] if x.strip())[:300]
+    for ln in lines:
+        if "Error" in ln and "node_modules" not in ln:
+            return ln.strip()[:200]
+    return (lines[0].strip()[:150] if lines else "parse error")
+
+
 def _try_mmdc(blocks: list[str]) -> list[str]:
     """mmdc(mermaid-cli)가 있으면 실제 렌더 파싱으로 정밀 검증."""
     mmdc = shutil.which("mmdc")
@@ -86,9 +103,7 @@ def _try_mmdc(blocks: list[str]) -> list[str]:
                     capture_output=True, text=True, timeout=30,
                 )
                 if r.returncode != 0:
-                    msg = (r.stderr or r.stdout).strip().splitlines()
-                    tail = msg[-1] if msg else "parse error"
-                    errs.append(f"mermaid #{i}: mmdc 파싱 실패 — {tail[:120]}")
+                    errs.append(f"mermaid #{i}: mmdc 파싱 실패 — {_mmdc_reason(r.stderr or r.stdout)}")
             except Exception:
                 pass  # mmdc 실행 문제는 경량 검증으로 대체
     return errs

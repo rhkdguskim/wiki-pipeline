@@ -70,6 +70,14 @@ class GitLabClient:
             page = int(next_page)
         return out
 
+    def resolve_ref(self, ref: str) -> str:
+        """브랜치명/태그/short-sha -> 전체 커밋 sha (상태 포인터는 항상 전체 sha로 저장)."""
+        enc = quote(ref, safe="")
+        url = f"{self.base}/projects/{self.project}/repository/commits/{enc}"
+        resp = self._client.get(url)
+        resp.raise_for_status()
+        return resp.json()["id"]
+
     def default_branch(self) -> str:
         url = f"{self.base}/projects/{self.project}"
         resp = self._client.get(url)
