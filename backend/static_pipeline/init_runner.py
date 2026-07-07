@@ -38,7 +38,6 @@ from .tools import make_tools
 
 # init 기본 4테마 (레포 무관 공통 축). --themes 로 dev-guide 등 확장 가능.
 _DEFAULT_INIT_THEMES = ["intro", "requirements", "architecture-overview", "component-diagram"]
-_REDUCE_CONCURRENCY = 4   # 테마 병렬 생성 상한
 
 
 def _plan_units(client, model, ref, run_id, observer, max_steps=8) -> list[dict]:
@@ -121,7 +120,7 @@ def _reduce_and_save(
                     "verdict": verdict.get("result"), "warned": warned, "mr": mr})
         return path, verdict, warned
 
-    for theme, res, exc in parallel_map(themes, _gen_theme, max_workers=_REDUCE_CONCURRENCY):
+    for theme, res, exc in parallel_map(themes, _gen_theme, max_workers=settings.static_reduce_concurrency):
         if exc is not None:
             summary["docs"][theme] = {"error": f"{type(exc).__name__}: {exc}"}
             rev("engine_call", f"repo:{theme}", "failed",

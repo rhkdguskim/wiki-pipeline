@@ -6,6 +6,7 @@ pydantic-settings로 자격증명·엔드포인트를 한 곳에서 로드한다
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 import json
 from pathlib import Path
 import re
@@ -119,6 +120,16 @@ class Settings(BaseSettings):
     out_dir: str = "./out"
     log_level: str = "INFO"
 
+    # ── 재시도·동시성·한도 (운영 튜닝 — 코드 하드코딩 금지) ──
+    scm_retry_attempts: int = 3          # SCM API 일시 오류 재시도
+    llm_retry_attempts: int = 4          # LLM 호출 일시 오류 재시도
+    writer_max_retry: int = 2            # write→critic 재시도 상한 (원본 Docu-Automatic hard cap)
+    static_reduce_concurrency: int = 4   # init 테마 병렬 생성 상한
+    static_map_concurrency: int = 6      # init 단위 요약 동시 실행 상한 (API rate 고려)
+    static_read_max_chars: int = 40000   # read_file 도구 원문 상한
+    mcp_max_tool_chars: int = 20000      # MCP 도구 결과 텍스트 상한
+    mcp_b64_min: int = 50000             # 이 길이 이상 base64는 파일로 분리
+
     @property
     def theme_list(self) -> list[str]:
         return [t.strip() for t in self.static_themes.split(",") if t.strip()]
@@ -205,4 +216,14 @@ class Settings(BaseSettings):
 
 
 def load_settings() -> Settings:
+    return Settings()
+
+
+@lru_cache(maxsize=1)
+def cached_settings() -> Settings:
+    """튜닝 노브(재시도·동시성·한도) 전용 캐시 접근자.
+
+    소스별로 스코프되는 값(url·token·out_dir)은 절대 이걸로 읽지 말 것 —
+    그런 값은 for_source()로 만든 Settings를 명시적으로 전달받아야 한다.
+    """
     return Settings()

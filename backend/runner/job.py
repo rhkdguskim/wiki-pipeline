@@ -148,6 +148,9 @@ def execute(run_id: str, mode: str, cp: ControlPlaneClient) -> dict:
 
 
 def main() -> int:
+    from ..common.logging_setup import setup_logging
+
+    setup_logging()
     parser = argparse.ArgumentParser(description="wiki-pipeline Data Plane 러너")
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--source", default="")     # 참조용 (컨텍스트가 진실)

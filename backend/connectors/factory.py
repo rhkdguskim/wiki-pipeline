@@ -33,14 +33,17 @@ def _github_api_base(url: str) -> str:
 
 def make_connector(*, kind: str, url: str, token: str, repo: str,
                    token_header: str = "PRIVATE-TOKEN", timeout: float = 30.0,
+                   retry_attempts: int = 3,
                    transport: httpx.BaseTransport | None = None) -> ScmConnector:
     kind = (kind or "gitlab").strip().lower()
     if kind == "gitlab":
         return GitLabConnector(base_url=url, token=token, repo=repo,
-                               token_header=token_header, timeout=timeout, transport=transport)
+                               token_header=token_header, timeout=timeout,
+                               retry_attempts=retry_attempts, transport=transport)
     if kind == "github":
         return GitHubConnector(base_url=_github_api_base(url), token=token, repo=repo,
-                               timeout=timeout, transport=transport)
+                               timeout=timeout, retry_attempts=retry_attempts,
+                               transport=transport)
     raise ValueError(f"지원하지 않는 SCM kind: {kind} (gitlab | github)")
 
 
@@ -52,6 +55,7 @@ def connector_for_settings(settings: Any) -> ScmConnector:
         token=settings.gitlab_token,
         token_header=settings.gitlab_token_header,
         repo=str(settings.gitlab_project_id),
+        retry_attempts=getattr(settings, "scm_retry_attempts", 3),
     )
 
 

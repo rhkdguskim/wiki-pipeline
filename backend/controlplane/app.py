@@ -116,9 +116,10 @@ def create_app(settings: ControlPlaneSettings | None = None) -> FastAPI:
 def main() -> int:
     import uvicorn
 
+    from ..common.logging_setup import setup_logging
+
     settings = load_cp_settings()
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    setup_logging()
     print(f"Control Plane: http://{settings.control_host}:{settings.control_port} "
           f"(db={settings.db_url.split('@')[-1]})")
     uvicorn.run(create_app(settings), host=settings.control_host,

@@ -43,6 +43,13 @@ class SourceScheduler:
         """소스 등록/수정 후 재호출 — 활성 소스의 cron 잡을 재구성한다."""
         for job in self._scheduler.get_jobs():
             job.remove()
+        # 유지보수: 이벤트 보존 정책 (매일 03:30, 배치와 겹치지 않는 시각)
+        if self.settings.event_retention_days > 0:
+            self._scheduler.add_job(
+                self._prune_events, CronTrigger.from_crontab("30 3 * * *", timezone="Asia/Seoul"),
+                id="maintenance-prune-events", replace_existing=True,
+                misfire_grace_time=3600, coalesce=True,
+            )
         with session_scope(self.session_factory) as db:
             sources = db.scalars(select(Source).where(Source.enabled.is_(True))).all()
             for source in sources:
@@ -58,6 +65,14 @@ class SourceScheduler:
                     misfire_grace_time=3600, coalesce=True,
                 )
         log.info("스케줄 잡 %d개 등록", len(self._scheduler.get_jobs()))
+
+    def _prune_events(self) -> None:
+        try:
+            with session_scope(self.session_factory) as db:
+                self.run_service.prune_events(
+                    db, older_than_days=self.settings.event_retention_days)
+        except Exception as e:  # noqa: BLE001
+            log.error("이벤트 정리 실패: %s: %s", type(e).__name__, e)
 
     def _run_batch(self, source_id: str) -> None:
         """야간 배치 1건 — run 생성 + 러너 기동. (mode=auto: 상태 기반 init/diff 분기)"""

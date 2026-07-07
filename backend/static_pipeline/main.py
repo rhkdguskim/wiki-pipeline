@@ -95,7 +95,10 @@ def _run_one(settings, args) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="정적 파이프라인 (docu-automation) PoC")
+    from ..common.logging_setup import setup_logging
+
+    setup_logging()
+    parser = argparse.ArgumentParser(description="정적 파이프라인 (docu-automation)")
     parser.add_argument("--from", dest="from_sha", default=None, help="compare from sha")
     parser.add_argument("--to", dest="to_sha", default=None, help="compare to sha")
     parser.add_argument("--init", action="store_true", help="전량 init(backfill) 강제")

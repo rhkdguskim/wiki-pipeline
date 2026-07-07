@@ -167,6 +167,27 @@ class RunService:
         return {"ok": True, "status": status, "sha_advanced": advanced,
                 "source_disabled": disabled}
 
+    # ── 보존 정책 — 오래된 이벤트 정리 (이력 runs/보고는 영구 보존) ──
+    def prune_events(self, db: Session, *, older_than_days: int) -> int:
+        """run_events만 정리한다. runs·완료 보고(sha·MR URL)는 감사용으로 영구 보존
+        (decision-db-source-of-truth: 비활성화 후에도 삭제 안 함)."""
+        from datetime import datetime, timedelta, timezone
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
+        old_run_ids = [r.id for r in db.scalars(
+            select(Run).where(Run.updated_at < cutoff,
+                              Run.status.in_(["done", "failed"]))).all()]
+        if not old_run_ids:
+            return 0
+        from sqlalchemy import delete
+        result = db.execute(delete(RunEvent).where(RunEvent.run_id.in_(old_run_ids)))
+        db.flush()
+        deleted = int(result.rowcount or 0)
+        if deleted:
+            log.info("이벤트 보존 정책: %d일 경과 run %d건의 이벤트 %d행 정리",
+                     older_than_days, len(old_run_ids), deleted)
+        return deleted
+
     # ── 조회 ────────────────────────────────────────────────
     def list_runs(self, db: Session, limit: int = 100) -> list[dict]:
         rows = db.scalars(select(Run).order_by(Run.created_at.desc()).limit(limit)).all()

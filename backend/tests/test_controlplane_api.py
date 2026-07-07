@@ -196,6 +196,30 @@ def test_doc_target_and_mr_plan_requires_run(client):
     assert client.get("/api/docs-hub/mr-plan?run=nope", headers=ADMIN).status_code == 404
 
 
+def test_event_retention_prunes_old_completed_runs(client, monkeypatch):
+    _create_source(client, monkeypatch, verify=False)
+    run_id = client.post("/api/runs/trigger", headers=ADMIN,
+                         json={"source_id": "demo", "launch": False}).json()["run_id"]
+    client.post("/api/webhook/events", headers=RUNNER, json={
+        "run_id": run_id,
+        "events": [{"layer": "run", "stage": "s", "status": "done", "ts": "2026-01-01T00:00:00"}],
+    })
+    from datetime import datetime, timedelta, timezone
+    from backend.controlplane.db import session_scope
+    from backend.controlplane.models import Run, RunEvent
+    factory = client.app.state.session_factory
+    with session_scope(factory) as db:
+        run = db.get(Run, run_id)
+        run.status = "done"
+        run.updated_at = datetime.now(timezone.utc) - timedelta(days=90)
+    with session_scope(factory) as db:
+        deleted = client.app.state.run_service.prune_events(db, older_than_days=30)
+    assert deleted == 1
+    with session_scope(factory) as db:
+        assert db.query(RunEvent).filter_by(run_id=run_id).count() == 0
+        assert db.get(Run, run_id) is not None   # run 이력(보고·sha)은 영구 보존
+
+
 def test_secretbox_encrypts_tokens_at_rest(client, monkeypatch, tmp_path):
     _create_source(client, monkeypatch, verify=False)
     import sqlite3

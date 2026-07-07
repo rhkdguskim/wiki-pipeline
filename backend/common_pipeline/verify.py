@@ -14,6 +14,7 @@ from typing import Callable
 
 from langchain_core.messages import HumanMessage
 
+from ..common.config import cached_settings
 from ..common.run import final_text, run_graph
 from ..common.textproc import extract_json_obj
 
@@ -114,7 +115,7 @@ def verified_generate(
     lint_name: str = "lint",
     emit_ctx,                                          # (layer, stage, status=, progress=, detail=)
     stage: str,
-    max_retry: int = MAX_RETRY,
+    max_retry: int | None = None,
     min_len: int = 500,
     end_marker: str | None = None,                     # 완결 마커 계약 (DOC_END_MARKER)
 ) -> tuple[str, dict, bool]:
@@ -124,6 +125,8 @@ def verified_generate(
     함께 넘겨 지적 부분만 고치게 한다 (compose_write_prompt가 표준 조립을 제공).
     매번 처음부터 다시 쓰면 다른 곳에 새 오류가 생기는 두더지잡기가 된다.
     """
+    if max_retry is None:
+        max_retry = cached_settings().writer_max_retry   # 기본값은 .env 튜닝 노브
     feedback: list[str] = []
     doc_md = ""
     last_valid_doc: str | None = None   # 형식 검증을 통과한 마지막 draft

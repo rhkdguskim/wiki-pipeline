@@ -46,6 +46,9 @@ class ControlPlaneSettings(BaseSettings):
     default_schedule_cron: str = "0 20 * * 1-5"
     scheduler_enabled: bool = True
 
+    # ── 이벤트 보존 정책 — 완료 run의 상세 이벤트를 N일 후 정리 (0=무제한) ──
+    event_retention_days: int = 30
+
     # ── 산출물 루트 (레거시 JSONL run 조회용 — common.Settings.out_dir과 동일 규칙) ──
     out_dir: str = "./out"
 

@@ -16,13 +16,15 @@ from pathlib import Path
 from langchain_core.messages import HumanMessage
 
 from ..common.agent_spec import AgentSpec
+from ..common.config import cached_settings
 from ..common.graph import build_agent_graph
 from ..common.run import final_text, run_graph
 from ..common.textproc import strip_reasoning
 from ..common_pipeline.parallel import parallel_map
 from .tools import make_tools
 
-_MAX_CONCURRENCY = 6   # 단위 요약 동시 실행 상한 (API rate 고려)
+def _max_concurrency() -> int:
+    return cached_settings().static_map_concurrency  # 단위 요약 동시 실행 상한
 
 
 def _summary_prompt(unit_name: str, kind: str, root_path: str, files: list[str]) -> str:
@@ -89,12 +91,12 @@ def map_unit_summaries(
         except (json.JSONDecodeError, KeyError):
             pass  # 캐시 손상 -> 새로 스캔
 
-    emit_ctx("stage", "map", "running", detail={"units": len(units), "concurrency": _MAX_CONCURRENCY})
+    emit_ctx("stage", "map", "running", detail={"units": len(units), "concurrency": _max_concurrency()})
     results: list[tuple[str, str]] = []
     done = 0
     for u, res, exc in parallel_map(
             units, lambda u: _summarize_unit(model, client, ref, run_id, u, observer),
-            max_workers=_MAX_CONCURRENCY):
+            max_workers=_max_concurrency()):
         uname = u.get("name") or u["root_path"]
         done += 1
         if exc is None:

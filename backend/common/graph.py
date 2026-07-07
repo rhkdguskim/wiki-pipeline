@@ -14,6 +14,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from . import events as ev
+from .config import cached_settings
 from .agent_spec import AgentSpec
 from .retry import with_retry
 
@@ -69,7 +70,7 @@ def build_agent_graph(spec: AgentSpec, model: BaseChatModel):
             # 시스템 프롬프트를 매 호출 앞에 (Full Reset 성격 — 컨텍스트는 messages로만).
             call = lambda: llm_with_tools.invoke([sys_msg, *messages])
         # APITimeoutError 등 일시 오류는 지수 백오프로 재시도 (공급자 무관).
-        resp: AIMessage = with_retry(call, attempts=4, on_retry=_on_retry)
+        resp: AIMessage = with_retry(call, attempts=cached_settings().llm_retry_attempts, on_retry=_on_retry)
 
         ev.emit(ev.make_event(
             pipeline_id=spec.pipeline_id, run_id=spec.run_id,

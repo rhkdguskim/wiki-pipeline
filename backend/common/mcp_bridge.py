@@ -25,8 +25,12 @@ from typing import Callable
 
 from langchain_core.tools import BaseTool, StructuredTool
 
-_MAX_TOOL_CHARS = 20000   # 도구 결과 텍스트 상한 (초과분은 생략 마커)
-_B64_MIN = 50000          # 이보다 긴 base64 덩어리는 파일로 빼고 마커로 대체
+def _max_tool_chars() -> int:
+    from .config import cached_settings
+    return cached_settings().mcp_max_tool_chars
+def _b64_min() -> int:
+    from .config import cached_settings
+    return cached_settings().mcp_b64_min
 _B64_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=\r\n")
 
 # 도구 호출 1건의 기록 콜백: (tool, args, ok, preview) -> None
@@ -126,8 +130,8 @@ class McpBridge:
             ok, text = True, self._coerce(raw)
         except Exception as e:  # noqa: BLE001
             ok, text = False, f"[{name} 실패] {type(e).__name__}: {e}"
-        if len(text) > _MAX_TOOL_CHARS:
-            text = text[:_MAX_TOOL_CHARS] + f"\n[...{len(text) - _MAX_TOOL_CHARS}자 생략...]"
+        if len(text) > _max_tool_chars():
+            text = text[:_max_tool_chars()] + f"\n[...{len(text) - _max_tool_chars()}자 생략...]"
         self._record(name, args, ok, text)
         return ok, text
 
@@ -189,7 +193,7 @@ class McpBridge:
 
     def _extract_blob(self, text: str) -> str:
         """본문 전체가 거대 base64(이미지 원문 반환형 서버)면 파일로 빼고 마커로."""
-        if len(text) >= _B64_MIN:
+        if len(text) >= _b64_min():
             head = text[:120].strip()
             if head and all(c in _B64_CHARS for c in head):
                 return self._save_shot(text.strip())

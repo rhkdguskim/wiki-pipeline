@@ -7,9 +7,11 @@ from __future__ import annotations
 
 from langchain_core.tools import StructuredTool
 
+from ..common.config import cached_settings
 from ..connectors import ScmConnector
 
-_MAX_CHARS = 40000   # 파일 원문 잘라내기. 긴 컨텍스트 모델 전제로 넉넉히 (재-read 유발 방지)
+def _max_chars() -> int:
+    return cached_settings().static_read_max_chars  # 파일 원문 잘라내기 상한
 
 
 def make_tools(client: ScmConnector, ref: str) -> list:
@@ -21,9 +23,9 @@ def make_tools(client: ScmConnector, ref: str) -> list:
             text = client.raw_file(path, ref)
         except Exception as e:  # noqa: BLE001
             return f"[read_file 실패] {path}: {type(e).__name__}: {e}"
-        if len(text) > _MAX_CHARS:
-            return (text[:_MAX_CHARS] +
-                    f"\n\n[...{len(text)-_MAX_CHARS}자 생략. 재요청하지 말 것 — 앞부분만으로 판단하라...]")
+        if len(text) > _max_chars():
+            return (text[:_max_chars()] +
+                    f"\n\n[...{len(text)-_max_chars()}자 생략. 재요청하지 말 것 — 앞부분만으로 판단하라...]")
         return text
 
     def list_dir(path: str = "") -> str:
