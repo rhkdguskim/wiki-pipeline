@@ -20,15 +20,31 @@ from pathlib import Path
 from ..common.config import Settings
 from ..common.docshub import submit_mr_stub
 from ..common.llm import build_chat_model
+from ..common.mcp_bridge import McpBridge
 from ..common_pipeline.output import save_doc
 from ..common_pipeline.run_context import RunContext
 from .generate import generate_with_critic
 from .lifecycle import judge_action, mark_deprecated_candidates
-from .mcp_client import McpBridge
 from .observation import ObservationLog
 from .scenarios import load_scenarios, scenarios_summary
 from .themes import DEFAULT_THEMES
 from .traversal import run_exploration, run_scenarios
+
+
+def _bridge_for(settings: Settings, log: ObservationLog,
+                out_dir: Path, run_id: str) -> McpBridge:
+    """MCP 브리지 구성 — 모든 도구 호출을 관측 로그에 기록하도록 콜백을 물린다.
+
+    브리지 자체는 common 런타임(파이프라인 무지)이고, '호출은 곧 관측'이라는
+    grounding 감사 추적(concept-observation-grounding)은 여기서 주입한다.
+    """
+    return McpBridge(
+        endpoint_url=settings.mcp_endpoint_url, transport=settings.mcp_transport,
+        shots_dir=out_dir / "shots", run_id=run_id,
+        tool_timeout=settings.manual_tool_timeout,
+        on_record=lambda tool, args, ok, preview: log.record(
+            tool=tool, args=args, ok=ok, preview=preview),
+    )
 
 
 def run_manual(
@@ -52,7 +68,7 @@ def run_manual(
         out_dir.mkdir(parents=True, exist_ok=True)
         # 관측 JSONL은 run_id 단위 영속 — resume 시 이어서 기록·재사용한다.
         log = ctx.track(ObservationLog.load(out_dir / f"observations-{ctx.run_id}.jsonl"))
-        bridge = ctx.track(McpBridge(settings, log, out_dir / "shots", ctx.run_id))
+        bridge = ctx.track(_bridge_for(settings, log, out_dir, ctx.run_id))
         summary: dict = {"run_id": ctx.run_id, "themes": {}, "observations": 0,
                          "coverage": {}, "lifecycle": {}, "warned": []}
 
@@ -161,7 +177,7 @@ def run_smoke(settings: Settings) -> int:
         out_dir = settings.out_path / "manual"
         log = ctx.track(ObservationLog(out_dir / f"observations-{ctx.run_id}.jsonl"))
         log.set_phase("smoke")
-        bridge = ctx.track(McpBridge(settings, log, out_dir / "shots", ctx.run_id))
+        bridge = ctx.track(_bridge_for(settings, log, out_dir, ctx.run_id))
         try:
             ctx.start(detail={"endpoint": settings.mcp_endpoint_url})
             names = bridge.connect()

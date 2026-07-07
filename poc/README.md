@@ -19,6 +19,7 @@ poc/
 │   ├── graph.py         #   파라미터화된 tool-use 루프 + 수렴 가드
 │   ├── textproc.py      #   <think>·서문 제거, 혼재 텍스트 JSON 회수
 │   ├── retry.py         #   지수 백오프 재시도
+│   ├── mcp_bridge.py    #   MCP SSE 동기 브리지 (async 도구 -> 동기 래핑, 기록은 콜백 주입)
 │   ├── docshub.py       #   docs-hub MR 게이트 스텁 (두 파이프라인의 유일한 공유 접점)
 │   └── run.py           #   run_graph·final_text + `--smoke`
 ├── common_pipeline/     # 파이프라인 공통 계층 (재사용 에이전트·오케스트레이션 패턴)
@@ -30,8 +31,7 @@ poc/
 │   └── output.py        #   생성 문서 저장 (strip_reasoning + .md)
 ├── static_pipeline/     # ① 정적 (코드 diff -> 기술문서) — 구현 완료
 └── manual_pipeline/     # ② 매뉴얼 (앱 관측 -> 매뉴얼) — 구현 완료(실측 전)
-    ├── mcp_client.py    #   원격제어 MCP SSE 브리지 (async 도구 -> 동기 래핑 + 관측 기록)
-    ├── observation.py   #   관측 로그 (JSONL 영속, 근거 블록/커버리지 재료)
+    ├── observation.py   #   관측 로그 (JSONL 영속, 근거 블록/커버리지 재료 — 브리지 기록 콜백의 목적지)
     ├── scenarios.py     #   시나리오 세트 (결정적 뼈대 — PoC는 로컬 JSON)
     ├── traversal.py     #   하이브리드 순회: 시나리오 + 자율 탐색 (SqliteSaver 체크포인트)
     ├── themes.py        #   매뉴얼 테마 레지스트리 (독자 2축: user/operator)

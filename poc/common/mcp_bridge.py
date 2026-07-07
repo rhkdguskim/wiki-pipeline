@@ -1,15 +1,15 @@
-"""원격제어 MCP 브리지 — SSE 연결 + 도구 로드 + 동기 래핑 + 관측 기록.
+"""MCP 브리지 — SSE 연결 + 도구 로드 + 동기 래핑 (공용 런타임).
 
 entity-remote-control-mcp 실측: MiVncManagerMcpServer(SSE :9200) / MiVncMcpServer(:9100)가
 vnc-mcp-lib 도구(스크린샷·클릭·UIA 트리·터미널·파일전송 등 60여 개)를 SSE/stdio로 노출한다.
 
 langchain-mcp-adapters가 만드는 도구는 async 전용(coroutine만 바인딩)이라, common/graph.py의
-동기 tool-use 루프에 물리기 위해 배경 스레드에 이벤트 루프를 상주시켜 브리지한다
-(common/은 수정하지 않는다 — 두 파이프라인 공유 계약 유지).
+동기 tool-use 루프에 물리기 위해 배경 스레드에 이벤트 루프를 상주시켜 브리지한다.
 
-모든 도구 호출(에이전트 자율 탐색·시나리오 결정 실행 불문)이 이 브리지 하나를 거치며
-ObservationLog에 기록된다 — concept-observation-grounding의 감사 추적이 한 지점에 모인다.
-스크린샷 등 대형 base64 결과는 out/manual/shots/에 파일로 빼고 마커 텍스트로 대체한다
+이 모듈은 파이프라인을 모른다 — 접속 파라미터는 생성자 인자로, 호출 기록은 on_record
+콜백으로 주입받는다. 매뉴얼 파이프라인은 모든 도구 호출(에이전트 자율 탐색·시나리오
+결정 실행 불문)을 이 콜백으로 ObservationLog에 모은다 (concept-observation-grounding).
+스크린샷 등 대형 base64 결과는 shots_dir에 파일로 빼고 마커 텍스트로 대체한다
 (텍스트 LLM 컨텍스트 보호 + "캡처" 관측 보존).
 """
 from __future__ import annotations
@@ -21,15 +21,16 @@ import concurrent.futures as cf
 import json
 import threading
 from pathlib import Path
+from typing import Callable
 
 from langchain_core.tools import BaseTool, StructuredTool
-
-from ..common.config import Settings
-from .observation import ObservationLog
 
 _MAX_TOOL_CHARS = 20000   # 도구 결과 텍스트 상한 (초과분은 생략 마커)
 _B64_MIN = 50000          # 이보다 긴 base64 덩어리는 파일로 빼고 마커로 대체
 _B64_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=\r\n")
+
+# 도구 호출 1건의 기록 콜백: (tool, args, ok, preview) -> None
+RecordFn = Callable[[str, dict, bool, str], None]
 
 
 class McpBridge:
@@ -40,9 +41,13 @@ class McpBridge:
     run_coroutine_threadsafe로 던져 동기 결과를 받는다.
     """
 
-    def __init__(self, settings: Settings, log: ObservationLog, shots_dir: Path, run_id: str):
-        self._settings = settings
-        self._log = log
+    def __init__(self, *, endpoint_url: str, transport: str, shots_dir: Path,
+                 run_id: str, tool_timeout: float = 90.0,
+                 on_record: RecordFn | None = None):
+        self._endpoint_url = endpoint_url
+        self._transport = transport
+        self._tool_timeout = tool_timeout
+        self._on_record = on_record
         self._shots_dir = shots_dir
         self._run_id = run_id
         self._loop = asyncio.new_event_loop()
@@ -67,8 +72,7 @@ class McpBridge:
         from langchain_mcp_adapters.sessions import create_session
         from langchain_mcp_adapters.tools import load_mcp_tools
 
-        conn = {"transport": self._settings.mcp_transport,
-                "url": self._settings.mcp_endpoint_url}
+        conn = {"transport": self._transport, "url": self._endpoint_url}
         self._stop = asyncio.Event()
         try:
             async with create_session(conn) as session:
@@ -101,8 +105,12 @@ class McpBridge:
     def tool_names(self) -> list[str]:
         return sorted(self._raw_tools)
 
+    def _record(self, tool: str, args: dict, ok: bool, preview: str) -> None:
+        if self._on_record is not None:
+            self._on_record(tool, args, ok, preview)
+
     def call(self, name: str, args: dict) -> tuple[bool, str]:
-        """도구 1회 호출 — 결과를 텍스트로 강제하고 관측 로그에 기록.
+        """도구 1회 호출 — 결과를 텍스트로 강제하고 on_record 콜백에 기록.
 
         실패도 예외 대신 오류 텍스트로 반환한다(정적 read_file과 같은 계약) —
         에이전트가 스스로 정정할 수 있고, 시나리오 러너는 다음 스텝으로 진행한다.
@@ -110,17 +118,17 @@ class McpBridge:
         tool = self._raw_tools.get(name)
         if tool is None:
             text = f"[도구 없음] {name} — 연결된 MCP 서버 도구 목록에 없다"
-            self._log.record(tool=name, args=args, ok=False, preview=text)
+            self._record(name, args, False, text)
             return False, text
         try:
             fut = asyncio.run_coroutine_threadsafe(tool.ainvoke(args), self._loop)
-            raw = fut.result(timeout=self._settings.manual_tool_timeout)
+            raw = fut.result(timeout=self._tool_timeout)
             ok, text = True, self._coerce(raw)
         except Exception as e:  # noqa: BLE001
             ok, text = False, f"[{name} 실패] {type(e).__name__}: {e}"
         if len(text) > _MAX_TOOL_CHARS:
             text = text[:_MAX_TOOL_CHARS] + f"\n[...{len(text) - _MAX_TOOL_CHARS}자 생략...]"
-        self._log.record(tool=name, args=args, ok=ok, preview=text)
+        self._record(name, args, ok, text)
         return ok, text
 
     def sync_tools(self, allowlist: list[str] | None = None) -> list[BaseTool]:

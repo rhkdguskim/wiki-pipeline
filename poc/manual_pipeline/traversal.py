@@ -17,10 +17,10 @@ from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from ..common import events as ev
+from ..common.mcp_bridge import McpBridge
 from ..common.run import final_text, run_graph
 from ..common.textproc import extract_json_obj
 from .graph import build_explorer_graph
-from .mcp_client import McpBridge
 from .observation import ObservationLog
 from .scenarios import ScenarioSet
 
