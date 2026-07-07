@@ -33,6 +33,10 @@ export function OverviewNarrative({S, live, state, stages, activeRun, runSummary
   const {total, done, pct, unitLabel} = progressInfo({stages, S, runSummary});
   const elapsedMs = S.firstTs ? (live ? Date.now() : S.lastTs) - S.firstTs : 0;
   const generated = runSummary?.generated || [];
+  const modelUsage = runSummary?.usage_by_model?.length ? runSummary.usage_by_model : [...(S.modelUsage || new Map()).values()];
+  const topModel = modelUsage.slice().sort((a, b) => (
+    ((b.input_tokens || 0) + (b.output_tokens || 0)) - ((a.input_tokens || 0) + (a.output_tokens || 0))
+  ))[0];
   const mrUrl = activeRun?.mr_url;
   const canSubmit = !mrUrl && state === 'done' && mrPlan?.can_submit;
 
@@ -80,7 +84,7 @@ export function OverviewNarrative({S, live, state, stages, activeRun, runSummary
     </section>
 
     <button type="button" className="narrativeFootnote" onClick={onOpenTrace}>
-      <Radio size={12} />LLM 호출 {S.llmCalls}회 · 토큰 {fmtNum(S.inTok + S.outTok)}
+      <Radio size={12} />LLM 호출 {S.llmCalls}회 · 토큰 {fmtNum(S.inTok + S.outTok)}{topModel?.model ? ` · ${topModel.provider}/${topModel.model}` : ''}
     </button>
   </div>;
 }

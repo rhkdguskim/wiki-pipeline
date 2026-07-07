@@ -563,7 +563,9 @@ def webhook_complete(request: Request, db=Depends(_db), payload: dict = Body(...
 
 @router.get("/api/costs", dependencies=[Depends(require_api_token)])
 def costs(request: Request, db=Depends(_db)) -> dict:
-    rows = _state(request).run_service.list_runs(db, limit=1000)
+    service = _state(request).run_service
+    rows = service.list_runs(db, limit=1000)
+    model_rows = service.list_model_usage(db, limit=5000)
     by_source: dict[str, dict[str, Any]] = {}
     for r in rows:
         agg = by_source.setdefault(r["source_id"] or "(unknown)", {
@@ -573,8 +575,28 @@ def costs(request: Request, db=Depends(_db)) -> dict:
         agg["input_tokens"] += r["input_tokens"]
         agg["output_tokens"] += r["output_tokens"]
         agg["failed"] += 1 if r["status"] == "failed" else 0
+    by_model: dict[str, dict[str, Any]] = {}
+    for r in model_rows:
+        key = f"{r['provider']}::{r['model']}"
+        agg = by_model.setdefault(key, {
+            "provider": r["provider"],
+            "model": r["model"],
+            "calls": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "runs": 0,
+            "_run_ids": set(),
+        })
+        agg["calls"] += r["calls"]
+        agg["input_tokens"] += r["input_tokens"]
+        agg["output_tokens"] += r["output_tokens"]
+        agg["_run_ids"].add(r["run_id"])
+    for agg in by_model.values():
+        agg["runs"] = len(agg.pop("_run_ids"))
     return {
         "by_source": by_source,
+        "by_model": by_model,
+        "model_usage": model_rows,
         "total_input_tokens": sum(a["input_tokens"] for a in by_source.values()),
         "total_output_tokens": sum(a["output_tokens"] for a in by_source.values()),
     }

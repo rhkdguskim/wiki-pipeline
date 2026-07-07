@@ -8,6 +8,7 @@ export const emptyState = () => ({
   inTok: 0,
   outTok: 0,
   llmCalls: 0,
+  modelUsage: new Map(),
   toolCalls: 0,
   toolErr: 0,
   retries: 0,
@@ -17,7 +18,7 @@ export const emptyState = () => ({
 });
 
 export function ingest(S, e) {
-  const next = {...S, stages: new Map(S.stages), series: [...S.series], feed: [...S.feed]};
+  const next = {...S, stages: new Map(S.stages), modelUsage: new Map(S.modelUsage || []), series: [...S.series], feed: [...S.feed]};
   const t = Date.parse(e.ts);
   if (!next.firstTs || t < next.firstTs) next.firstTs = t;
   if (!next.lastTs || t > next.lastTs) next.lastTs = t;
@@ -46,6 +47,17 @@ export function ingest(S, e) {
       next.llmCalls += 1;
       patched.in += d.input_tokens || 0;
       patched.out += d.output_tokens || 0;
+      const modelKey = `${d.provider || 'unknown'}::${d.model || 'unknown'}`;
+      const prevModel = next.modelUsage.get(modelKey) || {
+        provider: d.provider || 'unknown', model: d.model || 'unknown',
+        input_tokens: 0, output_tokens: 0, calls: 0,
+      };
+      next.modelUsage.set(modelKey, {
+        ...prevModel,
+        input_tokens: prevModel.input_tokens + (d.input_tokens || 0),
+        output_tokens: prevModel.output_tokens + (d.output_tokens || 0),
+        calls: prevModel.calls + 1,
+      });
       next.series.push({t, in: next.inTok, out: next.outTok});
     } else if (d.kind === 'tool_use') {
       next.toolCalls += 1;

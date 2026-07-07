@@ -110,7 +110,8 @@ def test_trigger_and_webhook_lifecycle(client, monkeypatch):
         {"layer": "stage", "stage": "compare", "status": "done", "ts": "2026-07-07T20:00:05",
          "detail": {"changed": 3}},
         {"layer": "agent_step", "stage": "theme:intro", "ts": "2026-07-07T20:01:00",
-         "detail": {"kind": "usage", "input_tokens": 1000, "output_tokens": 500}},
+         "detail": {"kind": "usage", "input_tokens": 1000, "output_tokens": 500,
+                    "provider": "openai-compatible", "model": "minimax-m3"}},
         {"layer": "engine_call", "stage": "theme:intro", "status": "done",
          "ts": "2026-07-07T20:02:00", "detail": {"saved": "intro.md", "verdict": "pass"}},
         {"layer": "run", "stage": "static-diff", "status": "done", "ts": "2026-07-07T20:03:00"},
@@ -152,6 +153,8 @@ def test_trigger_and_webhook_lifecycle(client, monkeypatch):
     # 비용 집계
     costs = client.get("/api/costs", headers=ADMIN).json()
     assert costs["by_source"]["demo"]["input_tokens"] == 1000
+    assert costs["by_model"]["openai-compatible::minimax-m3"]["input_tokens"] == 1000
+    assert costs["by_model"]["openai-compatible::minimax-m3"]["calls"] == 1
 
 
 def test_compare_404_disables_source(client, monkeypatch):

@@ -4,11 +4,15 @@ const kindLabel = {thinking: '생각', tool_use: '도구', tool_result: '결과'
 
 export function feedText(e) {
   const d = e.detail || {};
-  if (d.kind === 'thinking') return d.summary || '';
+  const feedback = d.feedback?.body || d.feedback?.title || '';
+  if (d.kind === 'thinking') return feedback || d.summary || '';
   if (d.kind === 'tool_use') return `${d.tool} ${JSON.stringify(d.input || {}).slice(0, 90)}`;
-  if (d.kind === 'tool_result') return `${d.ok ? 'ok' : 'ERR'} ${(d.preview || '').slice(0, 120)}`;
-  if (d.kind === 'usage') return `in=${nf.format(d.input_tokens || 0)} out=${nf.format(d.output_tokens || 0)}`;
-  if (d.kind === 'llm_retry') return `attempt=${d.attempt} ${d.error || ''}`;
+  if (d.kind === 'tool_result') return feedback || `${d.ok ? 'ok' : 'ERR'} ${(d.preview || '').slice(0, 120)}`;
+  if (d.kind === 'usage') {
+    const model = d.model ? ` · ${d.provider || 'llm'}/${d.model}` : '';
+    return `in=${nf.format(d.input_tokens || 0)} out=${nf.format(d.output_tokens || 0)} total=${nf.format(d.total_tokens || ((d.input_tokens || 0) + (d.output_tokens || 0)))}${model}`;
+  }
+  if (d.kind === 'llm_retry') return feedback || `attempt=${d.attempt} ${d.error || ''}`;
   return JSON.stringify(d).slice(0, 120);
 }
 

@@ -125,6 +125,7 @@ p { margin: 0; }
 .panel { min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 14px; box-shadow: 0 1px 0 rgba(255,255,255,.55) inset; }
 .panel.wide { min-height: 280px; }
 .panelHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; color: var(--muted); }
+.panelHead.sectionHead { margin-top: 16px; }
 .panelHead span { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
 .panelActions { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .iconTextBtn, .primaryBtn { height: 34px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 10px; cursor: pointer; white-space: nowrap; }

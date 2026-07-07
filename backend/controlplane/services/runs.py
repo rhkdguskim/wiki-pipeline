@@ -17,7 +17,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Run, RunEvent, Source, SourceBranch
+from ..models import Run, RunEvent, RunModelUsage, Source, SourceBranch
 from ..settings import ControlPlaneSettings
 from .notifier import Notifier
 
@@ -77,6 +77,31 @@ class RunService:
             return None
 
     # ── webhook 이벤트 적재 ─────────────────────────────────
+    def _record_model_usage(self, db: Session, run: Run, detail: dict) -> None:
+        provider = str(detail.get("provider") or detail.get("vendor") or "unknown")
+        model = str(detail.get("model") or detail.get("model_name") or "unknown")
+        input_tokens = int(detail.get("input_tokens") or 0)
+        output_tokens = int(detail.get("output_tokens") or 0)
+        if not (input_tokens or output_tokens):
+            return
+        row = db.scalars(select(RunModelUsage).where(
+            RunModelUsage.run_id == run.id,
+            RunModelUsage.provider == provider,
+            RunModelUsage.model == model,
+        )).first()
+        if row is None:
+            row = RunModelUsage(
+                run_id=run.id,
+                source_id=run.source_id,
+                pipeline_id=run.pipeline_id,
+                provider=provider,
+                model=model,
+            )
+            db.add(row)
+        row.input_tokens = int(row.input_tokens or 0) + input_tokens
+        row.output_tokens = int(row.output_tokens or 0) + output_tokens
+        row.calls = int(row.calls or 0) + 1
+
     def ingest_events(self, db: Session, run_id: str, events: list[dict]) -> int:
         run = db.get(Run, run_id)
         count = 0
@@ -105,6 +130,7 @@ class RunService:
                 detail = e["detail"]
                 run.input_tokens += int(detail.get("input_tokens") or 0)
                 run.output_tokens += int(detail.get("output_tokens") or 0)
+                self._record_model_usage(db, run, detail)
         db.flush()
         if count:
             self._publish({"type": "events", "run_id": run_id,
@@ -224,5 +250,21 @@ class RunService:
             "doc_count": r.doc_count, "mr_url": r.mr_url, "error": r.error,
             "input_tokens": r.input_tokens, "output_tokens": r.output_tokens,
             "created_at": r.created_at.isoformat() if r.created_at else "",
+            "updated_at": r.updated_at.isoformat() if r.updated_at else "",
+        } for r in rows]
+
+    def list_model_usage(self, db: Session, limit: int = 1000) -> list[dict]:
+        rows = db.scalars(
+            select(RunModelUsage).order_by(RunModelUsage.updated_at.desc()).limit(limit)
+        ).all()
+        return [{
+            "run_id": r.run_id,
+            "source_id": r.source_id,
+            "pipeline_id": r.pipeline_id,
+            "provider": r.provider,
+            "model": r.model,
+            "input_tokens": r.input_tokens,
+            "output_tokens": r.output_tokens,
+            "calls": r.calls,
             "updated_at": r.updated_at.isoformat() if r.updated_at else "",
         } for r in rows]

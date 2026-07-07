@@ -28,6 +28,7 @@ def summarize_events(events: list[dict], *, run_id: str, source_id: str = "",
                      path: str = "", artifacts: list[dict] | None = None) -> dict:
     stages: dict[str, dict] = {}
     usage = {"input_tokens": 0, "output_tokens": 0, "llm_calls": 0}
+    usage_by_model: dict[str, dict] = {}
     tools: Counter = Counter()
     pipeline = ""
     run_status = ""
@@ -84,11 +85,23 @@ def summarize_events(events: list[dict], *, run_id: str, source_id: str = "",
             st["last_ts"] = e.get("ts") or st["last_ts"]
             kind = detail.get("kind")
             if kind == "usage":
-                usage["input_tokens"] += int(detail.get("input_tokens") or 0)
-                usage["output_tokens"] += int(detail.get("output_tokens") or 0)
+                input_tokens = int(detail.get("input_tokens") or 0)
+                output_tokens = int(detail.get("output_tokens") or 0)
+                usage["input_tokens"] += input_tokens
+                usage["output_tokens"] += output_tokens
                 usage["llm_calls"] += 1
-                st["input_tokens"] += int(detail.get("input_tokens") or 0)
-                st["output_tokens"] += int(detail.get("output_tokens") or 0)
+                st["input_tokens"] += input_tokens
+                st["output_tokens"] += output_tokens
+                provider = str(detail.get("provider") or detail.get("vendor") or "unknown")
+                model = str(detail.get("model") or detail.get("model_name") or "unknown")
+                model_key = f"{provider}::{model}"
+                model_usage = usage_by_model.setdefault(model_key, {
+                    "provider": provider, "model": model,
+                    "input_tokens": 0, "output_tokens": 0, "calls": 0,
+                })
+                model_usage["input_tokens"] += input_tokens
+                model_usage["output_tokens"] += output_tokens
+                model_usage["calls"] += 1
             elif kind == "tool_use":
                 tools[str(detail.get("tool") or "tool")] += 1
                 st["tools"] += 1
@@ -141,6 +154,7 @@ def summarize_events(events: list[dict], *, run_id: str, source_id: str = "",
         },
         "stages": stage_rows,
         "tools": [{"name": name, "calls": count} for name, count in tools.most_common()],
+        "usage_by_model": list(usage_by_model.values()),
         "errors": errors[-20:],
         "warnings": warnings[-20:],
         "generated": generated[-50:],
