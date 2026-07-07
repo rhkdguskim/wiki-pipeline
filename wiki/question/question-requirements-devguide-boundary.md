@@ -2,10 +2,14 @@
 type: question
 title: requirements와 dev-guide 테마의 경계는?
 tags: [themes, phase-1]
-status: open
+status: answered
 ---
 
 # ❓ requirements와 dev-guide 테마의 경계는?
+
+> ✅ **답(2026-07-07): 통합 없이 독자 축으로 경계 명시** → [[decision-requirements-devguide-boundary]].
+> requirements=설치자·운영자, dev-guide=개발자. 겹치는 사실은 한쪽 상세+다른쪽 참조.
+> 경계 문장을 테마 프롬프트/critic 기준 어디에 넣을지는 구현 세부로 열어둠.
 
 `requirements` 테마의 원 정의는 "설치/실행 환경과 조건" (독자: 설치자·운영자 —
 [[2026-07-05-docu-automatic-notes]]). 신규 `dev-guide` 테마의 ①절(환경 구성 — 사전 요구·의존·빌드,
@@ -27,5 +31,5 @@ status: open
 - dev-guide = 소스에서 빌드·테스트·디버그하며 **개발**하는 환경 (개발자)
 - 겹치는 사실은 상세를 한쪽에 두고 다른 쪽이 참조
 
-테마 정의(프롬프트)에 위 경계 문장을 명시할지, critic 적합성 기준에 반영할지 확정 필요.
-답이 확정되면 decision으로 승격하고 이 페이지를 `answered`로 전환한다.
+테마 정의(프롬프트)에 위 경계 문장을 명시할지, critic 적합성 기준에 반영할지는 구현 세부로 남았다
+(→ [[decision-requirements-devguide-boundary]]).

@@ -2,15 +2,19 @@
 type: question
 title: MVP 절단선 — 첫 출시 범위를 무엇으로 확정하는가?
 tags: [mvp, scope, phase-1, phase-2]
-status: open
+status: answered
 ---
 
 # ❓ MVP 절단선 — 첫 출시 범위를 무엇으로 확정하는가?
 
-Phase 1·2 확정 결정들이 MVP를 **암묵적으로** 정의하지만, 공식 "MVP 범위" 결정 페이지는 아직 없다.
-아래는 2026-07-06 query에서 위키 결정들로부터 도출한 **후보 절단선**이다 — 확정되면 decision 페이지로 승격하고 이 질문을 answered로 전환한다.
+> ✅ **답(2026-07-07): 정적 + 매뉴얼 두 파이프라인 모두 포함** → [[decision-mvp-scope]].
+> 아래 후보안은 **정적만**이었으나 사용자가 매뉴얼 포함으로 확대했다. 이 결정으로 매뉴얼 open 질문
+> ([[question-artifact-type-dispatch]] 등)이 MVP 블로커로 승격된다. SCM 커넥터는 MVP에서 GitLab 1개만.
 
-## 후보 절단선: 정적 파이프라인 1개 + 최소 Control Plane
+Phase 1·2 확정 결정들이 MVP를 **암묵적으로** 정의하지만, 공식 "MVP 범위" 결정 페이지는 아직 없었다.
+아래는 2026-07-06 query에서 위키 결정들로부터 도출한 **후보 절단선**이다 — 2026-07-07 확정된 결정이 이와 갈라진 지점은 답 decision에 기록했다.
+
+## 후보 절단선(기각): 정적 파이프라인 1개 + 최소 Control Plane
 
 두 파이프라인 중 **정적(Docu-Automatic)만** 첫 출시에 넣는다. 근거: 정적이 결정 성숙도가 가장 높고, 매뉴얼은 별개 파이프라인으로 분리 확정([[decision-manual-pipeline-separate]])되어 절단면이 깨끗하다. (코드 인덱스는 2026-07-06 시스템 범위 자체에서 제외 → [[decision-code-index-out-of-pipeline]] — 절단선이 더 단순해졌다. 한때 유일 블로커였던 headless 인증은 자체 에이전트 전환으로 해소 → [[decision-engine-api-agent]])
 

@@ -2,10 +2,14 @@
 type: question
 title: 신규 등록 소스의 첫 문서화 baseline
 tags: [registration, baseline, backfill, source-registration]
-status: open
+status: answered
 ---
 
 # ❓ 신규 등록 소스의 첫 문서화는 어디부터 시작하나
+
+> ✅ **답(2026-07-07): A(null → 전체 코드베이스 initialize)** → [[decision-registration-baseline]].
+> 초기 전량 backfill은 정기 야간 배치와 분리된 1급 작업(대시보드 트리거·진행률), 야간 배치는 증분만.
+> 위키 잠정안(A 기본 + backfill 분리)과 일치.
 
 `source_branches.last_processed_sha`([[decision-db-source-of-truth]])는 "여기까지 문서화했다"는 포인터다
 (등록당 개발·배포 브랜치별로 하나씩 → [[decision-repo-dev-release-registration]]).

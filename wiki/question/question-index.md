@@ -12,21 +12,21 @@
 - [[question-cost-estimation]] — 비용 예측 (Phase 1 PoC 실측 후; usage 토큰 자동 적재로 실측 수단 확보 → [[decision-agent-step-observability]])
 - [[question-progress-event-contract]] ✅ — 진행 이벤트 형태·granularity (answered: 표준 스키마 + 가변 단위 + webhook push → [[decision-observability-event-contract]])
 - [[question-batch-observability]] — 배치 알림/리포트 — 실패 알림=실시간 이메일·역할 기반 확정 → [[decision-email-alerting]]; daily digest 구체 남음
-- [[question-mvp-scope]] — MVP 절단선: 정적 파이프라인 + 최소 Control Plane 후보안 (Phase 1·2 결정 합성, 확정 시 decision 승격)
+- [[question-mvp-scope]] ✅ — MVP 절단선 (answered: 정적 + 매뉴얼 둘 다 → [[decision-mvp-scope]]; 후보안〈정적만〉을 확대 · 매뉴얼 open 질문이 MVP 블로커로 승격)
 
 ### 정적 파이프라인 (Docu-Automatic)
 
 - [[question-mr-vs-docs-auto]] ✅ — MR 방식 최종 확정 (answered: docs-hub 직접 MR → [[decision-mr-review-gate]])
 - [[question-schedule-policy]] ✅ — 스케줄 시각/상한 정책 (answered: 과제별 대시보드 설정 → [[decision-schedule-per-source]])
 - [[question-change-significance-filter]] ✅ — 사소한 변경 재생성 스킵 (answered: 규칙 기반 먼저 → [[decision-change-filter-rule-based]])
-- [[question-requirements-devguide-boundary]] — requirements(설치/실행 환경) vs dev-guide(개발환경) 경계 — 사전 요구·의존 겹침 해소
+- [[question-requirements-devguide-boundary]] ✅ — requirements(설치/실행 환경) vs dev-guide(개발환경) 경계 (answered: 통합 없이 독자 축으로 명시 → [[decision-requirements-devguide-boundary]])
 
 #### 소스 등록 · docs-hub 산출 (정적 파이프라인 하위)
 
 - [[question-group-token-provisioning]] — 최소 권한 group access token 발급 (그룹 토큰=Owner 권한·소스별 멤버십 상이)
-- [[question-initial-backfill-baseline]] — 신규 등록 소스의 첫 문서화 baseline (A 전체/B HEAD/C 지정 · backfill 분리안 미확정)
+- [[question-initial-backfill-baseline]] ✅ — 신규 등록 소스의 첫 문서화 baseline (answered: A null → 전체 initialize, backfill을 1급 작업으로 분리 → [[decision-registration-baseline]])
 - [[question-release-object-vs-tag-trigger]] — 트리거 = 태그 vs Release 객체 (태그 규칙 4종·태그≫릴리스 → [[decision-release-tag-trigger]])
-- [[question-ci-less-source-policy]] — CI/릴리스 없는 방치 소스(ros-codec류) 처리 정책
+- [[question-ci-less-source-policy]] ✅ — CI/릴리스 없는 방치 소스(ros-codec류) 처리 정책 (answered: 운영자 수동 큐레이션, 자동 판정 없음 → [[decision-source-manual-curation]])
 - [[question-existing-ci-docs-stage]] — 기존 CI docs stage(ros-sw-rcs)와 우리 자동화의 공존/대체
 - [[question-artifact-type-dispatch]] — 아티팩트 타입 소스별(exe/msi/nuget/container) 획득·기동 (→ [[decision-artifact-consumption]])
 

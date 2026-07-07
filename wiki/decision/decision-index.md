@@ -5,6 +5,8 @@
 
 ### 공통 · cross-cutting (파이프라인 공유)
 
+- [[decision-mvp-scope]] — **MVP 절단선 = 정적 + 매뉴얼 두 파이프라인** (GitLab 1 커넥터, GitHub 이후; 위키 후보안〈정적만〉을 확대 · 매뉴얼 open 질문이 MVP 블로커로 승격)
+- [[decision-registration-baseline]] — 등록 baseline = A(null → 전체 코드베이스 initialize); 초기 전량 backfill을 정기 야간 배치와 분리된 1급 작업으로, 야간 배치는 증분만
 - [[decision-control-data-plane-split]] — Control/Data Plane 분리, 단일 프로세스 기각 (LLM Wiki 통합·서비스화 포석)
 - [[decision-pipeline-observability]] — 모든 파이프라인 실시간 진행 모니터링(대시보드), 사후만·제각각 기각
 - [[decision-observability-event-contract]] — 진행 이벤트 = 표준 스키마 + 가변 단위 + webhook push
@@ -28,10 +30,12 @@
 - [[decision-theme-scope-expansion]] — 1차 테마 4→6 즉시 확장 (dev-guide + api-protocol〈백엔드〉); 실측 대기 방침의 예외
 - [[decision-critic-grounding-secrets]] — critic 확장 = 근거 대조 + 시크릿 기재 금지 (dev-guide·api-protocol 한정)
 - [[decision-devguide-grounding-scope]] — dev-guide 근거 = 코드 + 레포 내 문서 (코딩 규칙 포함); "코드만" 당일 번복
+- [[decision-requirements-devguide-boundary]] — requirements ↔ dev-guide 경계 = 통합 없이 독자 축으로 명시 (설치자·운영자 vs 개발자); 겹치는 사실은 한쪽 상세+다른쪽 참조
 
 #### 소스 등록 · docs-hub 산출 (정적 파이프라인 하위)
 
 - [[decision-repo-dev-release-registration]] — 레포 1개 등록 + 개발/배포 브랜치 2개 (역할별 문서 산출). 레포×브랜치 원자단위·정책 C 대체
+- [[decision-source-manual-curation]] — 방치 소스 정책 = 운영자 수동 큐레이션 (쓸 것만 등록); 방치 자동 판정 기준 소거, compare 404 자동 비활성화는 별개 유지
 - [[decision-repo-registration-flow]] — ⛔ superseded — 레포별 토큰 + 브랜치 1개 스코프 (토큰=스코프 메커니즘은 위 결정이 계승)
 - [[decision-docs-hub-folder-rule]] — docs-hub 폴더 = 레포 1폴더 + `dev/`·`release/` 하위폴더 자동 규칙 (평면 폴더·브랜치명 경로 기각)
 - [[decision-branch-loss-policy]] — 등록 브랜치 선택(개발/배포) + compare 404 자동 비활성화 + protected 분기 재활성화

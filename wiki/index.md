@@ -6,11 +6,11 @@
 | 유형       | 폴더 인덱스             | 페이지 | 무엇을 담는가             |
 | -------- | ------------------ | :-: | ------------------- |
 | overview | [[overview]]       |  1  | 시스템 전체 그림 · 진입 허브   |
-| summary  | [[summary-index]]  |  14 | raw 소스 요약           |
+| summary  | [[summary-index]]  |  16 | raw 소스 요약           |
 | entity   | [[entity-index]]   |  6  | 실재 대상 (시스템·레포·환경)   |
 | concept  | [[concept-index]]  |  5  | 재사용 개념·패턴           |
-| decision | [[decision-index]] | 41  | 내려진 결정 + 근거 + 기각 대안 (9건 superseded) |
-| question | [[question-index]] | 32  | 미해결 질문 (17건 answered) |
+| decision | [[decision-index]] | 48  | 내려진 결정 + 근거 + 기각 대안 (10건 superseded) |
+| question | [[question-index]] | 32  | 미해결 질문 (22건 answered) |
 
 ---
-페이지 99 (overview 포함) · raw 소스 18 · 최종 갱신 2026-07-06
+페이지 108 (overview 포함) · raw 소스 20 · 최종 갱신 2026-07-07

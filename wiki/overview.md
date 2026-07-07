@@ -16,8 +16,9 @@ status: active
 | **① 정적** (Docu-Automatic) | 코드 diff → 기술문서             | 야간 배치 · 수동    | docs-hub **MR** (사람 리뷰)      |
 | **② 매뉴얼 추출** (행위)         | 릴리스 앱 실행·관측 → 사용자/엔지니어 매뉴얼 | 릴리스/버전 **태그** | docs-hub **MR** (사람 리뷰)      |
 
-코드 인덱스는 한때 ③번 파이프라인이었으나 **2026-07-06 범위에서 제외**됐다 — 개발자 개인 관리로 이관
-(아래 "범위 제외" 절).
+**두 파이프라인 모두 MVP 첫 출시 범위에 든다**(2026-07-07 확정 → [[decision-mvp-scope]]). SCM 커넥터는
+인터페이스를 유지하되 MVP 구현은 GitLab 1개, GitHub는 이후. 코드 인덱스는 한때 ③번 파이프라인이었으나
+**2026-07-06 범위에서 제외**됐다 — 개발자 개인 관리로 이관(아래 "범위 제외" 절).
 
 두 파이프라인이 공유하는 뼈대:
 
@@ -153,9 +154,16 @@ flowchart TB
 - 소스 등록 = **레포 1개 + 개발/배포 브랜치 2개** → [[decision-repo-dev-release-registration]]
 - 매뉴얼 파이프라인의 앱 실행/연결([[decision-app-host-connection]])·AI 호출 경로([[question-mcp-auth-network]] ✅) 확정
 
+**MVP 절단선 확정** (2026-07-07):
+
+- **MVP = 정적 + 매뉴얼 두 파이프라인 모두** → [[decision-mvp-scope]]. 위키 후보안(정적만)을 사용자가 매뉴얼 포함으로 확대해 open→decision으로 굳었다 → [[question-mvp-scope]] ✅. 매뉴얼 포함으로 [[question-artifact-type-dispatch]] 등 매뉴얼 open 질문이 MVP 블로커로 승격. SCM 커넥터는 MVP에서 GitLab 1개만, GitHub는 이후.
+- 등록 baseline = **A(null → 전체 코드베이스 initialize)**, 초기 전량 backfill을 정기 야간 배치와 분리된 1급 작업으로 → [[decision-registration-baseline]] · [[question-initial-backfill-baseline]] ✅
+- 방치 소스 = **운영자 수동 큐레이션**(자동 판정 없음) → [[decision-source-manual-curation]] · [[question-ci-less-source-policy]] ✅
+- requirements ↔ dev-guide 경계 = **통합 없이 독자 축으로 명시** → [[decision-requirements-devguide-boundary]] · [[question-requirements-devguide-boundary]] ✅
+
 **미해결 (열린 질문)**:
 
-- Phase 1·2 결정들이 암묵적으로 정의하는 **MVP 절단선**(정적 파이프라인 + 최소 Control Plane)은 후보안으로 정리됐고, 공식 범위 확정은 아직 열려 있다 → [[question-mvp-scope]]
+- 매뉴얼이 MVP에 포함되면서 매뉴얼 파이프라인 open 질문이 블로커로 남아 있다 → [[question-artifact-type-dispatch]] · [[question-release-object-vs-tag-trigger]]
 - (해소) headless 인증 블로커는 자체 에이전트 전환으로 질문 자체가 사라졌다 → [[question-headless-claude-auth]] ✅
 
 **근거 실측**: 인프라·등록 결정은 사내 GitLab을 실제 로그인해 API 표면을 실측한 근거 위에 있다 —

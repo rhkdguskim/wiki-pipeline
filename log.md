@@ -431,3 +431,28 @@
 - 수정 4건 (B 전환 드리프트, 살아있는 페이지만): question-mvp-scope(엔진 항목·블로커 해소 반영), entity-docs-hub(headless→에이전트 루프), entity-mirero-gitlab(인증 확정 반영), question-secret-storage-security(API 키로 갱신)
 - 허용 예외: question-runner-ai-network는 답이 사실 확인이라 decision 링크 대신 entity 링크 (기존 lint 판정 유지)
 - 비수정 (역사 기록 보존): decision-email-alerting·decision-manual-pipeline-separate의 headless 언급은 결정 당시 근거 서술, superseded·summary 페이지 원문 유지
+
+## [2026-07-07] ingest | 열린 질문 결정 4건
+- raw: [[2026-07-07-open-questions-decisions]]
+- 생성: summary-open-questions-decisions, decision-mvp-scope, decision-registration-baseline, decision-source-manual-curation, decision-requirements-devguide-boundary
+- 갱신(question open→answered + 답 링크): question-mvp-scope, question-initial-backfill-baseline, question-ci-less-source-policy, question-requirements-devguide-boundary
+- 갱신(인덱스): decision-index(공통에 MVP·baseline, 소스 등록에 수동 큐레이션, 정적에 테마 경계), question-index(4건 ✅ + 답 링크), summary-index(신규 요약 등재), index(카운트·최종 갱신일 2026-07-07)
+- 갱신(overview): MVP 절단선 open→decision 반영(정적+매뉴얼 둘 다), 매뉴얼 open 질문이 MVP 블로커로 승격, 파이프라인 2종 서두에 MVP 범위 명시
+- 후보안 분기 기록: question-mvp-scope 후보안은 "정적만"이었고 사용자가 매뉴얼 포함으로 확대 → decision-mvp-scope에 "후보안에서 갈라진 지점" 절로 명시(번복이 아니라 확대, 후보안이 decision으로 굳지 않아 supersede 대상 아님)
+- blocking 태그: 4건 모두 frontmatter에 blocking 태그 없었음(제거 대상 없음)
+- 카운트 정정: 허브 index가 실제 파일 수와 드리프트 상태였어 실측값으로 동기화(decision 41→48, summary 14→16, question answered 17→22, raw 18→20, 총 99→108)
+
+## [2026-07-07] lint | 열린 질문 결정 4건 ingest 직후 전수 점검 — clean (log 내 과거 링크 1건만 보고)
+- 범위: 위키 전체(107 지식페이지 + 6 카탈로그 + overview + raw 20). 10개 검사 항목 전부 점검.
+- 카운트 재검증(핵심): 허브 index.md 표기가 실측과 전부 일치 — summary 16·entity 6·concept 5·decision 48·question 32·overview 1 = 총 108, raw 20. superseded 10(decision status 실측 10)·answered 22(question status 실측 22)·open 10 모두 정합. ingestor 동기화 정확, 수정 불필요.
+- 깨진 링크 0(위키): 위키 전체 wikilink 대상이 모두 실재 파일로 해소(wiki+raw+schema). PowerShell 전수 스캔.
+- 고아 0: 모든 지식페이지가 자기 <type>-index.md에 등재(concept 5/decision 48/entity 6/question 32/summary 16 미등재 0) → 최소 1 inbound 보장.
+- frontmatter 4필드: 107/107 충족. type↔폴더·파일명 접두사↔type: 전부 일치(위반 0).
+- 상대경로 마크다운 링크(`](../…)`·`](./…)`): 0.
+- 신규 decision 4건(mvp-scope·registration-baseline·source-manual-curation·requirements-devguide-boundary): frontmatter 4필드·접두사·폴더 일치, inbound(index+overview+summary 다중) 보유, decision-index 적정 그룹 등재 확인.
+- answered 전환 question 4건(mvp-scope·initial-backfill-baseline·ci-less-source-policy·requirements-devguide-boundary): 전부 status=answered·답 [[decision-*]] 링크 본문 보유·blocking 태그 없음. open 목록(10건)에 미혼입 확인.
+- answered 답 링크 전수(22건): 21건 [[decision-*]] 보유. question-runner-ai-network만 답이 인프라 사실이라 entity-mirero-gitlab 귀결 — 2026-07-06 lint에서 정상 예외로 확정된 건(재확인).
+- overview 드리프트: 없음. 신규 decision 4·answered question 4 모두 "MVP 절단선 확정" 절에 반영(✅ 표기).
+- 모순·중복: 없음. decision-mvp-scope는 후보안 대비 "확대(번복 아님)"로 명시, decision-source-manual-curation은 compare 404 자동 비활성화(decision-branch-loss-policy)와 경계 명시 → 상충 회피.
+- [[schema]] 참조(정책 판단, 오탐): [[schema]]는 6개 카탈로그 파일(index+5개 *-index)의 헤더 "규약: [[schema]]"에만 존재. schema.md는 wiki/ 밖 루트 파일이나 실재하므로 파일-존재 기준 깨진 링크 아님. 링크 규약(schema.md L74-75)이 wiki↔raw만 명시하고 루트 파일 참조 예외를 규정하지 않는 점은 규약 공백 — 카탈로그 헤더의 관례적 [[schema]]는 허용 예외로 두되, 필요 시 schema.md 링크 규약에 "루트 문서(schema/overview) 참조 허용"을 명문화할 여지로 보고.
+- 보고(수정 안 함, 판단 필요): log.md L217 `[[lint-report-2026-07-06]]` — 대상 파일(wiki/meta/lint-report-2026-07-06.md)이 6861098에서 추가, 26f9f42에서 off-schema로 삭제됨. 현재 대상 없음이나 이는 append-only 감사 로그의 과거 이력 항목이라 당시엔 유효했음. 소급 수정은 이력 왜곡이므로 미수정, 보고만.

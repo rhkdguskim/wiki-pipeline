@@ -2,10 +2,14 @@
 type: question
 title: CI/릴리스 없는 방치 소스 처리 정책
 tags: [source-registration, ci, release, coverage]
-status: open
+status: answered
 ---
 
 # ❓ CI·릴리스가 없는 방치 소스는 어떻게 처리하나
+
+> ✅ **답(2026-07-07): 운영자 수동 큐레이션 — 시스템은 방치를 자동 판정하지 않는다** → [[decision-source-manual-curation]].
+> 쓸 프로젝트만 골라 등록하므로 방치/활성 자동 판정 기준(마지막 커밋·릴리스 시점 감지)이 소거된다.
+> compare 404 자동 비활성화([[decision-branch-loss-policy]])는 등록 후 소실 처리라 별개로 유지.
 
 실측([[2026-07-06-wish-gitlab-api-survey]])에서 **ros-codec(1157)** 은 CI 파이프라인이 없고
 릴리스 2/커밋 2018년 잔존 상태로 방치돼 있었다. 이는 설계가 암묵적으로 깔던 가정을 깬다.
