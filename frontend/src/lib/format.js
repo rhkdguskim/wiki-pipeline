@@ -28,7 +28,11 @@ export function runState(S, lastAge) {
 }
 
 export function runStateLabel(state) {
-  return {done: '완료', failed: '실패', stalled: '활동 없음', running: '실행 중'}[state] || state;
+  return {
+    done: '완료', failed: '실패', stalled: '활동 없음', running: '실행 중',
+    done_with_warnings: '경고 완료', failed_quality_gate: '품질 실패',
+    partial: '부분 완료', stale: '지연', timeout: '시간 초과', cancelled: '취소',
+  }[state] || state;
 }
 
 const ACTIVE_WINDOW_MS = 45000;

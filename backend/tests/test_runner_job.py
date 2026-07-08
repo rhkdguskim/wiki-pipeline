@@ -13,19 +13,24 @@ import backend.static_pipeline.runner as static_runner_mod
 from backend.common.config import Settings
 from backend.connectors.base import ScmAuthError, ScmNotFoundError, ScmError, ScmRateLimitError
 from backend.connectors.gitlab import GitLabConnector
-from backend.runner.client import ControlPlaneClient, WebhookEventSink
+from backend.runner.client import ControlPlaneClient, HeartbeatSender, WebhookEventSink
 from backend.runner import job
 
 from .fake_scm import HEAD_SHA, OLD_SHA, FakeGitLab
 
 
 class FakeControlPlane:
-    """runner가 쓰는 3개 엔드포인트만 구현한 가짜 Control Plane."""
+    """runner가 쓰는 엔드포인트들을 구현한 가짜 Control Plane."""
 
     def __init__(self, context: dict):
         self.context = context
         self.event_batches: list[list[dict]] = []
         self.completed: dict | None = None
+        self.heartbeats: list[dict] = []
+        self.quality_reports: list[dict] = []
+        self.evidence_packs: list[dict] = []
+        self.coverage_reports: list[dict] = []
+        self.artifact_reports: list[dict] = []
         self.transport = httpx.MockTransport(self.handle)
 
     def handle(self, request: httpx.Request) -> httpx.Response:
@@ -41,6 +46,26 @@ class FakeControlPlane:
             self.completed = payload
             return httpx.Response(200, json={"ok": True, "status": payload.get("status"),
                                              "sha_advanced": bool(payload.get("last_processed_sha"))})
+        if path == "/api/webhook/heartbeat":
+            payload = json.loads(request.content.decode())
+            self.heartbeats.append(payload)
+            return httpx.Response(200, json={"ok": True})
+        if path == "/api/webhook/quality":
+            payload = json.loads(request.content.decode())
+            self.quality_reports.append(payload)
+            return httpx.Response(200, json={"ok": True})
+        if path == "/api/webhook/evidence":
+            payload = json.loads(request.content.decode())
+            self.evidence_packs.append(payload)
+            return httpx.Response(200, json={"ok": True})
+        if path == "/api/webhook/coverage":
+            payload = json.loads(request.content.decode())
+            self.coverage_reports.append(payload)
+            return httpx.Response(200, json={"ok": True})
+        if path == "/api/webhook/artifact":
+            payload = json.loads(request.content.decode())
+            self.artifact_reports.append(payload)
+            return httpx.Response(200, json={"ok": True})
         return httpx.Response(404, json={"error": path})
 
 
@@ -222,7 +247,7 @@ def _patch_manual(monkeypatch, tmp_path, *, calls: dict | None = None,
     # 갈아끼운다 (job 모듈은 import 시점에 from ..manual_pipeline.runner 로 가져옴).
     monkeypatch.setattr("backend.manual_pipeline.runner.run_manual", fake_run_manual)
     monkeypatch.setattr("backend.runner.job._run_manual_pipeline",
-                        lambda settings, *, run_id: fake_run_manual(settings, run_id=run_id))
+                        lambda settings, ctx, *, run_id: fake_run_manual(settings, run_id=run_id))
     monkeypatch.setattr(job, "load_settings",
                         lambda: Settings(_env_file=None, out_dir=str(tmp_path),
                                          mcp_endpoint_url="http://mcp.local:9100"))
@@ -274,3 +299,234 @@ def test_static_dispatch_unchanged_when_pipeline_static(monkeypatch, tmp_path, f
     assert calls["mode"] == "diff"  # 정적 경로가 그대로 호출됐다
     assert cp.completed["status"] == "done"
     assert cp.completed["last_processed_sha"] == HEAD_SHA  # sha 전진도 정상
+
+
+# ── heartbeat sending ──────────────────────────────────────────
+
+def test_heartbeat_sent_during_execute(monkeypatch, tmp_path, fake_submit_connector):
+    """execute() 중 heartbeat 가 전송된다."""
+    _patch_pipeline(monkeypatch, tmp_path)
+    cp = FakeControlPlane(_context(last_processed_sha=OLD_SHA))
+    client = ControlPlaneClient("http://cp.local", "rtok", transport=cp.transport)
+    job.execute("static-demo-12345678", "auto", client)
+    client.close()
+
+    assert len(cp.heartbeats) >= 1
+    hb = cp.heartbeats[0]
+    assert hb["run_id"] == "static-demo-12345678"
+    assert "pid" in hb
+    assert "timestamp" in hb
+
+
+def test_heartbeat_sender_start_stop():
+    """HeartbeatSender 가 start 후 전송하고 stop 후 멈춘다."""
+    cp = FakeControlPlane(_context())
+    client = ControlPlaneClient("http://cp.local", "rtok", transport=cp.transport)
+    hb = HeartbeatSender(client, "run-hb-test", interval=0.05)
+    hb.start()
+    import time
+    time.sleep(0.15)
+    hb.stop()
+    client.close()
+    assert len(cp.heartbeats) >= 1
+    assert cp.heartbeats[0]["run_id"] == "run-hb-test"
+
+
+# ── quality/evidence/coverage/artifact webhooks ─────────────────
+
+def test_quality_evidence_webhooks_emitted_after_run(monkeypatch, tmp_path, fake_submit_connector):
+    """파이프라인 실행 후 quality/evidence webhook 이 전송된다."""
+    _patch_pipeline(monkeypatch, tmp_path)
+    cp = FakeControlPlane(_context(last_processed_sha=OLD_SHA))
+    client = ControlPlaneClient("http://cp.local", "rtok", transport=cp.transport)
+    job.execute("static-demo-12345678", "auto", client)
+    client.close()
+
+    assert len(cp.quality_reports) == 1
+    assert cp.quality_reports[0]["run_id"] == "static-demo-12345678"
+    assert cp.quality_reports[0]["status"] == "pass"
+
+    assert len(cp.evidence_packs) == 1
+    assert cp.evidence_packs[0]["run_id"] == "static-demo-12345678"
+    assert cp.evidence_packs[0]["item_count"] >= 1
+
+
+def test_quality_webhook_reports_failure_on_theme_error(monkeypatch, tmp_path):
+    """theme 에 error 가 있으면 quality webhook status=fail."""
+    def fake_run_static(settings, from_sha, to_sha, themes=None, run_id=None):
+        doc = settings.out_path / "intro.md"
+        doc.write_text("# intro\n", encoding="utf-8")
+        return {"run_id": run_id,
+                "themes": {"intro": {"file": str(doc), "error": "LLM timeout"}},
+                "last_processed_sha": HEAD_SHA}
+
+    monkeypatch.setattr(static_runner_mod, "run_static", fake_run_static)
+    monkeypatch.setattr(init_runner_mod, "run_init", fake_run_static)
+    monkeypatch.setattr(job, "load_settings",
+                        lambda: Settings(_env_file=None, out_dir=str(tmp_path)))
+    cp = FakeControlPlane(_context(last_processed_sha=OLD_SHA))
+    client = ControlPlaneClient("http://cp.local", "rtok", transport=cp.transport)
+    job.execute("static-demo-12345678", "auto", client)
+    client.close()
+
+    assert cp.completed["status"] == "failed"
+    assert len(cp.quality_reports) == 1
+    assert cp.quality_reports[0]["status"] == "fail"
+
+
+def test_coverage_artifact_webhooks_only_for_manual(monkeypatch, tmp_path, fake_submit_connector):
+    """manual 파이프라인에서만 coverage/artifact webhook 이 전송된다."""
+    calls: dict = {}
+    _patch_manual(monkeypatch, tmp_path, calls=calls)
+    cp = FakeControlPlane(_manual_context())
+    client = ControlPlaneClient("http://cp.local", "rtok", transport=cp.transport)
+    job.execute("manual-demo-abcdef01", "auto", client)
+    client.close()
+
+    assert len(cp.coverage_reports) == 1
+    assert len(cp.artifact_reports) == 1
+
+
+def test_static_does_not_emit_coverage_artifact(monkeypatch, tmp_path, fake_submit_connector):
+    """static 파이프라인에서는 coverage/artifact webhook 이 전송되지 않는다."""
+    _patch_pipeline(monkeypatch, tmp_path)
+    cp = FakeControlPlane(_context(last_processed_sha=OLD_SHA))
+    client = ControlPlaneClient("http://cp.local", "rtok", transport=cp.transport)
+    job.execute("static-demo-12345678", "auto", client)
+    client.close()
+
+    assert len(cp.coverage_reports) == 0
+    assert len(cp.artifact_reports) == 0
+
+
+# ── manual profile from context ─────────────────────────────────
+
+def _manual_context_with_profile(*, mcp_url="http://mcp.db:9100",
+                                 tool_allowlist=None,
+                                 scenarios=None) -> dict:
+    ctx = _manual_context()
+    ctx["manual_profile"] = {
+        "mcp_endpoint_url": mcp_url,
+        "mcp_transport": "sse",
+        "tool_allowlist": tool_allowlist or ["screen_info", "screenshot"],
+        "secret_values": {},
+        "artifact_selector": {},
+        "install_profile": {},
+        "readiness_check": {},
+        "smoke_check": {},
+        "coverage_threshold": 70,
+        "failure_policy": "block",
+        "vnc": {"enabled": False, "host": "", "port": 0, "view_only": True},
+    }
+    if scenarios:
+        ctx["scenario_set"] = {
+            "id": "scset-test", "name": "test", "version": 1,
+            "scenarios": scenarios,
+        }
+    return ctx
+
+
+def test_manual_pipeline_uses_mcp_endpoint_from_context(monkeypatch, tmp_path):
+    captured: dict = {}
+
+    def fake_run_manual(settings, *, run_id=None, scenarios_data=None,
+                        scenarios_file=None, themes=None, explore_steps=None,
+                        resume=False, no_explore=False, strict_allowlist=False):
+        captured["mcp_endpoint_url"] = settings.mcp_endpoint_url
+        captured["manual_allowlist"] = settings.manual_allowlist
+        captured["strict"] = strict_allowlist
+        captured["scenarios_data"] = scenarios_data
+        manual_dir = settings.out_path / "manual"
+        manual_dir.mkdir(parents=True, exist_ok=True)
+        doc = manual_dir / "user-manual.md"
+        doc.write_text("# user manual\n", encoding="utf-8")
+        return {"run_id": run_id, "themes": {"user-manual": {"file": str(doc)}},
+                "observations": 3, "warned": []}
+
+    monkeypatch.setattr("backend.manual_pipeline.runner.run_manual", fake_run_manual)
+    monkeypatch.setattr(job, "load_settings",
+                        lambda: Settings(_env_file=None, out_dir=str(tmp_path),
+                                         mcp_endpoint_url=""))
+
+    scenarios_json = {"app": "Test", "scenarios": [{"id": "s1", "title": "t", "tool": "x"}]}
+    cp = FakeControlPlane(_manual_context_with_profile(
+        mcp_url="http://from-db:9999",
+        tool_allowlist=["screen_info"],
+        scenarios=scenarios_json))
+    client = ControlPlaneClient("http://cp.local", "rtok", transport=cp.transport)
+    job.execute("manual-demo-abcdef01", "auto", client)
+    client.close()
+
+    assert captured["mcp_endpoint_url"] == "http://from-db:9999"
+    assert "screen_info" in captured["manual_allowlist"]
+    assert captured["strict"] is True
+    assert captured["scenarios_data"] is not None
+
+
+def test_manual_pipeline_falls_back_to_env_when_no_profile(monkeypatch, tmp_path):
+    captured: dict = {}
+
+    def fake_run_manual(settings, *, run_id=None, scenarios_data=None,
+                        scenarios_file=None, themes=None, explore_steps=None,
+                        resume=False, no_explore=False, strict_allowlist=False):
+        captured["mcp_endpoint_url"] = settings.mcp_endpoint_url
+        captured["strict"] = strict_allowlist
+        return {"run_id": run_id, "themes": {}, "observations": 0, "warned": []}
+
+    monkeypatch.setattr("backend.manual_pipeline.runner.run_manual", fake_run_manual)
+    monkeypatch.setattr(job, "load_settings",
+                        lambda: Settings(_env_file=None, out_dir=str(tmp_path),
+                                         mcp_endpoint_url="http://from-env:9100"))
+    cp = FakeControlPlane(_manual_context())
+    client = ControlPlaneClient("http://cp.local", "rtok", transport=cp.transport)
+    job.execute("manual-demo-abcdef01", "auto", client)
+    client.close()
+
+    assert captured["mcp_endpoint_url"] == "http://from-env:9100"
+    assert captured["strict"] is False
+
+
+# ── static partial failure status ────────────────────────────────
+
+def test_static_partial_failure_reports_failed(monkeypatch, tmp_path):
+    """theme 에 error 가 있으면 status=failed (done 아님)."""
+    def fake_run_static(settings, from_sha, to_sha, themes=None, run_id=None):
+        doc = settings.out_path / "intro.md"
+        doc.write_text("# intro\n", encoding="utf-8")
+        return {"run_id": run_id,
+                "themes": {"intro": {"file": str(doc), "error": "critic reject"}},
+                "last_processed_sha": HEAD_SHA}
+
+    monkeypatch.setattr(static_runner_mod, "run_static", fake_run_static)
+    monkeypatch.setattr(init_runner_mod, "run_init", fake_run_static)
+    monkeypatch.setattr(job, "load_settings",
+                        lambda: Settings(_env_file=None, out_dir=str(tmp_path)))
+    cp = FakeControlPlane(_context(last_processed_sha=OLD_SHA))
+    client = ControlPlaneClient("http://cp.local", "rtok", transport=cp.transport)
+    job.execute("static-demo-12345678", "auto", client)
+    client.close()
+
+    assert cp.completed["status"] == "failed"
+    assert "critic reject" in cp.completed["error"]
+
+
+def test_static_warned_reports_done_with_warnings(monkeypatch, tmp_path,
+                                                   fake_submit_connector):
+    """theme 에 warned 플래그가 있으면 status=done_with_warnings."""
+    def fake_run_static(settings, from_sha, to_sha, themes=None, run_id=None):
+        doc = settings.out_path / "intro.md"
+        doc.write_text("# intro\n", encoding="utf-8")
+        return {"run_id": run_id,
+                "themes": {"intro": {"file": str(doc), "warned": True}},
+                "last_processed_sha": HEAD_SHA, "warned": ["intro"]}
+
+    monkeypatch.setattr(static_runner_mod, "run_static", fake_run_static)
+    monkeypatch.setattr(init_runner_mod, "run_init", fake_run_static)
+    monkeypatch.setattr(job, "load_settings",
+                        lambda: Settings(_env_file=None, out_dir=str(tmp_path)))
+    cp = FakeControlPlane(_context(last_processed_sha=OLD_SHA))
+    client = ControlPlaneClient("http://cp.local", "rtok", transport=cp.transport)
+    job.execute("static-demo-12345678", "auto", client)
+    client.close()
+
+    assert cp.completed["status"] == "done_with_warnings"

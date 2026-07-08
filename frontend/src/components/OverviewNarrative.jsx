@@ -2,8 +2,9 @@ import {useState, Suspense, lazy} from 'react';
 import {AlertTriangle, CheckCircle2, Eye, FileText, GitPullRequest, Radio, XCircle} from 'lucide-react';
 import {narrateStage} from '../lib/stageNarrative.js';
 import {fmtDur, fmtNum} from '../lib/format.js';
+import {RunQualityBadge} from './RunQualityBadge.jsx';
+import {VncSessionBadge} from './VncSessionBadge.jsx';
 
-// mermaid + react-markdown은 무거우므로 DocViewer는 첫 클릭 시 지연 로드.
 const DocViewer = lazy(() => import('./DocViewer.jsx').then(m => ({default: m.DocViewer})));
 
 function currentSentence({state, S, runSummary, activeRun}) {
@@ -11,13 +12,24 @@ function currentSentence({state, S, runSummary, activeRun}) {
     const count = runSummary?.generated?.length ?? [...S.stages.values()].filter(s => s.status === 'done').length;
     const failedStages = runSummary?.kpi?.stage_failed || 0;
     if (failedStages > 0) {
-      // 정상 종료됐지만 일부 단계가 실패로 남은 경우 — 100% 완료처럼 보이지 않게 알려준다.
       return {tone: 'partial', text: `문서 ${count}건은 만들었지만 일부 단계가 실패했어요`,
               detail: '진행률 아래에서 실패한 단계를 확인하세요'};
     }
     return {tone: 'done', text: `문서 ${count}건 생성을 마쳤어요`};
   }
-  if (state === 'failed') {
+  if (state === 'done_with_warnings') {
+    return {tone: 'warning', text: '문서 생성 완료 — 경고가 있어요', detail: 'MR 제출 전 review 가 필요합니다'};
+  }
+  if (state === 'failed_quality_gate') {
+    return {tone: 'failed', text: '품질 게이트 실패 — MR 제출이 차단됐어요', detail: activeRun?.blocked_reason || ''};
+  }
+  if (state === 'partial') {
+    return {tone: 'partial', text: '일부 산출물만 유효해요', detail: activeRun?.blocked_reason || ''};
+  }
+  if (state === 'stale') {
+    return {tone: 'failed', text: 'stale complete — sha pointer 가 달라 전진하지 않았어요', detail: activeRun?.error || ''};
+  }
+  if (state === 'failed' || state === 'timeout') {
     const lastError = runSummary?.errors?.at(-1);
     const cause = lastError?.message || activeRun?.error || '';
     return {tone: 'failed', text: '문제가 발생해 중단됐어요 — 담당자에게 알림이 발송됩니다', detail: cause};
@@ -49,19 +61,27 @@ export function OverviewNarrative({S, live, state, stages, activeRun, runSummary
     ((b.input_tokens || 0) + (b.output_tokens || 0)) - ((a.input_tokens || 0) + (a.output_tokens || 0))
   ))[0];
   const mrUrl = activeRun?.mr_url;
-  const canSubmit = !mrUrl && state === 'done' && mrPlan?.can_submit;
+  const publishState = runSummary?.publish_state || (state === 'done' ? 'publishable' : 'unknown');
+  const canSubmit = !mrUrl && ['done', 'done_with_warnings'].includes(state) &&
+    mrPlan?.can_submit && publishState !== 'blocked';
 
   return <div className="narrative">
     <section className={`narrativeCard ${sentence.tone}`}>
       <div className="narrativeOrb">
         {sentence.tone === 'done' && <CheckCircle2 size={22} />}
         {sentence.tone === 'failed' && <XCircle size={22} />}
-        {sentence.tone === 'partial' && <AlertTriangle size={22} />}
+        {(sentence.tone === 'partial' || sentence.tone === 'warning') && <AlertTriangle size={22} />}
         {(sentence.tone === 'running' || sentence.tone === 'stalled') && <span className="spinner" />}
       </div>
       <div>
         <strong>{sentence.text}</strong>
         {sentence.detail && <p className="narrativeDetail">{sentence.detail}</p>}
+        {(runSummary?.quality || runSummary?.vnc) && (
+          <div className="narrative__badges">
+            {runSummary?.quality && <RunQualityBadge summary={runSummary} compact />}
+            {runSummary?.vnc && <VncSessionBadge session={runSummary.vnc} />}
+          </div>
+        )}
       </div>
     </section>
 
@@ -94,8 +114,9 @@ export function OverviewNarrative({S, live, state, stages, activeRun, runSummary
         <GitPullRequest size={15} />MR에서 검토하기 →
       </a>}
       {canSubmit && <button type="button" className="primaryBtn fullBtn" disabled={mrBusy} onClick={onSubmitMr}>
-        <GitPullRequest size={15} />문서 MR로 제출하기
+        <GitPullRequest size={15} />{publishState === 'review_required' ? '문서 MR로 제출 (검토 필요)' : '문서 MR로 제출하기'}
       </button>}
+      {publishState === 'blocked' && !mrUrl && <div className="emptyPanel"><AlertTriangle size={14} /> {runSummary?.blocked_reason || '품질 게이트 실패로 MR 제출이 차단됐습니다'}</div>}
       {mrMessage && <p className="formMessage">{mrMessage}</p>}
     </section>
 

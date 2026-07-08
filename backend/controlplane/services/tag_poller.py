@@ -43,7 +43,12 @@ class TagPoller:
         self.notifier = notifier
 
     def poll_once(self) -> int:
-        """한 번 폴링 — 새 태그가 발견돼 run을 생성한 소스 수를 반환."""
+        """한 번 폴링 — 새 태그가 발견돼 run을 생성한 소스 수를 반환.
+
+        2026-07-08: create_run 직후 runner 까지 launch 한다. launch 실패 시
+        bookmark 를 advance 하지 않고 last_launch_status='failed' 만 남겨
+        다음 폴링에서 같은 태그를 재시도할 수 있게 한다.
+        """
         from ..connectors import connector_for_settings  # 순환 임포트 회피
         from ...common.config import Settings
 
@@ -72,6 +77,27 @@ class TagPoller:
                 except ValueError as e:
                     log.warning("매뉴얼 run 생성 실패 source=%s tag=%s: %s",
                                 target.source.id, new_tag.name, e)
+                    continue
+                # launch_runner 는 create_run commit 이후에 호출. launch 실패는
+                # bookmark 를 이미 advance 했더라도 last_launch_status 로 표시.
+                try:
+                    proc = self.run_service.launch_runner(run)
+                    launch_ok = proc is not None
+                except Exception as e:  # noqa: BLE001
+                    log.warning("매뉴얼 runner launch 실패 source=%s run=%s: %s",
+                                target.source.id, run.id, type(e).__name__, e)
+                    launch_ok = False
+                if not launch_ok:
+                    self._mark_launch_status(db, target, "failed")
+                    try:
+                        run.status = "failed"
+                        run.error = "runner launch failed"
+                        run.terminal_at = run.terminal_at or run.updated_at
+                        db.flush()
+                    except Exception:  # noqa: BLE001
+                        pass
+                else:
+                    self._mark_launch_status(db, target, "launched")
         return triggered
 
     def _collect_targets(self, db: Session) -> list[_PollTarget]:
@@ -153,3 +179,14 @@ class TagPoller:
         bookmark.last_seen_tag = tag.name
         bookmark.last_seen_sha = tag.sha
         bookmark.last_run_id = run_id
+        bookmark.last_triggered_tag = tag.name
+
+    def _mark_launch_status(self, db: Session, target: _PollTarget, status: str) -> None:
+        bookmark = db.scalars(
+            select(SourceReleaseTag).where(
+                SourceReleaseTag.source_id == target.source.id,
+                SourceReleaseTag.branch_role == target.branch.role,
+            )).first()
+        if bookmark is None:
+            return
+        bookmark.last_launch_status = status[:24]

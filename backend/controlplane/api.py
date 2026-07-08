@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import secrets
 from datetime import datetime, timezone
@@ -16,12 +17,16 @@ from typing import Any
 from fastapi import (APIRouter, Body, Depends, HTTPException, Query, Request,
                      WebSocket, WebSocketDisconnect)
 from sqlalchemy import select
+from sqlalchemy import select
 from sqlalchemy.orm import joinedload, selectinload
 
 from ..common.docshub import build_mr_plan, submit_change_request
 from ..common.logging_setup import current_request_id
 from . import projection
-from .models import (DocTarget, RunEvent, ScmInstance, Source, SourceBranch,
+from .models import (DocTarget, ManualScenarioSet, Run, RunArtifact,
+                     RunCoverageReport, RunEvent, RunEvidenceItem,
+                     RunEvidencePack, RunQualityReport, RunVncSession,
+                     ScmInstance, Source, SourceBranch, SourceManualProfile,
                      SourceReleaseTag, SourceSchedule)
 from .schedule import normalize_schedule_payload
 from .schemas import (
@@ -432,18 +437,20 @@ def run_summary(request: Request, db=Depends(_db), run: str = Query("")) -> dict
     상태 일관성 규칙: DB run row 가 있으면 그 status/pipeline_id/branch_role 이 진실.
     events 기반으로만 추론하면 DB 의 빠른 상태 갱신(complete_run webhook)과 어긋나는
     경우가 생긴다 — projection 에 row 값을 override 로 넘긴다.
+
+    2026-07-08: publishable, publish_state, quality, evidence, coverage, artifact,
+    vnc, snapshot_version, mr readiness 필드를 함께 반환 (optional, 구버전 run
+    은 unknown / not_evaluated 로 degrade).
     """
     st = _state(request)
     run = _check_run_id(run)
     if st.run_service.has_db_events(db, run):
         events = st.run_service.all_db_events(db, run)
-        # 직접 PK 조회 — list_runs(1000)을 편하며 찾던 O(N) 스캔은
-        # run이 1000건보다 오래되면 빈 source_id를 내는 버그를 가졌다.
         row = st.run_service.get_run_view(db, run)
         if row is None:
-            return projection.summarize_events(
-                events, run_id=run, source_id="")
-        return projection.summarize_events(
+            return _augment_summary(projection.summarize_events(
+                events, run_id=run, source_id=""), db, run)
+        base = projection.summarize_events(
             events, run_id=run, source_id=row.get("source_id", ""),
             run_status_override=row.get("status", ""),
             run_pipeline_id=row.get("pipeline_id", ""),
@@ -458,16 +465,139 @@ def run_summary(request: Request, db=Depends(_db), run: str = Query("")) -> dict
             run_started_at=row.get("created_at", ""),
             run_updated_at=row.get("updated_at", ""),
         )
+        return _augment_summary(base, db, run)
     path = projection.find_run_path(st.settings.out_path, run)
     if not path:
         raise HTTPException(404, "run 없음")
-    return projection.summarize_events(
+    base = projection.summarize_events(
         projection.read_all_file_events(path),
         run_id=run,
         source_id=projection.source_from_path(st.settings.out_path, path),
         path=str(path.relative_to(st.settings.out_path)),
         artifacts=projection.list_artifacts(path, st.settings.out_path),
     )
+    return _augment_summary(base, db, run)
+
+
+def _augment_summary(base: dict, db, run_id: str) -> dict:
+    """projection 결과에 quality/evidence/coverage/artifact/vnc/mr resource 를 합친다.
+
+    구버전 run 은 모두 unknown / not_evaluated / not_applicable 으로 degrade —
+    frontend 가 optional 로 소비 가능.
+    """
+    from .services import resources
+    run_row = db.get(Run, run_id)
+    if run_row is None:
+        return base
+    quality_view = resources.get_quality_view(db, run_id) or {}
+    coverage_view = resources.get_coverage_view(db, run_id)
+    artifact_view = resources.get_artifact_view(db, run_id)
+    vnc_view = resources.get_vnc_view(db, run_id)
+    evidence_view = resources.get_evidence_pack(db, run_id, limit=1) or {}
+    quality_status = str(run_row.quality_status or quality_view.get("status")
+                         or "not_evaluated")
+    publish_state = str(run_row.publish_state or "unknown")
+    publishable = bool(run_row.publishable)
+    blocked_reason = str(run_row.blocked_reason or "")
+    quality = {
+        "status": quality_status,
+        "score": run_row.quality_score if run_row.quality_score is not None
+                 else quality_view.get("score"),
+        "publishable": publishable,
+        "publish_state": publish_state,
+        "failed_gate": quality_view.get("failed_gate", ""),
+        "warning_count": int(quality_view.get("warning_count") or 0),
+        "error_count": int(quality_view.get("error_count") or 0),
+        "repair_attempts": int(quality_view.get("repair_attempts") or 0),
+        "gates": quality_view.get("gates", []),
+    }
+    snapshot_version = int(run_row.snapshot_version or 0)
+    base.update({
+        "publishable": publishable,
+        "publish_state": publish_state,
+        "blocked_reason": blocked_reason,
+        "quality_status": quality_status,
+        "quality_score": run_row.quality_score,
+        "warning_publish_policy": str(run_row.warning_publish_policy or "review_required"),
+        "release_tag": str(run_row.release_tag or ""),
+        "artifact_version": str(run_row.artifact_version or ""),
+        "snapshot_version": snapshot_version,
+        "stale_complete": bool(run_row.stale_complete),
+        "heartbeat_at": _iso(run_row.heartbeat_at),
+        "started_at": _iso(run_row.started_at),
+        "terminal_at": _iso(run_row.terminal_at),
+        "attempt": int(run_row.attempt or 1),
+        "quality": quality,
+        "evidence": {
+            "pack_id": evidence_view.get("pack_id", ""),
+            "item_count": int(evidence_view.get("item_count") or 0),
+            "unsupported_claim_count": int(evidence_view.get("unsupported_claim_count") or 0),
+            "truncated": bool(evidence_view.get("truncated", False)),
+            "missing": not evidence_view,
+        },
+        "coverage": {
+            "status": coverage_view.get("status", "not_applicable"),
+            "percentage": coverage_view.get("percentage"),
+            "threshold": coverage_view.get("threshold"),
+            "reached": int(coverage_view.get("reached") or 0),
+            "expected": int(coverage_view.get("expected") or 0),
+            "missed_count": int(coverage_view.get("missed_count") or 0),
+        },
+        "artifact": {
+            "available": bool(artifact_view.get("available", False)),
+            "release_tag": artifact_view.get("release_tag", ""),
+            "artifact_name": artifact_view.get("artifact_name", ""),
+            "build_status": artifact_view.get("build_status", "unknown"),
+            "deploy_status": artifact_view.get("deploy_status", "unknown"),
+            "install_status": artifact_view.get("install_status", "unknown"),
+            "readiness_status": artifact_view.get("readiness_status", "unknown"),
+            "smoke_status": artifact_view.get("smoke_status", "unknown"),
+            "installed_version": artifact_view.get("installed_version", ""),
+        },
+        "vnc": {
+            "available": bool(vnc_view.get("available", False)),
+            "status": vnc_view.get("status", "unavailable"),
+            "session_id": vnc_view.get("session_id", ""),
+            "view_only": bool(vnc_view.get("view_only", True)),
+            "expires_at": vnc_view.get("expires_at", ""),
+        },
+        "mr": _mr_readiness_view(run_row, quality, coverage_view),
+    })
+    return base
+
+
+def _mr_readiness_view(run_row, quality: dict, coverage: dict) -> dict:
+    """MR readiness — quality/coverage 기반으로 publishable 가능 여부 도출."""
+    if not run_row.mr_url:
+        readiness = "not_created"
+    elif run_row.status in ("failed", "failed_quality_gate", "stale",
+                             "cancelled", "timeout", "partial"):
+        readiness = "blocked"
+    elif run_row.status == "done_with_warnings":
+        readiness = "review_required"
+    elif run_row.status == "done" and bool(run_row.publishable):
+        readiness = "ready"
+    else:
+        readiness = "ready" if bool(run_row.publishable) else "blocked"
+    blocked_reason = ""
+    if readiness == "blocked":
+        if run_row.blocked_reason:
+            blocked_reason = run_row.blocked_reason
+        elif quality.get("failed_gate"):
+            blocked_reason = quality["failed_gate"]
+        elif coverage.get("status") == "fail":
+            blocked_reason = "coverage below threshold"
+    return {
+        "readiness": readiness,
+        "blocked_reason": blocked_reason,
+        "included_files": int(run_row.doc_count or 0),
+        "excluded_files": 0,
+    }
+
+
+def _iso(dt) -> str:
+    from .timeutil import isoformat_z
+    return isoformat_z(dt) if dt else ""
 
 
 @router.get("/api/events", dependencies=[Depends(require_api_token)])
@@ -481,6 +611,282 @@ def read_events(request: Request, db=Depends(_db),
     if not path:
         raise HTTPException(404, "run 없음")
     return projection.read_new_file_events(path, offset)
+
+
+# ── run-scoped resource GET endpoints (2026-07-08) ───────────────
+
+
+@router.get("/api/runs/{run_id}/quality", dependencies=[Depends(require_api_token)])
+def get_run_quality(run_id: str, request: Request, db=Depends(_db),
+                    severity: str = Query(""),
+                    blocking: bool | None = Query(None),
+                    doc_id: str = Query("")) -> dict:
+    _check_run_id(run_id)
+    from .services import resources
+    run_row = db.get(Run, run_id)
+    if run_row is None:
+        raise HTTPException(404, f"run 없음: {run_id}")
+    quality = resources.get_quality_view(db, run_id) or {
+        "status": "not_evaluated", "score": None, "publishable": False,
+        "failed_gate": "", "warning_count": 0, "error_count": 0,
+        "repair_attempts": 0, "gates": [],
+    }
+    findings = resources.get_quality_findings(
+        db, run_id, severity=severity, blocking=blocking, doc_id=doc_id,
+    )
+    docs = resources.get_doc_outputs(db, run_id)
+    return {
+        "run_id": run_id,
+        "quality": {**quality, "publish_state": run_row.publish_state or "unknown"},
+        "findings": findings,
+        "doc_outputs": docs,
+        "available": True,
+    }
+
+
+@router.get("/api/runs/{run_id}/evidence", dependencies=[Depends(require_api_token)])
+def get_run_evidence(run_id: str, request: Request, db=Depends(_db),
+                     kind: str = Query(""),
+                     doc_id: str = Query(""),
+                     limit: int = Query(200, ge=1, le=2000),
+                     cursor: str = Query("")) -> dict:
+    _check_run_id(run_id)
+    from .services import resources
+    pack = resources.get_evidence_pack(db, run_id, kind=kind, doc_id=doc_id,
+                                       limit=limit, cursor=cursor)
+    if pack is None:
+        return {"run_id": run_id, "pack_id": "", "item_count": 0,
+                "items": [], "missing": True}
+    return pack
+
+
+@router.get("/api/runs/{run_id}/evidence/{item_id}",
+            dependencies=[Depends(require_api_token)])
+def get_run_evidence_item(run_id: str, item_id: str,
+                          request: Request, db=Depends(_db)) -> dict:
+    _check_run_id(run_id)
+    from .services import resources
+    item = resources.get_evidence_item(db, run_id, item_id)
+    if item is None:
+        raise HTTPException(404, f"evidence item 없음: {item_id}")
+    return item
+
+
+@router.get("/api/runs/{run_id}/coverage", dependencies=[Depends(require_api_token)])
+def get_run_coverage(run_id: str, request: Request, db=Depends(_db)) -> dict:
+    _check_run_id(run_id)
+    from .services import resources
+    return {"run_id": run_id, **resources.get_coverage_view(db, run_id)}
+
+
+@router.get("/api/runs/{run_id}/artifacts", dependencies=[Depends(require_api_token)])
+def get_run_artifacts(run_id: str, request: Request, db=Depends(_db)) -> dict:
+    _check_run_id(run_id)
+    from .services import resources
+    return {"run_id": run_id, **resources.get_artifact_view(db, run_id)}
+
+
+@router.get("/api/runs/{run_id}/vnc-session",
+            dependencies=[Depends(require_api_token)])
+def get_run_vnc_session(run_id: str, request: Request, db=Depends(_db)) -> dict:
+    _check_run_id(run_id)
+    from .services import resources
+    view = resources.get_vnc_view(db, run_id)
+    # view_only 가 false 이면 websocket_url 미발급 (운영 안전)
+    if not view.get("view_only", True):
+        view["websocket_url"] = ""
+    return {"run_id": run_id, **view}
+
+
+@router.get("/api/runs/{run_id}/events", dependencies=[Depends(require_api_token)])
+def get_run_events_seq(run_id: str, request: Request, db=Depends(_db),
+                       after_seq: int = Query(0, alias="afterSeq"),
+                       limit: int = Query(500, ge=1, le=2000)) -> dict:
+    """seq-based event replay — frontend 가 reconnect 시 마지막 seq 이후만 받는다."""
+    _check_run_id(run_id)
+    return request.app.state.run_service.read_db_events_seq(
+        db, run_id, after_seq=after_seq, limit=limit,
+    )
+
+
+# ── source manual automation API ───────────────────────────────
+
+
+@router.get("/api/sources/{source_id}/manual-profile",
+            dependencies=[Depends(require_api_token)])
+def get_source_manual_profile(source_id: str, request: Request,
+                              db=Depends(_db)) -> dict:
+    from .services import resources
+    view = resources.get_manual_profile(db, source_id)
+    if view is None:
+        return {"source_id": source_id, "enabled": False,
+                "mcp_endpoint_url": "", "host_label": "", "host_ip": "",
+                "host_port": None, "vnc_enabled": False, "vnc_host": "",
+                "vnc_port": None, "vnc_gateway_policy": "view_only",
+                "tool_allowlist": [], "secret_refs": {},
+                "artifact_selector": {}, "install_profile": {},
+                "readiness_check": {}, "smoke_check": {},
+                "coverage_threshold": 70, "failure_policy": "block",
+                "updated_at": ""}
+    return view
+
+
+@router.put("/api/sources/{source_id}/manual-profile",
+            dependencies=[Depends(require_api_token)])
+def save_source_manual_profile(source_id: str, request: Request,
+                               db=Depends(_db),
+                               payload: dict = Body(...)) -> dict:
+    from .services import resources
+    try:
+        result = resources.save_manual_profile(db, source_id, payload)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+    db.commit()
+    _audit(request, action="manual_profile.update", target_kind="source",
+           target_id=source_id, detail={"enabled": result.get("enabled")})
+    return result
+
+
+@router.post("/api/sources/{source_id}/manual-profile/preflight",
+              dependencies=[Depends(require_api_token)])
+def preflight_source_manual_profile(source_id: str, request: Request,
+                                    db=Depends(_db)) -> dict:
+    from .services import resources
+    return resources.preflight_manual_profile(db, source_id)
+
+
+@router.get("/api/sources/{source_id}/scenarios",
+            dependencies=[Depends(require_api_token)])
+def list_source_scenarios(source_id: str, request: Request,
+                          db=Depends(_db)) -> dict:
+    from .services import resources
+    return {"source_id": source_id, "scenarios": resources.list_scenarios(db, source_id)}
+
+
+@router.post("/api/sources/{source_id}/scenarios",
+             dependencies=[Depends(require_api_token)])
+def save_source_scenario(source_id: str, request: Request, db=Depends(_db),
+                         payload: dict = Body(...)) -> dict:
+    from .services import resources
+    try:
+        result = resources.save_scenario(db, source_id, payload)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+    db.commit()
+    _audit(request, action="scenario_set.create", target_kind="source", target_id=source_id)
+    return result
+
+
+@router.put("/api/sources/{source_id}/scenarios/{scenario_set_id}",
+            dependencies=[Depends(require_api_token)])
+def update_source_scenario(source_id: str, scenario_set_id: str,
+                           request: Request, db=Depends(_db),
+                           payload: dict = Body(...)) -> dict:
+    from .services import resources
+    try:
+        result = resources.save_scenario(db, source_id, payload, set_id=scenario_set_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+    db.commit()
+    _audit(request, action="scenario_set.update", target_kind="scenario",
+           target_id=scenario_set_id)
+    return result
+
+
+@router.delete("/api/sources/{source_id}/scenarios/{scenario_set_id}",
+               dependencies=[Depends(require_api_token)])
+def delete_source_scenario(source_id: str, scenario_set_id: str,
+                            request: Request, db=Depends(_db)) -> dict:
+    from .services import resources
+    ok = resources.delete_scenario(db, source_id, scenario_set_id)
+    if not ok:
+        raise HTTPException(404, f"scenario set 없음: {scenario_set_id}")
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/api/sources/{source_id}/scenarios/{scenario_set_id}/activate",
+             dependencies=[Depends(require_api_token)])
+def activate_source_scenario(source_id: str, scenario_set_id: str,
+                              request: Request, db=Depends(_db)) -> dict:
+    from .services import resources
+    try:
+        result = resources.activate_scenario(db, source_id, scenario_set_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+    db.commit()
+    _audit(request, action="scenario_set.activate", target_kind="scenario",
+           target_id=scenario_set_id)
+    return result
+
+
+@router.post("/api/sources/{source_id}/scenarios/lint",
+             dependencies=[Depends(require_api_token)])
+def lint_source_scenarios(source_id: str, request: Request,
+                          payload: dict = Body(...)) -> dict:
+    from .services import resources
+    return resources.lint_scenarios(payload)
+
+
+@router.post("/api/sources/{source_id}/artifacts/preflight",
+             dependencies=[Depends(require_api_token)])
+def preflight_source_artifact(source_id: str, request: Request,
+                              db=Depends(_db),
+                              payload: dict = Body(...)) -> dict:
+    from .services import resources
+    return resources.preflight_artifact(db, source_id, payload)
+
+
+# ── reaper / overview (control-plane only) ───────────────────────
+
+
+@router.post("/api/internal/reap-stuck", dependencies=[Depends(require_api_token)])
+def reap_stuck_runs(request: Request, db=Depends(_db)) -> dict:
+    """stuck/stalled run reaper — 운영자가 강제 호출할 수 있게 노출."""
+    st = _state(request)
+    n = st.run_service.reap_stuck_runs(db)
+    db.commit()
+    return {"ok": True, "reaped": n}
+
+
+@router.get("/api/quality/summary", dependencies=[Depends(require_api_token)])
+def quality_summary(request: Request, db=Depends(_db),
+                    window: int = Query(168, ge=1, le=720)) -> dict:
+    """quality dashboard — 최근 window 시간 집계."""
+    from datetime import datetime, timedelta, timezone
+    from .models import RunQualityReport
+    from sqlalchemy import func as sa_func
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=window)
+    rows = db.scalars(
+        select(RunQualityReport).where(RunQualityReport.created_at >= cutoff)
+    ).all()
+    total = len(rows)
+    pass_n = sum(1 for r in rows if r.status == "pass")
+    warn_n = sum(1 for r in rows if r.status == "warning")
+    fail_n = sum(1 for r in rows if r.status == "fail")
+    total_warnings = sum(int(r.warning_count or 0) for r in rows)
+    total_errors = sum(int(r.error_count or 0) for r in rows)
+    total_repairs = sum(int(r.repair_attempts or 0) for r in rows)
+    failed_gates: dict[str, int] = {}
+    for r in rows:
+        if r.failed_gate:
+            failed_gates[r.failed_gate] = failed_gates.get(r.failed_gate, 0) + 1
+    return {
+        "window_hours": window,
+        "total": total,
+        "pass_count": pass_n,
+        "warning_count": warn_n,
+        "fail_count": fail_n,
+        "pass_rate": round(pass_n / total * 100, 1) if total else 0.0,
+        "publishable_rate": round(sum(1 for r in rows if r.publishable) / total * 100, 1)
+            if total else 0.0,
+        "total_warnings": total_warnings,
+        "total_errors": total_errors,
+        "total_repair_attempts": total_repairs,
+        "failed_gate_distribution": [{"gate": g, "count": c}
+                                     for g, c in sorted(failed_gates.items(),
+                                                         key=lambda x: -x[1])],
+    }
 
 
 @router.get("/api/overview", dependencies=[Depends(require_api_token)],
@@ -967,11 +1373,47 @@ def _mr_plan(request: Request, db, run: str, target_id: str) -> dict:
         raise HTTPException(404, f"docs-hub target 없음: {target_id}")
     source_row = db.get(Source, summary.get("source_id") or "")
     source = st.registration.source_view(db, source_row) if source_row else None
-    return build_mr_plan(
+    plan = build_mr_plan(
         summary,
         target=st.registration.doc_target_view(target, with_token=True),
         source=source, out_dir=st.settings.out_path,
     )
+    # quality guard
+    publishable = bool(summary.get("publishable"))
+    publish_state = str(summary.get("publish_state") or "unknown")
+    blocked_reason = str(summary.get("blocked_reason") or "")
+    coverage = summary.get("coverage") or {}
+    quality = summary.get("quality") or {}
+    if not publishable or publish_state == "blocked":
+        plan["can_submit"] = False
+        if not blocked_reason:
+            blocked_reason = (quality.get("failed_gate")
+                              or "quality/coverage gate failed")
+        if coverage.get("status") == "fail" and "coverage" not in blocked_reason.lower():
+            blocked_reason = (blocked_reason + " / coverage below threshold").strip(" /")
+    elif publish_state == "review_required":
+        plan["can_submit"] = True
+        plan.setdefault("warnings", [])
+        plan["warnings"].append("warning quality — MR 제출 가능, review 필수")
+    plan["readiness"] = summary.get("mr", {}).get("readiness", "unknown")
+    plan["blocked_reason"] = blocked_reason
+    plan["quality_summary"] = {
+        "status": quality.get("status", "not_evaluated"),
+        "score": quality.get("score"),
+        "failed_gate": quality.get("failed_gate", ""),
+        "warning_count": int(quality.get("warning_count") or 0),
+        "error_count": int(quality.get("error_count") or 0),
+        "publishable": publishable,
+    }
+    plan["coverage"] = coverage
+    plan["requires_override"] = bool(not publishable
+                                      and not payload_overrides_run("mr-override"))
+    return plan
+
+
+def payload_overrides_run(token: str) -> bool:
+    """placeholder helper for future override flag — currently always False."""
+    return False
 
 
 @router.get("/api/docs-hub/mr-plan", dependencies=[Depends(require_api_token)])
@@ -988,6 +1430,10 @@ def submit_mr(request: Request, db=Depends(_db), payload: dict = Body(...)) -> d
     run = _check_run_id(str(payload.get("run") or ""))
     target_id = str(payload.get("target") or "product-common")
     plan = _mr_plan(request, db, run, target_id)
+    # quality guard — readiness=blocked 면 기본 거부 (override 필요)
+    if plan.get("readiness") == "blocked" and not payload.get("force"):
+        raise HTTPException(
+            409, f"submit-mr blocked: {plan.get('blocked_reason', 'quality gate')}")
     target_private = dict(plan["target"])
     plan["target"].pop("token", None)
     if payload.get("dry_run", False):
@@ -1021,20 +1467,36 @@ async def ws_channel(websocket: WebSocket, verbose: int = Query(0)):
     await websocket.accept()
     # 기본 필터: verbose=1 → 모두 수신(passthrough), verbose=0 → thinking 제거
     from .ws import default_filter, passthrough_filter
-    # 사용자가 명시하지 않았을 때 settings.control_ws_default_verbose 가 true 면 verbose.
     if "verbose" not in websocket.query_params:
         verbose = 1 if state.settings.control_ws_default_verbose else 0
     filter_fn = passthrough_filter if verbose else default_filter
     q = state.broadcaster.register(filter_fn)
 
+    overflowed = False
+
+    def _on_overflow(_msg):
+        nonlocal overflowed
+        overflowed = True
+        # 큐가 찬 클라이언트는 disconnect 가 더 안전. 다음 pump tick 에 끊는다.
+        try:
+            loop = asyncio.get_event_loop()
+            loop.create_task(websocket.close(code=4408))
+        except Exception:  # noqa: BLE001
+            pass
+
+    state.broadcaster.register_overflow_callback(_on_overflow)
+
     async def _pump():
         while True:
-            await websocket.send_json(await q.get())
+            msg = await q.get()
+            await websocket.send_json(msg)
+            if overflowed:
+                return
 
     sender = asyncio.create_task(_pump())
     try:
         while True:
-            await websocket.receive_text()   # keepalive/ping — 서버는 브로드캐스트 전용
+            await websocket.receive_text()
     except WebSocketDisconnect:
         pass
     finally:
@@ -1042,18 +1504,140 @@ async def ws_channel(websocket: WebSocket, verbose: int = Query(0)):
         state.broadcaster.unregister(q)
 
 
+# ── VNC WebSocket Gateway (§6.8) ──────────────────────────────
+
+@router.websocket("/api/runs/{run_id}/vnc/ws")
+async def vnc_ws_channel(websocket: WebSocket, run_id: str,
+                         session: str = Query(""),
+                         token: str = Query("")):
+    """VNC monitoring WebSocket — browser react-vnc 와 mcp-vnc 사이 proxy (v1 stub).
+
+    v1: session 검증, view-only 강제, audit log, 주기적 status frame 송신.
+    실제 TCP VNC proxy (upstream frame relay) 는 v2 — 이 라우트는 auth/guard
+    구조만 갖추고 연결을 유지한다.
+    """
+    from .vnc_gateway import (
+        VncGateway, WS_CLOSE_SESSION_NOT_FOUND, WS_CLOSE_SESSION_EXPIRED,
+        WS_CLOSE_VIEW_ONLY_FALSE, WS_CLOSE_INVALID_TOKEN,
+    )
+    _check_run_id(run_id)
+    state = websocket.app.state
+    gateway: VncGateway = state.vnc_gateway
+
+    # auth: API 토큰 (websocket 은 query param 인증 — ws_channel 과 동일)
+    tokens: dict[str, str] = state.api_tokens
+    if tokens:
+        presented = websocket.query_params.get("token", "")
+        # token param 이 VNC gateway token 이면 API 인증을 별도로 해야 하지만,
+        # v1 에서는 API 토큰 인증을 우선하고 gateway token 검증은 별도 단계.
+        if presented and not any(secrets.compare_digest(presented, t) for t in tokens):
+            # API 토큰이 아니면 VNC gateway token 으로 시도하지만, session 검증에서
+            # 별도로 처리한다. 여기서는 API 토큰이 아니어도 계속 진행 — session
+            # 검증이 실질적 인증이다.
+            pass
+
+    # session 검증: run_vnc_sessions 테이블에서 session_id 조회
+    db = state.session_factory()
+    try:
+        session_row = gateway.get_session(db, run_id, session)
+        if session_row is None:
+            gateway.audit(run_id=run_id, session_id=session, event="rejected",
+                          detail={"reason": "session_not_found"})
+            await websocket.close(code=WS_CLOSE_SESSION_NOT_FOUND)
+            return
+        # view_only=False → 거부 (보안 정책)
+        if not gateway.is_view_only(session_row):
+            gateway.audit(run_id=run_id, session_id=session, event="rejected",
+                          detail={"reason": "view_only_false"})
+            await websocket.close(code=WS_CLOSE_VIEW_ONLY_FALSE)
+            return
+        # session 만료 검사
+        if gateway.is_expired(session_row):
+            gateway.audit(run_id=run_id, session_id=session, event="rejected",
+                          detail={"reason": "expired"})
+            await websocket.close(code=WS_CLOSE_SESSION_EXPIRED)
+            return
+        # token 검증 (있으면). token 이 없으면 session_id 만으로 진입 허용 (v1).
+        if token and not gateway.validate_token(token, run_id, session):
+            gateway.audit(run_id=run_id, session_id=session, event="rejected",
+                          detail={"reason": "invalid_token"})
+            await websocket.close(code=WS_CLOSE_INVALID_TOKEN)
+            return
+    finally:
+        db.close()
+
+    await websocket.accept()
+    gateway.audit(run_id=run_id, session_id=session, event="open",
+                  remote_addr=(websocket.client.host if websocket.client else ""))
+
+    # v1: 실제 TCP VNC proxy 없이 연결을 유지하며 주기적 status frame 송신.
+    # 클라이언트가 보내는 input frame 은 모두 드랍 (view-only).
+    _STATUS_INTERVAL = 2.0
+    try:
+        while True:
+            # 클라이언트 메시지 수신 (input frame) — view-only 이므로 드랍.
+            try:
+                msg = await asyncio.wait_for(
+                    websocket.receive_text(), timeout=_STATUS_INTERVAL)
+                # input frame 검증: keyboard/mouse/clipboard → 드랍
+                try:
+                    import json as _json
+                    parsed = _json.loads(msg) if msg else {}
+                except (ValueError, TypeError):
+                    parsed = {"type": "raw", "data": msg}
+                if gateway.is_input_frame(parsed):
+                    gateway.audit(run_id=run_id, session_id=session,
+                                  event="input_dropped",
+                                  detail={"frame_type": parsed.get("type", "")})
+                    continue
+                # non-input frame (예: ping) 은 무시
+            except asyncio.TimeoutError:
+                pass
+            # 주기적 status frame 송신
+            db2 = state.session_factory()
+            try:
+                row = gateway.get_session(db2, run_id, session)
+                if row is None:
+                    gateway.audit(run_id=run_id, session_id=session,
+                                  event="closed",
+                                  detail={"reason": "session_disappeared"})
+                    await websocket.close(code=WS_CLOSE_SESSION_NOT_FOUND)
+                    return
+                if gateway.is_expired(row):
+                    gateway.audit(run_id=run_id, session_id=session,
+                                  event="closed",
+                                  detail={"reason": "expired_during_connection"})
+                    await websocket.close(code=WS_CLOSE_SESSION_EXPIRED)
+                    return
+                await websocket.send_json(gateway.build_status_frame(row))
+            finally:
+                db2.close()
+    except WebSocketDisconnect:
+        gateway.audit(run_id=run_id, session_id=session, event="close",
+                      detail={"reason": "client_disconnect"})
+    except Exception as e:  # noqa: BLE001
+        gateway.audit(run_id=run_id, session_id=session, event="close",
+                      detail={"reason": f"error:{type(e).__name__}"})
+    finally:
+        gateway.audit(run_id=run_id, session_id=session, event="close",
+                      detail={"reason": "final"})
+
+
 # ── runner 컨텍스트 (Data Plane 전용 — 토큰이 복호화되어 내려간다) ──
 
 @router.get("/api/runner/context", dependencies=[Depends(require_runner_token)])
 def runner_context(request: Request, db=Depends(_db), run: str = Query("")) -> dict:
-    """러너가 실행에 필요한 전부를 1회 조회 — 소스·인스턴스·브랜치·doc target.
+    """러너가 실행에 필요한 전부를 1회 조회 — 소스·인스턴스·브랜치·doc target·manual profile.
 
     runner 토큰 전용. 일반 API와 달리 커넥터 토큰을 복호화해 포함하므로
     이 엔드포인트는 절대 프런트가 호출하지 않는다.
+
+    manual pipeline 일 때는 source_manual_profiles 의 secret_refs 를 실값으로
+    풀어 내려준다 (frontend API 와 분리).
     """
     st = _state(request)
     run = _check_run_id(run)
-    from .models import Run, SourceBranch
+    from .models import Run
     run_row = db.get(Run, run)
     if run_row is None:
         raise HTTPException(404, f"run 없음: {run}")
@@ -1066,9 +1650,78 @@ def runner_context(request: Request, db=Depends(_db), run: str = Query("")) -> d
     box = st.box
     token = box.decrypt(source.token) if source.token else (box.decrypt(inst.token) if inst.token else "")
     targets = db.query(DocTarget).filter(DocTarget.enabled.is_(True)).all()
-    return {
-        "run": {"run_id": run_row.id, "mode": run_row.mode,
-                "branch_role": run_row.branch_role, "pipeline_id": run_row.pipeline_id},
+
+    manual_profile_view: dict | None = None
+    scenario_set_view: dict | None = None
+    if (run_row.pipeline_id or "static") == "manual":
+        mp_row = db.get(SourceManualProfile, source.id)
+        if mp_row is not None:
+            allow = mp_row.tool_allowlist_json or []
+            secret_values: dict[str, str] = {}
+            refs = mp_row.secret_refs_json or {}
+            if isinstance(refs, dict):
+                for ref_name in refs.keys():
+                    if not isinstance(ref_name, str):
+                        continue
+                    val = ""
+                    if source.token and ref_name == "scm_token":
+                        val = box.decrypt(source.token) if source.token else ""
+                    elif inst and inst.token and ref_name == "instance_token":
+                        val = box.decrypt(inst.token) if inst.token else ""
+                    elif ref_name in os.environ:
+                        val = os.environ[ref_name]
+                    secret_values[ref_name] = val
+            manual_profile_view = {
+                "mcp_endpoint_url": mp_row.mcp_endpoint_url,
+                "mcp_transport": mp_row.mcp_transport,
+                "tool_allowlist": allow if isinstance(allow, list) else [],
+                "secret_values": secret_values,
+                "artifact_selector": mp_row.artifact_selector_json or {},
+                "install_profile": mp_row.install_profile_json or {},
+                "readiness_check": mp_row.readiness_check_json or {},
+                "smoke_check": mp_row.smoke_check_json or {},
+                "coverage_threshold": int(mp_row.coverage_threshold or 70),
+                "failure_policy": mp_row.failure_policy or "block",
+                "vnc": {
+                    "enabled": bool(mp_row.vnc_enabled),
+                    "host": mp_row.vnc_host or "",
+                    "port": int(mp_row.vnc_port or 0),
+                    "view_only": (mp_row.vnc_gateway_policy or "view_only") == "view_only",
+                },
+            }
+            active_set = db.scalars(
+                select(ManualScenarioSet).where(
+                    ManualScenarioSet.source_id == source.id,
+                    ManualScenarioSet.status == "active",
+                )
+            ).first()
+            if active_set is not None:
+                scenario_set_view = {
+                    "id": active_set.id,
+                    "name": active_set.name,
+                    "version": int(active_set.version or 1),
+                    "scenarios": active_set.scenario_json or {},
+                }
+
+    out_contract = {
+        "requires_evidence_pack": True,
+        "requires_quality_report": True,
+        "requires_coverage_report": (run_row.pipeline_id or "static") == "manual",
+        "requires_artifact_report": (run_row.pipeline_id or "static") == "manual",
+        "warning_publish_policy": run_row.warning_publish_policy or "review_required",
+    }
+
+    ctx: dict[str, Any] = {
+        "run": {
+            "run_id": run_row.id, "mode": run_row.mode,
+            "branch_role": run_row.branch_role, "pipeline_id": run_row.pipeline_id,
+            "attempt": int(run_row.attempt or 1),
+            "from_sha_snapshot": run_row.from_sha_snapshot or "",
+            "status_contract": [
+                "done", "done_with_warnings", "failed_quality_gate",
+                "partial", "failed", "cancelled", "timeout",
+            ],
+        },
         "source": {
             "id": source.id, "label": source.label, "kind": inst.kind if inst else "gitlab",
             "url": inst.base_url if inst else "", "repo": source.repo,
@@ -1084,7 +1737,13 @@ def runner_context(request: Request, db=Depends(_db), run: str = Query("")) -> d
             "enabled": branch.enabled if branch else False,
         },
         "doc_targets": [st.registration.doc_target_view(t, with_token=True) for t in targets],
+        "output_contract": out_contract,
     }
+    if manual_profile_view is not None:
+        ctx["manual_profile"] = manual_profile_view
+    if scenario_set_view is not None:
+        ctx["scenario_set"] = scenario_set_view
+    return ctx
 
 
 # ── webhook (Data Plane -> Control Plane) ───────────────────
@@ -1137,6 +1796,201 @@ def webhook_complete(request: Request, db=Depends(_db), payload: dict = Body(...
     except Exception as e:  # noqa: BLE001 — 메트릭 실패는 응답을 막지 않는다
         log.warning("run completion metric emit failed run=%s: %s: %s",
                     run_id, type(e).__name__, e)
+    return result
+
+
+# ── webhooks: heartbeat / quality / evidence / coverage / artifact / vnc / doc-outputs / final-pack ──
+
+
+@router.post("/api/webhook/heartbeat", dependencies=[Depends(require_runner_token)])
+def webhook_heartbeat(request: Request, db=Depends(_db), payload: dict = Body(...)) -> dict:
+    """러너 heartbeat — runs.heartbeat_at 갱신, run_started_at 첫 1회만 채움."""
+    st = _state(request)
+    run_id = _extract_run_id(payload)
+    try:
+        return st.run_service.heartbeat(
+            db, run_id,
+            attempt=payload.get("attempt"),
+            stage=str(payload.get("stage") or ""),
+            pid=str(payload.get("pid") or ""),
+        )
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+
+
+@router.post("/api/webhook/quality", dependencies=[Depends(require_runner_token)])
+def webhook_quality(request: Request, db=Depends(_db), payload: dict = Body(...)) -> dict:
+    """runner 가 보내는 quality report webhook — first-class resource 로 upsert."""
+    from .services import resources
+    run_id = _extract_run_id(payload)
+    try:
+        result = resources.upsert_quality_report(db, run_id, payload)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+    db.commit()
+    st = _state(request)
+    if st.broadcaster is not None:
+        from .models import Run as RunModel
+        run_row = db.get(RunModel, run_id)
+        if run_row is not None:
+            st.broadcaster.publish({
+                "type": "quality_updated", "run_id": run_id,
+                "status": result.get("status"),
+                "publishable": result.get("publishable"),
+                "snapshot_version": int(run_row.snapshot_version or 0),
+            })
+            st.broadcaster.publish({
+                "type": "run_status", "run_id": run_id,
+                "status": run_row.status, "publishable": run_row.publishable,
+                "publish_state": run_row.publish_state,
+                "snapshot_version": int(run_row.snapshot_version or 0),
+            })
+    return result
+
+
+@router.post("/api/webhook/evidence", dependencies=[Depends(require_runner_token)])
+def webhook_evidence(request: Request, db=Depends(_db), payload: dict = Body(...)) -> dict:
+    from .services import resources
+    run_id = _extract_run_id(payload)
+    try:
+        result = resources.upsert_evidence_pack(db, run_id, payload)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+    db.commit()
+    st = _state(request)
+    if st.broadcaster is not None:
+        st.broadcaster.publish({
+            "type": "evidence_updated", "run_id": run_id,
+            "pack_id": result.get("pack_id"),
+            "item_count": result.get("item_count"),
+        })
+    return result
+
+
+@router.post("/api/webhook/coverage", dependencies=[Depends(require_runner_token)])
+def webhook_coverage(request: Request, db=Depends(_db), payload: dict = Body(...)) -> dict:
+    from .services import resources
+    run_id = _extract_run_id(payload)
+    try:
+        result = resources.upsert_coverage(db, run_id, payload)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+    db.commit()
+    st = _state(request)
+    if st.broadcaster is not None:
+        st.broadcaster.publish({
+            "type": "coverage_updated", "run_id": run_id,
+            "status": result.get("status"),
+            "percentage": result.get("percentage"),
+            "reached": result.get("reached"),
+            "expected": result.get("expected"),
+        })
+    return result
+
+
+@router.post("/api/webhook/artifact", dependencies=[Depends(require_runner_token)])
+def webhook_artifact(request: Request, db=Depends(_db), payload: dict = Body(...)) -> dict:
+    from .services import resources
+    run_id = _extract_run_id(payload)
+    try:
+        result = resources.upsert_artifact(db, run_id, payload)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+    db.commit()
+    st = _state(request)
+    if st.broadcaster is not None:
+        st.broadcaster.publish({
+            "type": "artifact_updated", "run_id": run_id,
+            "release_tag": result.get("release_tag"),
+            "artifact_name": result.get("artifact_name"),
+            "deploy_status": result.get("deploy_status"),
+            "smoke_status": result.get("smoke_status"),
+        })
+    return result
+
+
+@router.post("/api/webhook/vnc-session", dependencies=[Depends(require_runner_token)])
+def webhook_vnc_session(request: Request, db=Depends(_db), payload: dict = Body(...)) -> dict:
+    from .services import resources
+    run_id = _extract_run_id(payload)
+    try:
+        result = resources.upsert_vnc_session(db, run_id, payload)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+    db.commit()
+    st = _state(request)
+    if st.broadcaster is not None:
+        st.broadcaster.publish({
+            "type": "vnc_session_updated", "run_id": run_id,
+            "session_id": result.get("session_id"),
+            "status": result.get("status"),
+            "view_only": result.get("view_only"),
+        })
+    return result
+
+
+@router.post("/api/webhook/doc-outputs", dependencies=[Depends(require_runner_token)])
+def webhook_doc_outputs(request: Request, db=Depends(_db), payload: dict = Body(...)) -> dict:
+    from .services import resources
+    run_id = _extract_run_id(payload)
+    docs = payload.get("docs") or payload.get("outputs") or []
+    if not isinstance(docs, list):
+        raise HTTPException(400, "docs/outputs 는 배열이어야 합니다.")
+    n = resources.upsert_doc_outputs(db, run_id, docs)
+    db.commit()
+    return {"ok": True, "upserted": n}
+
+
+@router.post("/api/webhook/final-pack", dependencies=[Depends(require_runner_token)])
+def webhook_final_pack(request: Request, db=Depends(_db), payload: dict = Body(...)) -> dict:
+    """Final Packager 가 보내는 한방 번들 — evidence/quality/coverage/artifact 일괄.
+
+    부분 실패가 있어도 webhook 은 부분 ingest 응답을 받지만, complete webhook 을
+    보내기 전에 이 endpoint 가 정상 응답해야 backend 가 일관성 check 를 통과했다고
+    본다. partial ingest 는 `partial=true` 응답으로 표시.
+    """
+    from .services import resources
+    run_id = _extract_run_id(payload)
+    try:
+        result: dict[str, Any] = {"ok": True, "partial": False, "items": {}}
+        for key, fn in (
+            ("evidence", resources.upsert_evidence_pack),
+            ("quality", resources.upsert_quality_report),
+            ("coverage", resources.upsert_coverage),
+            ("artifact", resources.upsert_artifact),
+            ("vnc", resources.upsert_vnc_session),
+        ):
+            sub = payload.get(key)
+            if sub is None:
+                continue
+            if not isinstance(sub, dict):
+                result["partial"] = True
+                result["items"][key] = {"ok": False, "error": "not_object"}
+                continue
+            try:
+                result["items"][key] = fn(db, run_id, sub)
+            except ValueError as e:
+                result["partial"] = True
+                result["items"][key] = {"ok": False, "error": str(e)}
+        # doc_outputs 도 같은 묶음으로 받는다
+        docs = payload.get("doc_outputs")
+        if isinstance(docs, list):
+            try:
+                result["items"]["doc_outputs"] = {
+                    "ok": True, "upserted": resources.upsert_doc_outputs(db, run_id, docs),
+                }
+            except Exception as e:  # noqa: BLE001
+                result["partial"] = True
+                result["items"]["doc_outputs"] = {"ok": False, "error": str(e)}
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
+    db.commit()
+    if not result["partial"]:
+        from .models import Run as RunModel
+        run_row = db.get(RunModel, run_id)
+        if run_row is not None:
+            run_row.snapshot_version = int(run_row.snapshot_version or 0) + 1
+            db.commit()
     return result
 
 

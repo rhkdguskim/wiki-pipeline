@@ -6,31 +6,28 @@ import {useUiStore} from '../store/ui.js';
 
 const MAX_BACKOFF_MS = 15000;
 
-function wsUrl(verbose) {
+function wsUrl(verbose, types) {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const token = localStorage.getItem('cp_token');
   const params = new URLSearchParams();
   if (token) params.set('token', token);
-  // verbose 가 바뀌면 다른 WS 쿼리 파라미터를 써야 재연결이 일어난다 — useLiveSocket
-  // 은 wsVerbose 를 의존성으로 잡으므로, 값이 바뀌면 cleanup → 재연결.
   params.set('verbose', verbose ? '1' : '0');
+  if (types && types.length > 0) params.set('types', types.join(','));
   return `${proto}//${location.host}/api/ws?${params.toString()}`;
 }
 
-// 앱 루트에서 1회만 마운트 — 러너 이벤트/런 상태/레지스트리 변경을 실시간 push로 받는다.
-// 연결이 끊기면 지수 백오프(1s~15s)로 재연결하고, 그동안은 각 훅이 폴링으로 폴백한다.
-// overflow 메시지를 받으면 선택 runId의 useRunStream이 즉시 폴백 폴링을 1회 돌게 한다.
 export function useLiveSocket() {
   const qc = useQueryClient();
   const setStatus = useLiveSocketStore(s => s.setStatus);
   const noteEvent = useLiveSocketStore(s => s.noteEvent);
   const bumpReconnect = useLiveSocketStore(s => s.bumpReconnect);
   const pushToast = useUiStore(s => s.pushToast);
-  const wsVerbose = useUiStore(s => s.wsVerbose);  // verbose 토글 변경 시 재연결
+  const wsVerbose = useUiStore(s => s.wsVerbose);
   const backoffRef = useRef(1000);
   const closedByUsRef = useRef(false);
 
   useEffect(() => {
+    closedByUsRef.current = false;
     let socket;
     let retryTimer;
 
@@ -63,7 +60,7 @@ export function useLiveSocket() {
       };
 
       socket.onerror = () => {
-        socket.close();
+        try { socket.close(); } catch {}
       };
     }
 
@@ -71,7 +68,7 @@ export function useLiveSocket() {
     return () => {
       closedByUsRef.current = true;
       clearTimeout(retryTimer);
-      socket?.close();
+      try { socket?.close(); } catch {}
     };
   }, [qc, setStatus, noteEvent, bumpReconnect, pushToast, wsVerbose]);
 }
@@ -85,6 +82,9 @@ function handleMessage(msg, ctx) {
     case 'run_status':
       qc.invalidateQueries({queryKey: ['runs']});
       qc.invalidateQueries({queryKey: ['dbRuns']});
+      qc.invalidateQueries({queryKey: ['pipelineStatus']});
+      qc.invalidateQueries({queryKey: ['overview']});
+      qc.invalidateQueries({queryKey: ['costs']});
       if (msg.run_id) {
         qc.invalidateQueries({queryKey: ['runSummary', msg.run_id]});
         qc.invalidateQueries({queryKey: ['mrPlan', msg.run_id]});
@@ -92,11 +92,65 @@ function handleMessage(msg, ctx) {
       emitLiveMessage(msg);
       if (msg.status === 'done' && msg.mr_url) {
         pushToast('문서 생성 완료 — MR 검토하기', 'success');
-      } else if (msg.status === 'failed') {
+      } else if (msg.status === 'done_with_warnings') {
+        pushToast('문서 생성 완료 (경고 포함) — review 필요', 'warning');
+      } else if (msg.status === 'failed_quality_gate') {
+        pushToast('품질 게이트 실패 — MR 제출 차단', 'error');
+      } else if (msg.status === 'failed' || msg.status === 'timeout') {
         pushToast(`run 실패: ${msg.run_id || ''}`, 'error');
+      } else if (msg.stale_complete) {
+        pushToast('run 이 stale 상태로 종료되었습니다 — sha 가 전진하지 않았습니다', 'warning');
       } else if (msg.status === 'done' && msg.source_disabled) {
         pushToast('소스가 자동 비활성화됐습니다 — 담당자에게 알림이 발송됐습니다', 'error');
       }
+      return;
+    case 'quality_updated':
+      if (msg.run_id) {
+        qc.invalidateQueries({queryKey: ['runSummary', msg.run_id]});
+        qc.invalidateQueries({queryKey: ['runQuality', msg.run_id]});
+      }
+      qc.invalidateQueries({queryKey: ['qualitySummary']});
+      qc.invalidateQueries({queryKey: ['pipelineStatus']});
+      qc.invalidateQueries({queryKey: ['overview']});
+      emitLiveMessage(msg);
+      return;
+    case 'evidence_updated':
+      if (msg.run_id) {
+        qc.invalidateQueries({queryKey: ['runEvidence', msg.run_id]});
+        qc.invalidateQueries({queryKey: ['runSummary', msg.run_id]});
+      }
+      emitLiveMessage(msg);
+      return;
+    case 'coverage_updated':
+      if (msg.run_id) {
+        qc.invalidateQueries({queryKey: ['runCoverage', msg.run_id]});
+        qc.invalidateQueries({queryKey: ['runSummary', msg.run_id]});
+      }
+      qc.invalidateQueries({queryKey: ['pipelineStatus']});
+      emitLiveMessage(msg);
+      return;
+    case 'artifact_updated':
+      if (msg.run_id) {
+        qc.invalidateQueries({queryKey: ['runArtifacts', msg.run_id]});
+        qc.invalidateQueries({queryKey: ['runSummary', msg.run_id]});
+      }
+      emitLiveMessage(msg);
+      return;
+    case 'vnc_session_updated':
+      if (msg.run_id) {
+        qc.invalidateQueries({queryKey: ['runVnc', msg.run_id]});
+        qc.invalidateQueries({queryKey: ['runSummary', msg.run_id]});
+      }
+      emitLiveMessage(msg);
+      return;
+    case 'mr_plan_updated':
+      if (msg.run_id) {
+        qc.invalidateQueries({queryKey: ['mrPlan', msg.run_id]});
+      }
+      emitLiveMessage(msg);
+      return;
+    case 'run_heartbeat':
+      emitLiveMessage(msg);
       return;
     case 'runs_changed':
       qc.invalidateQueries({queryKey: ['runs']});
@@ -104,6 +158,8 @@ function handleMessage(msg, ctx) {
       return;
     case 'sources_changed':
       qc.invalidateQueries({queryKey: ['sources']});
+      qc.invalidateQueries({queryKey: ['manualProfile']});
+      qc.invalidateQueries({queryKey: ['scenarios']});
       return;
     case 'instances_changed':
       qc.invalidateQueries({queryKey: ['instances']});
@@ -111,16 +167,23 @@ function handleMessage(msg, ctx) {
     case 'targets_changed':
       qc.invalidateQueries({queryKey: ['docTargets']});
       return;
+    case 'pipeline_status_changed':
+      qc.invalidateQueries({queryKey: ['pipelineStatus']});
+      return;
+    case 'costs_changed':
+      qc.invalidateQueries({queryKey: ['costs']});
+      return;
     case 'overflow':
-      // 큐 넘침 — 구독자(useRunStream)가 폴백 폴링 1회 돌게 하고, 전체 쿼리도 refresh.
-      // run_id가 있으면 그 run만, 없으면 모든 활성 run 쿼리를 무효화.
       emitLiveMessage(msg);
       if (msg.run_id) {
         qc.invalidateQueries({queryKey: ['runSummary', msg.run_id]});
-        qc.invalidateQueries({queryKey: ['events', msg.run_id]});
+        qc.invalidateQueries({queryKey: ['runEvents', msg.run_id]});
       } else {
         qc.invalidateQueries({queryKey: ['dbRuns']});
+        qc.invalidateQueries({queryKey: ['pipelineStatus']});
+        qc.invalidateQueries({queryKey: ['overview']});
       }
+      pushToast('실시간 채널 큐 overflow — fallback polling 으로 전환', 'warning');
       return;
     default:
   }

@@ -6,7 +6,12 @@ import {usePipelineStatusQuery} from '../hooks/queries.js';
 import {fmtClock, fmtDur, fmtNum, nf} from '../lib/format.js';
 import {MonitorPage} from './MonitorPage.jsx';
 
-const STATUS_PILL = {pending: '대기', running: '실행 중', done: '완료', failed: '실패'};
+const STATUS_PILL = {
+  pending: '대기', running: '실행 중', done: '완료', failed: '실패',
+  done_with_warnings: '경고 완료', failed_quality_gate: '품질 실패',
+  partial: '부분 완료', stale: '지연', timeout: '시간 초과', cancelled: '취소',
+};
+const QUALITY_PILL = {pass: '통과', warning: '경고', fail: '실패', not_evaluated: '미평가'};
 const PIPELINE_LABEL = {static: '정적', manual: '매뉴얼'};
 const PIPELINE_WINDOW_HOURS = 24;
 
@@ -74,6 +79,7 @@ export function PipelineStatusPage({
   const totals = {
     pipelines: pipelines.length,
     success: 0, failed: 0, running: 0,
+    publishable: 0, qualityFailures: 0,
     tokens: 0, withSchedule: 0,
   };
   for (const p of pipelines) {
@@ -82,6 +88,8 @@ export function PipelineStatusPage({
     totals.running += p.running || 0;
     totals.tokens += p.total_tokens_window || 0;
     if (p.enabled_schedule) totals.withSchedule += 1;
+    if (p.last_publishable || p.last_publish_state === 'publishable') totals.publishable += 1;
+    if (p.last_quality_status === 'fail') totals.qualityFailures += 1;
   }
   const totalWindow = totals.success + totals.failed + totals.running;
   const successRate = totalWindow ? Math.round((totals.success / totalWindow) * 100) : null;
@@ -99,6 +107,11 @@ export function PipelineStatusPage({
       <Kpi icon={Activity} label={`${windowHours}H 성공`} value={String(totals.success)}
             hint={`실패 ${totals.failed} · 실행 중 ${totals.running}`}
             warn={totals.failed > 0} />
+      <Kpi icon={CheckCircle2} label="게시 가능"
+            value={String(totals.publishable)}
+            hint={totals.qualityFailures ? `품질 실패 ${totals.qualityFailures}` : '모두 통과'}
+            warn={totals.qualityFailures > 0}
+            good={totals.publishable > 0 && totals.qualityFailures === 0} />
       <Kpi icon={CheckCircle2} label="성공률"
             value={successRate == null ? '-' : `${successRate}%`}
             hint={totalWindow ? `${totals.success}/${totalWindow}` : '데이터 없음'}
@@ -132,6 +145,9 @@ export function PipelineStatusPage({
                 <th>소스</th>
                 <th>파이프라인</th>
                 <th>상태</th>
+                <th>품질</th>
+                <th>게시</th>
+                <th>커버리지</th>
                 <th>최근 실행</th>
                 <th>성공</th>
                 <th>실패</th>
@@ -165,6 +181,28 @@ export function PipelineStatusPage({
                     {p.last_status ? (
                       <span className={`pill small ${p.last_status}`}>
                         {STATUS_PILL[p.last_status] || p.last_status}
+                      </span>
+                    ) : <span className="muted">-</span>}
+                  </td>
+                  <td>
+                    {p.last_quality_status && p.last_quality_status !== 'not_evaluated' ? (
+                      <span className={`pill small ${p.last_quality_status === 'pass' ? 'ok' : p.last_quality_status === 'fail' ? 'bad' : 'warn'}`}>
+                        {QUALITY_PILL[p.last_quality_status] || p.last_quality_status}
+                      </span>
+                    ) : <span className="muted">-</span>}
+                    {p.last_quality_score != null && <div className="muted" style={{fontSize: 10}}>score {p.last_quality_score}</div>}
+                  </td>
+                  <td>
+                    {p.last_publish_state && p.last_publish_state !== 'unknown' ? (
+                      <span className={`pill small ${p.last_publish_state === 'publishable' ? 'ok' : p.last_publish_state === 'blocked' ? 'bad' : 'warn'}`}>
+                        {p.last_publish_state}
+                      </span>
+                    ) : <span className="muted">-</span>}
+                  </td>
+                  <td className="num">
+                    {p.last_coverage_percentage != null ? (
+                      <span className={p.last_coverage_percentage < (p.last_coverage_threshold || 70) ? 'warn' : ''}>
+                        {Math.round(p.last_coverage_percentage)}%
                       </span>
                     ) : <span className="muted">-</span>}
                   </td>

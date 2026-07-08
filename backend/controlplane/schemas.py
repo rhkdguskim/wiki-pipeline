@@ -42,6 +42,19 @@ class RunView(_Base):
     output_tokens: int = 0
     created_at: str
     updated_at: str
+    attempt: int = 1
+    publishable: bool = False
+    publish_state: str = "unknown"
+    quality_status: str = "not_evaluated"
+    quality_score: Optional[int] = None
+    blocked_reason: str = ""
+    release_tag: str = ""
+    artifact_version: str = ""
+    snapshot_version: int = 0
+    stale_complete: bool = False
+    heartbeat_at: str = ""
+    started_at: str = ""
+    terminal_at: str = ""
 
 
 class RunSummary(_Base):
@@ -63,6 +76,25 @@ class RunSummary(_Base):
     kpi: dict[str, Any] = Field(default_factory=dict)
     stages: list[dict[str, Any]] = Field(default_factory=list)
     timeline: list[dict[str, Any]] = Field(default_factory=list)
+    publishable: bool = False
+    publish_state: str = "unknown"
+    blocked_reason: str = ""
+    quality_status: str = "not_evaluated"
+    quality_score: Optional[int] = None
+    warning_publish_policy: str = "review_required"
+    release_tag: str = ""
+    artifact_version: str = ""
+    snapshot_version: int = 0
+    stale_complete: bool = False
+    heartbeat_at: str = ""
+    terminal_at: str = ""
+    attempt: int = 1
+    quality: dict[str, Any] = Field(default_factory=dict)
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    coverage: dict[str, Any] = Field(default_factory=dict)
+    artifact: dict[str, Any] = Field(default_factory=dict)
+    vnc: dict[str, Any] = Field(default_factory=dict)
+    mr: dict[str, Any] = Field(default_factory=dict)
 
 
 # ── pipelines (Track F) ──────────────────────────────────────

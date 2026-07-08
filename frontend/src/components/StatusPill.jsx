@@ -1,4 +1,4 @@
-import {AlertTriangle, CheckCircle2, XCircle} from 'lucide-react';
+import {AlertTriangle, CheckCircle2, XCircle, AlertCircle, Clock} from 'lucide-react';
 import {runStateLabel} from '../lib/format.js';
 
 export function StatusPill({state}) {
@@ -7,6 +7,8 @@ export function StatusPill({state}) {
     {state === 'failed' && <XCircle size={14} />}
     {state === 'stalled' && <AlertTriangle size={14} />}
     {state === 'running' && <span className="spinner small" />}
+    {(state === 'done_with_warnings' || state === 'partial') && <AlertCircle size={14} />}
+    {(state === 'stale' || state === 'timeout') && <Clock size={14} />}
     {runStateLabel(state)}
   </span>;
 }

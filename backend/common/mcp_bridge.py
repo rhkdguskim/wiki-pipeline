@@ -33,6 +33,11 @@ def _b64_min() -> int:
     return cached_settings().mcp_b64_min
 _B64_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=\r\n")
 
+_DESTRUCTIVE_TOOL_KEYWORDS = (
+    "delete", "save", "terminal", "file_write", "close_app", "install",
+    "remove", "rm", "drop", "reset", "shutdown", "kill", "force",
+)
+
 # 도구 호출 1건의 기록 콜백: (tool, args, ok, preview) -> None
 RecordFn = Callable[[str, dict, bool, str], None]
 
@@ -135,17 +140,43 @@ class McpBridge:
         self._record(name, args, ok, text)
         return ok, text
 
-    def sync_tools(self, allowlist: list[str] | None = None) -> list[BaseTool]:
-        """에이전트 바인딩용 — async MCP 도구를 동기 StructuredTool로 래핑.
+    def sync_tools(self, allowlist: list[str] | None = None, *,
+                   strict: bool = False) -> list[BaseTool]:
+        """에이전트 바인딩용 — async MCP 도구를 동기 StructuredTool로 랩핑.
 
         allowlist(소문자 토큰): 항목이 도구 이름과 같거나 이름에 포함되면 노출.
         비우면 전체 노출 (Manager 서버는 60+ 도구라 allowlist 권장).
+
+        strict=True 면 allowlist 가 비어 있을 때 ValueError 를 발생시킨다
+        (production manual run 은 allowlist 필수 — preflight 실패).
+
+        파괴적 도구(delete, save, terminal, file_write, close_app, install 등)는
+        allowlist 에 명시적으로 포함되지 않는 한 항상 차단한다.
         """
         names = self.tool_names()
         if allowlist:
+            allow_lower = [a.lower() for a in allowlist]
             names = [n for n in names
-                     if any(a == n.lower() or a in n.lower() for a in allowlist)]
+                     if any(a == n.lower() or a in n.lower() for a in allow_lower)]
+        elif strict:
+            raise ValueError(
+                "tool_allowlist 가 비어 있습니다 — production manual run 은 "
+                "allowlist 가 필수입니다. 소스의 manual profile 을 확인하세요."
+            )
+        names = [n for n in names if not self._is_destructive(n, allowlist)]
         return [self._wrap(self._raw_tools[n]) for n in names]
+
+    @staticmethod
+    def _is_destructive(name: str, allowlist: list[str] | None) -> bool:
+        """파괴적 도구를 판별 — allowlist 에 명시적 포함 시 허용."""
+        if allowlist:
+            name_lower = name.lower()
+            for a in allowlist:
+                a_lower = a.lower()
+                if a_lower == name_lower or a_lower in name_lower:
+                    return False
+        name_lower = name.lower()
+        return any(kw in name_lower for kw in _DESTRUCTIVE_TOOL_KEYWORDS)
 
     def _wrap(self, tool: BaseTool) -> StructuredTool:
         def _call(**kwargs) -> str:

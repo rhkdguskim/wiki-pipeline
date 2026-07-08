@@ -26,7 +26,7 @@ from ..common_pipeline.run_context import RunContext
 from .generate import generate_with_critic
 from .lifecycle import judge_action, mark_deprecated_candidates
 from .observation import ObservationLog
-from .scenarios import load_scenarios, scenarios_summary
+from .scenarios import load_scenarios, scenarios_from_dict, scenarios_summary
 from .themes import DEFAULT_THEMES
 from .traversal import run_exploration, run_scenarios
 
@@ -52,10 +52,12 @@ def run_manual(
     *,
     run_id: str | None = None,
     scenarios_file: str | None = None,
+    scenarios_data: dict | None = None,
     themes: list[str] | None = None,
     explore_steps: int | None = None,
     resume: bool = False,
     no_explore: bool = False,
+    strict_allowlist: bool = False,
 ) -> dict:
     """매뉴얼 파이프라인 실행.
 
@@ -64,6 +66,9 @@ def run_manual(
       - 외부 주입(Control Plane) → 그 run_id 를 그대로 쓴다. 이때 resume=False 면
         신규 run 으로 취급 (체크포인트 무시). resume=True 면 같은 run_id 의
         체크포인트·관측 JSONL 을 이어간다 (CLI --resume 경로).
+
+    scenarios_data: DB scenario_set JSON (dict). scenarios_file 보다 우선.
+    strict_allowlist: True 면 MCP 도구 allowlist 가 비어 있을 때 에러 (production).
     """
     resume = bool(resume) and bool(run_id)
     if explore_steps:
@@ -97,12 +102,21 @@ def run_manual(
             detail={"tools": len(names), "sample": names[:8]})
 
         # 4) 전수 순회 — 하이브리드 (decision-hybrid-app-traversal)
-        sc_path = Path(scenarios_file) if scenarios_file else settings.manual_scenario_path
-        scenario_set = load_scenarios(sc_path)
+        if scenarios_data:
+            scenario_set = scenarios_from_dict(scenarios_data)
+        else:
+            sc_path = Path(scenarios_file) if scenarios_file else settings.manual_scenario_path
+            scenario_set = load_scenarios(sc_path)
         rev("stage", "traverse-scenario", "running",
-            detail={"file": str(sc_path), "scenarios": [s.id for s in scenario_set.scenarios]})
+            detail={"scenarios": [s.id for s in scenario_set.scenarios]})
         sc_result = run_scenarios(bridge, scenario_set, log, rev)
         rev("stage", "traverse-scenario", "done", detail=sc_result)
+
+        if sc_result.get("terminal_failure"):
+            ctx.failed({"error": f"required scenario failed: "
+                                  f"{sc_result['terminal_failure']}"})
+            summary["error"] = f"required scenario failed: {sc_result['terminal_failure']}"
+            return summary
 
         model = build_chat_model(settings)
         explore_cov: dict = {"visited": [], "unreached": [], "notes": "탐색 생략(--no-explore)"}
@@ -113,6 +127,7 @@ def run_manual(
                 model=model, bridge=bridge, settings=settings, run_id=ctx.run_id,
                 observer=ctx.observer, log=log, scenario_set=scenario_set,
                 resume=resume, out_dir=out_dir,
+                strict_allowlist=strict_allowlist,
             )
             rev("stage", "traverse-explore", "done",
                 detail={"visited": len(explore_cov.get("visited", [])),

@@ -12,6 +12,12 @@ import {
   getAuditRecent,
   getLlmSettings, updateLlmSettings, resetLlmSettings, testLlmSettings,
   getRunDoc,
+  getRunQuality, getRunEvidence, getRunEvidenceItem, getRunCoverage,
+  getRunArtifacts, getRunVncSession,
+  getManualProfile, saveManualProfile, preflightManualProfile,
+  listScenarios, createScenario, updateScenario, deleteScenario,
+  activateScenario, lintScenarios, preflightArtifact,
+  reapStuckRuns, getQualitySummary,
 } from '../api/client.js';
 import {useLiveSocketStore} from '../store/liveSocket.js';
 
@@ -266,5 +272,163 @@ export function useSubmitMrMutation() {
   return useMutation({
     mutationFn: ({runId, target}) => submitMr(runId, target),
     onSuccess: (_data, vars) => qc.invalidateQueries({queryKey: ['mrPlan', vars.runId]}),
+  });
+}
+
+// ── AI pipeline quality/evidence/coverage/artifacts/vnc queries (2026-07-08) ────
+
+export function useRunQualityQuery(runId, params = {}) {
+  return useQuery({
+    queryKey: ['runQuality', runId, params],
+    queryFn: () => getRunQuality(runId, params),
+    enabled: !!runId,
+    staleTime: 30000,
+  });
+}
+
+export function useRunEvidenceQuery(runId, params = {}) {
+  return useQuery({
+    queryKey: ['runEvidence', runId, params],
+    queryFn: () => getRunEvidence(runId, params),
+    enabled: !!runId,
+    staleTime: 30000,
+  });
+}
+
+export function useRunEvidenceItemQuery(runId, itemId) {
+  return useQuery({
+    queryKey: ['runEvidenceItem', runId, itemId],
+    queryFn: () => getRunEvidenceItem(runId, itemId),
+    enabled: !!runId && !!itemId,
+    staleTime: 60000,
+  });
+}
+
+export function useRunCoverageQuery(runId) {
+  return useQuery({
+    queryKey: ['runCoverage', runId],
+    queryFn: () => getRunCoverage(runId),
+    enabled: !!runId,
+    staleTime: 30000,
+  });
+}
+
+export function useRunArtifactsQuery(runId) {
+  return useQuery({
+    queryKey: ['runArtifacts', runId],
+    queryFn: () => getRunArtifacts(runId),
+    enabled: !!runId,
+    staleTime: 30000,
+  });
+}
+
+export function useRunVncQuery(runId) {
+  return useQuery({
+    queryKey: ['runVnc', runId],
+    queryFn: () => getRunVncSession(runId),
+    enabled: !!runId,
+    staleTime: 10000,
+  });
+}
+
+// ── Manual profile / scenarios / artifact preflight ───────────
+
+export function useManualProfileQuery(sourceId) {
+  return useQuery({
+    queryKey: ['manualProfile', sourceId],
+    queryFn: () => getManualProfile(sourceId),
+    enabled: !!sourceId,
+    staleTime: 30000,
+  });
+}
+
+export function useSaveManualProfileMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({sourceId, payload}) => saveManualProfile(sourceId, payload),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({queryKey: ['manualProfile', vars.sourceId]});
+    },
+  });
+}
+
+export function usePreflightManualProfileMutation() {
+  return useMutation({mutationFn: sourceId => preflightManualProfile(sourceId)});
+}
+
+export function useScenariosQuery(sourceId) {
+  return useQuery({
+    queryKey: ['scenarios', sourceId],
+    queryFn: () => listScenarios(sourceId),
+    enabled: !!sourceId,
+    staleTime: 30000,
+  });
+}
+
+export function useCreateScenarioMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({sourceId, payload}) => createScenario(sourceId, payload),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({queryKey: ['scenarios', vars.sourceId]});
+    },
+  });
+}
+
+export function useUpdateScenarioMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({sourceId, scenarioId, payload}) =>
+      updateScenario(sourceId, scenarioId, payload),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({queryKey: ['scenarios', vars.sourceId]});
+    },
+  });
+}
+
+export function useDeleteScenarioMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({sourceId, scenarioId}) => deleteScenario(sourceId, scenarioId),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({queryKey: ['scenarios', vars.sourceId]});
+    },
+  });
+}
+
+export function useActivateScenarioMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({sourceId, scenarioId}) => activateScenario(sourceId, scenarioId),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({queryKey: ['scenarios', vars.sourceId]});
+    },
+  });
+}
+
+export function useLintScenariosMutation() {
+  return useMutation({mutationFn: ({sourceId, payload}) => lintScenarios(sourceId, payload)});
+}
+
+export function usePreflightArtifactMutation() {
+  return useMutation({mutationFn: ({sourceId, payload}) => preflightArtifact(sourceId, payload)});
+}
+
+export function useReapStuckRunsMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => reapStuckRuns(),
+    onSuccess: () => {
+      qc.invalidateQueries({queryKey: ['dbRuns']});
+      qc.invalidateQueries({queryKey: ['pipelineStatus']});
+    },
+  });
+}
+
+export function useQualitySummaryQuery(windowHours = 168) {
+  return useQuery({
+    queryKey: ['qualitySummary', windowHours],
+    queryFn: () => getQualitySummary(windowHours),
+    staleTime: 60000,
   });
 }

@@ -29,6 +29,8 @@ class Scenario:
     goal: str = ""
     audience: str = "user"                    # user | operator | both (독자 2축 매핑)
     steps: list[ScenarioStep] = field(default_factory=list)
+    required: bool = False                    # True 면 이 시나리오 실패 시 전체 실패
+    continue_on_failure: bool = True          # False 면 이 시나리오 스텝 실패 시 즉시 중단
 
 
 @dataclass
@@ -37,11 +39,7 @@ class ScenarioSet:
     scenarios: list[Scenario] = field(default_factory=list)
 
 
-def load_scenarios(path: Path) -> ScenarioSet:
-    """시나리오 파일 로드. 없으면 빈 세트 — 러너는 자율 탐색만으로 진행한다."""
-    if not path.exists():
-        return ScenarioSet()
-    data = json.loads(path.read_text(encoding="utf-8"))
+def _parse_scenario_set(data: dict) -> ScenarioSet:
     scenarios: list[Scenario] = []
     for s in data.get("scenarios", []):
         steps = [ScenarioStep(tool=st["tool"], args=st.get("args", {}),
@@ -53,8 +51,25 @@ def load_scenarios(path: Path) -> ScenarioSet:
             goal=s.get("goal", ""),
             audience=s.get("audience", "user"),
             steps=steps,
+            required=bool(s.get("required", False)),
+            continue_on_failure=bool(s.get("continue_on_failure", True)),
         ))
     return ScenarioSet(app=data.get("app", "대상 앱"), scenarios=scenarios)
+
+
+def scenarios_from_dict(data: dict) -> ScenarioSet:
+    """DB scenario_set JSON → ScenarioSet (load_scenarios 의 dict 진입 버전)."""
+    if not isinstance(data, dict):
+        return ScenarioSet()
+    return _parse_scenario_set(data)
+
+
+def load_scenarios(path: Path) -> ScenarioSet:
+    """시나리오 파일 로드. 없으면 빈 세트 — 러너는 자율 탐색만으로 진행한다."""
+    if not path.exists():
+        return ScenarioSet()
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return _parse_scenario_set(data)
 
 
 def scenarios_summary(scenario_set: ScenarioSet, result: dict | None = None) -> str:

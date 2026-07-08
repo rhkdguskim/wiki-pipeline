@@ -18,7 +18,11 @@ function timeAgo(iso) {
   return `${Math.round(hours / 24)}일 전`;
 }
 
-const STATUS_LABEL = {pending: '대기', running: '실행 중', done: '완료', failed: '실패'};
+const STATUS_LABEL = {
+  pending: '대기', running: '실행 중', done: '완료', failed: '실패',
+  done_with_warnings: '경고 완료', failed_quality_gate: '품질 실패',
+  partial: '부분 완료', stale: '지연', timeout: '시간 초과', cancelled: '취소',
+};
 
 function aggregateSources(sources, runs) {
   const map = new Map(sources.map(s => [s.id, {

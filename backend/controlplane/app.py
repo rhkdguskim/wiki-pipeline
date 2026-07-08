@@ -50,6 +50,7 @@ from .services.scheduler import SourceScheduler
 from .services.settings import SettingsService
 from .services.tag_poller import TagPoller
 from .settings import ControlPlaneSettings, load_cp_settings
+from .vnc_gateway import VncGateway
 from .ws import Broadcaster
 
 log = logging.getLogger("controlplane")
@@ -152,8 +153,8 @@ def create_app(settings: ControlPlaneSettings | None = None, *,
             "-> user manual) share a single Control Plane (this service) and "
             "Data Plane (runner). See `wiki/` in the repo for design decisions."
         ),
-        contact={"name": "wiki-pipeline maintainers", "email": "ops@wiki-pipeline.local"},
-        license_info={"name": "Proprietary", "url": "https://wiki-pipeline.local/license"},
+        contact={"name": "wiki-pipeline maintainers", "email": "ops@wiki-pipeline.io"},
+        license_info={"name": "Proprietary", "url": "https://wiki-pipeline.io/license"},
         openapi_tags=[
             {"name": "runs", "description": "Pipeline run lifecycle and events."},
             {"name": "pipelines", "description": "Per-source/per-pipeline aggregated status."},
@@ -174,7 +175,7 @@ def create_app(settings: ControlPlaneSettings | None = None, *,
     # 3) CORS: 가장 바깥(브라우저는 CORS preflight 가 가장 먼저 보임)
     app.add_middleware(CORSMiddleware,
                        allow_origins=([o.strip() for o in settings.control_cors_origins.split(",") if o.strip()]
-                                      if settings.control_cors_origins.strip() else ["*"]),
+                                      if settings.control_cors_origins.strip() else ["http://localhost:5173", "http://127.0.0.1:5173"]),
                        allow_credentials=False,
                        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
                        allow_headers=["Authorization", "Content-Type", "X-Api-Token", "X-Request-ID"])
@@ -201,6 +202,10 @@ def create_app(settings: ControlPlaneSettings | None = None, *,
     tag_poller = TagPoller(settings, session_factory, run_service, notifier)
     audit_service = AuditService(session_factory)
     settings_service = SettingsService(session_factory)
+    vnc_gateway = VncGateway(
+        secret_key=settings.control_secret_key,
+        audit_service=audit_service,
+    )
 
     app.state.settings = settings
     app.state.engine = engine
@@ -213,6 +218,7 @@ def create_app(settings: ControlPlaneSettings | None = None, *,
     app.state.tag_poller = tag_poller
     app.state.audit_service = audit_service
     app.state.settings_service = settings_service
+    app.state.vnc_gateway = vnc_gateway
     app.state.scheduler = SourceScheduler(settings, session_factory, run_service, tag_poller)
     app.state.api_tokens = settings.api_token_map
     app.state.runner_token = settings.control_runner_token
@@ -241,6 +247,8 @@ def create_app(settings: ControlPlaneSettings | None = None, *,
     # ── Routers ──
     app.include_router(router)
     app.include_router(health_router)
+    from .requirements_api import router as requirements_router
+    app.include_router(requirements_router)
 
     # ── /metrics (Prometheus exposition) — 인증 면제 (rate limit 도 면제)
     from fastapi import Response as _Response

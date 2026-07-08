@@ -12,7 +12,11 @@ export function RunsTable({rows, onSelect, onTrigger, sources, hideSource = fals
           {!hideSource && <td className="ellipsis" title={r.source_id || ''}>{r.source_id || '-'}</td>}
           <td>{r.mode || '-'}</td>
           <td>{r.trigger || '-'}</td>
-          <td><span className={`stageState ${r.status || 'idle'}`}>{r.status === 'running' ? <span className="spinner tiny" /> : <span />}{{pending: '대기', running: '실행 중', done: '완료', failed: '실패'}[r.status] || r.status || '-'}</span></td>
+          <td><span className={`stageState ${r.status || 'idle'}`}>{r.status === 'running' ? <span className="spinner tiny" /> : <span />}{{
+  pending: '대기', running: '실행 중', done: '완료', failed: '실패',
+  done_with_warnings: '경고 완료', failed_quality_gate: '품질 실패',
+  partial: '부분 완료', stale: '지연', timeout: '시간 초과', cancelled: '취소',
+}[r.status] || r.status || '-'}</span></td>
           <td className="mono">{r.from_sha ? `${r.from_sha.slice(0, 8)}→${(r.to_sha || '').slice(0, 8)}` : '-'}</td>
           <td>{r.doc_count ?? '-'}</td>
           <td>{r.input_tokens || r.output_tokens ? `${fmtNum(r.input_tokens)}/${fmtNum(r.output_tokens)}` : '-'}</td>

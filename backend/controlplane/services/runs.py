@@ -3,6 +3,12 @@
 concept-idempotent-sha: last_processed_sha는 완료 보고(MR 제출 성공 포함)에서만
 전진한다. 실패한 run은 포인터를 건드리지 않아 다음 배치가 같은 구간을 재처리한다.
 decision-branch-loss-policy: compare 404 -> 소스 자동 비활성화 + admin 알림.
+
+2026-07-08:
+- event_id 기반 dedupe + server-assigned monotonic seq
+- heartbeat / stuck run reaper
+- terminal status normalization (done -> done_with_warnings / failed_quality_gate)
+- publishable / publish_state / quality_status / snapshot_version
 """
 from __future__ import annotations
 
@@ -12,18 +18,28 @@ import os
 import subprocess
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import Run, RunEvent, RunModelUsage, Source, SourceBranch
+from ..models import (
+    Run, RunCoverageReport, RunEvent, RunModelUsage, RunQualityReport,
+    Source, SourceBranch,
+)
 from ..settings import ControlPlaneSettings
 from ..timeutil import as_utc, isoformat_z
 from .notifier import Notifier
 
 log = logging.getLogger("controlplane.runs")
+
+# Terminal status 화이트리스트 — 이 값들 사이의 cross-transition 만 차단.
+TERMINAL_STATUSES = (
+    "done", "done_with_warnings", "failed", "failed_quality_gate",
+    "partial", "stale", "cancelled", "timeout",
+)
+ACTIVE_STATUSES = ("pending", "running")
 
 
 class RunService:
@@ -37,18 +53,36 @@ class RunService:
         if self.broadcaster is not None:
             self.broadcaster.publish(message)
 
+    def next_seq(self, db: Session, run_id: str) -> int:
+        """run 의 server-assigned monotonic seq — webhook ingest 의 ordering 진실."""
+        last = db.scalar(
+            select(func.coalesce(func.max(RunEvent.seq), 0)).where(RunEvent.run_id == run_id)
+        )
+        return int(last or 0) + 1
+
     # ── 트리거 (수동/스케줄) ─────────────────────────────────
     def create_run(self, db: Session, *, source_id: str, mode: str = "auto",
                    branch_role: str = "dev", trigger: str = "manual",
-                   pipeline_id: str = "static") -> Run:
+                   pipeline_id: str = "static", attempt: int = 1) -> Run:
         source = db.get(Source, source_id)
         if source is None:
             raise ValueError(f"알 수 없는 source: {source_id}")
         if not source.enabled:
             raise ValueError(f"비활성화된 source: {source_id} ({source.disabled_reason})")
         run_id = f"{pipeline_id}-{source_id}-{uuid.uuid4().hex[:8]}"
+        # capture from_sha_snapshot (CAS for static sha advance).
+        from_sha_snapshot = ""
+        if pipeline_id == "static" and source_id:
+            row = db.scalars(select(SourceBranch).where(
+                SourceBranch.source_id == source_id,
+                SourceBranch.role == (branch_role or "dev"),
+            )).first()
+            if row is not None:
+                from_sha_snapshot = row.last_processed_sha or ""
         run = Run(id=run_id, source_id=source_id, pipeline_id=pipeline_id,
-                  mode=mode, branch_role=branch_role, trigger=trigger, status="pending")
+                  mode=mode, branch_role=branch_role, trigger=trigger,
+                  status="pending", attempt=attempt,
+                  from_sha_snapshot=from_sha_snapshot)
         db.add(run)
         db.flush()
         self._publish({"type": "runs_changed", "run_id": run_id})
@@ -81,10 +115,42 @@ class RunService:
             proc = subprocess.Popen(cmd, env=env, cwd=None,
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             log.info("러너 기동: run=%s pid=%s", run.id, proc.pid)
+            from ..timeutil import as_utc
+            try:
+                run.runner_pid = str(proc.pid) if proc.pid else ""
+                run.started_at = as_utc(datetime.now(timezone.utc))
+            except Exception:  # noqa: BLE001
+                pass
             return proc
         except Exception as e:  # noqa: BLE001
             log.error("러너 기동 실패: run=%s %s: %s", run.id, type(e).__name__, e)
             return None
+
+    def heartbeat(self, db: Session, run_id: str, *, attempt: int | None = None,
+                  stage: str = "", pid: str = "") -> dict:
+        """러너가 보내는 heartbeat — heartbeat_at 갱신 + run_started_at 도 한 번.
+
+        첫 heartbeat 는 started_at 을 같이 채운다. stage/pid 도 저장해서 운영자가
+        어떤 stage 에서 막혔는지 즉시 알 수 있게 한다.
+        """
+        run = db.get(Run, run_id)
+        if run is None:
+            raise ValueError(f"unknown run: {run_id}")
+        now = datetime.now(timezone.utc)
+        if not run.started_at:
+            run.started_at = now
+        if stage:
+            run.status = "running"  # heartbeat = 활동 증거
+        run.heartbeat_at = now
+        if pid:
+            run.runner_pid = pid
+        if attempt is not None and int(attempt) > 0:
+            run.attempt = int(attempt)
+        db.flush()
+        self._publish({"type": "run_heartbeat", "run_id": run_id,
+                       "stage": stage, "ts": isoformat_z(now)})
+        return {"ok": True, "heartbeat_at": isoformat_z(now),
+                "status": run.status, "attempt": run.attempt}
 
     # ── webhook 이벤트 적재 ─────────────────────────────────
     def _record_model_usage(self, db: Session, run: Run, detail: dict) -> None:
@@ -118,10 +184,57 @@ class RunService:
             # webhook_complete와 동일하게 — 알 수 없는 run_id는 거부.
             # 없으면 RunEvent 고아 행이 쌓이고 /api/events?run=<id>가 더러워진다.
             raise ValueError(f"알 수 없는 run: {run_id}")
+
+        # Pre-fetch existing event_id and seq for this run — dedupe/dup-seq detection
+        # in O(1) per event instead of N queries.
+        existing_event_ids: set[str] = set()
+        existing_seqs: set[int] = set()
+        if events:
+            ids_db = db.scalars(
+                select(RunEvent.event_id).where(
+                    RunEvent.run_id == run_id,
+                    RunEvent.event_id != "",
+                )
+            ).all()
+            existing_event_ids = {eid for eid in ids_db if eid}
+            seqs_db = db.scalars(
+                select(RunEvent.seq).where(
+                    RunEvent.run_id == run_id,
+                    RunEvent.seq.isnot(None),
+                )
+            ).all()
+            existing_seqs = {int(s) for s in seqs_db if s is not None}
+
+        # monotonic seq cursor — start at max+1 (server-assigned, not from client).
+        cursor = self.next_seq(db, run_id)
+
         count = 0
+        accepted: list[dict] = []
         for e in events:
             if not isinstance(e, dict):
                 continue
+            eid = str(e.get("event_id") or "").strip()
+            client_seq = e.get("seq")
+            # dedupe: same (run_id, event_id) -> idempotent skip
+            if eid and eid in existing_event_ids:
+                continue
+            # same (run_id, seq) but different event_id -> reject
+            if client_seq is not None:
+                try:
+                    cs = int(client_seq)
+                except (TypeError, ValueError):
+                    cs = -1
+                if cs in existing_seqs and (not eid or eid not in existing_event_ids):
+                    log.warning("event seq conflict run=%s seq=%s event_id=%s",
+                                run_id, cs, eid)
+                    continue
+            seq = cursor
+            cursor += 1
+            if eid:
+                existing_event_ids.add(eid)
+            existing_seqs.add(seq)
+            received_at = datetime.now(timezone.utc)
+            detail = e.get("detail") or {}
             db.add(RunEvent(
                 run_id=run_id,
                 ts=str(e.get("ts") or ""),
@@ -129,30 +242,41 @@ class RunService:
                 stage=str(e.get("stage") or ""),
                 status=str(e.get("status") or ""),
                 payload=json.dumps(e, ensure_ascii=False),
+                event_id=eid,
+                seq=seq,
+                kind=str(e.get("kind") or detail.get("kind") or "")[:120],
+                severity=str(e.get("severity") or "info")[:16],
+                role=str(e.get("role") or detail.get("role") or "")[:80],
+                dedupe_key=str(e.get("dedupe_key") or detail.get("dedupe_key") or "")[:200],
+                received_at=received_at,
             ))
             count += 1
+            accepted.append(e)
             if run is not None and e.get("layer") == "run":
                 status = str(e.get("status") or "")
-                # 종료 상태 보호: done/failed는 다른 webhook 이벤트로 덮어쓰지 않는다
-                # (늦게 도착한stale/retry 이벤트가 done을 failed로 되돌리는 버그 방지).
-                if run.status in ("done", "failed"):
-                    pass   # 이미 종료 — status 업데이트 무시
+                if run.status in TERMINAL_STATUSES:
+                    pass
                 elif status == "running":
                     run.status = "running"
-                elif status in ("done", "failed"):
+                elif status in TERMINAL_STATUSES:
                     run.status = status
-                detail = e.get("detail") or {}
                 if status == "failed" and detail.get("error") and run.status == "failed":
                     run.error = str(detail["error"])[:2000]
-            if run is not None and (e.get("detail") or {}).get("kind") == "usage":
-                detail = e["detail"]
+            if run is not None and detail.get("kind") == "usage":
                 run.input_tokens += int(detail.get("input_tokens") or 0)
                 run.output_tokens += int(detail.get("output_tokens") or 0)
                 self._record_model_usage(db, run, detail)
+        if count:
+            run.snapshot_version = int(run.snapshot_version or 0) + 1
         db.flush()
         if count:
-            self._publish({"type": "events", "run_id": run_id,
-                           "events": [e for e in events if isinstance(e, dict)]})
+            latest_seq = int(run.snapshot_version or 0)
+            self._publish({
+                "type": "events", "run_id": run_id,
+                "events": accepted,
+                "latest_seq": latest_seq,
+                "snapshot_version": int(run.snapshot_version or 0),
+            })
         return count
 
     def read_db_events(self, db: Session, run_id: str, after_id: int = 0,
@@ -166,6 +290,36 @@ class RunService:
                 "offset": rows[-1].id if rows else after_id,
                 "size": after_id + len(rows), "age_sec": 0.0}
 
+    def read_db_events_seq(self, db: Session, run_id: str, after_seq: int = 0,
+                          limit: int = 500) -> dict:
+        """seq-based replay API — event_id/seq dedupe 와 1:1 매핑되는 read 경로."""
+        rows = db.scalars(
+            select(RunEvent).where(
+                RunEvent.run_id == run_id,
+                RunEvent.seq.isnot(None),
+                RunEvent.seq > after_seq,
+            )
+            .order_by(RunEvent.seq).limit(limit)
+        ).all()
+        events = [json.loads(r.payload) for r in rows]
+        latest_seq = int(rows[-1].seq) if rows else after_seq
+        max_total = db.scalar(
+            select(func.coalesce(func.max(RunEvent.seq), 0)).where(
+                RunEvent.run_id == run_id,
+            )
+        )
+        max_total = int(max_total or 0)
+        return {
+            "run_id": run_id,
+            "events": events,
+            "after_seq": after_seq,
+            "latest_seq": latest_seq,
+            "has_more": latest_seq < max_total,
+            "truncated": len(rows) >= limit,
+            "snapshot_version": int((db.get(Run, run_id) or Run()).snapshot_version or 0),
+            "total_seq": max_total,
+        }
+
     def all_db_events(self, db: Session, run_id: str) -> list[dict]:
         rows = db.scalars(select(RunEvent).where(RunEvent.run_id == run_id)
                           .order_by(RunEvent.id)).all()
@@ -174,6 +328,59 @@ class RunService:
     def has_db_events(self, db: Session, run_id: str) -> bool:
         return db.scalars(select(RunEvent.id).where(RunEvent.run_id == run_id)
                           .limit(1)).first() is not None
+
+    def latest_seq(self, db: Session, run_id: str) -> int:
+        last = db.scalar(
+            select(func.coalesce(func.max(RunEvent.seq), 0)).where(RunEvent.run_id == run_id)
+        )
+        return int(last or 0)
+
+    def reap_stuck_runs(self, db: Session, *, stale_after_sec: int = 1800,
+                        max_idle_sec: int = 3600) -> int:
+        """stuck/stalled run reaper.
+
+        - pending 이지만 heartbeat 가 없는 상태로 stale_after_sec 경과 → failed
+        - running 인데 heartbeat_at 이 max_idle_sec 이전 → timeout
+
+        1회 호출에서 같은 run 을 두 번 처리하지 않도록 status 가 terminal 이면
+        스킵한다.
+        """
+        now = datetime.now(timezone.utc)
+        threshold_pending = now - timedelta(seconds=stale_after_sec)
+        threshold_idle = now - timedelta(seconds=max_idle_sec)
+        n = 0
+        candidates = db.scalars(
+            select(Run).where(Run.status == "pending")
+        ).all()
+        for r in candidates:
+            if r.created_at and as_utc(r.created_at) <= threshold_pending \
+                    and (r.heartbeat_at is None):
+                r.status = "failed"
+                r.terminal_at = now
+                r.error = f"stuck pending: heartbeat 없음 ({stale_after_sec}s 경과)"
+                r.status_reason = r.error
+                n += 1
+                self._publish({"type": "run_status", "run_id": r.id,
+                               "status": r.status, "reason": "stuck_pending"})
+        idle_candidates = db.scalars(
+            select(Run).where(Run.status == "running")
+        ).all()
+        for r in idle_candidates:
+            if r.heartbeat_at is None:
+                continue
+            hb = as_utc(r.heartbeat_at)
+            if hb is not None and hb <= threshold_idle:
+                r.status = "timeout"
+                r.terminal_at = now
+                r.error = f"heartbeat 없음 ({max_idle_sec}s idle)"
+                r.status_reason = r.error
+                n += 1
+                self._publish({"type": "run_status", "run_id": r.id,
+                               "status": r.status, "reason": "heartbeat_timeout"})
+        if n:
+            db.flush()
+            log.info("reaper: %d run 을 terminal 로 전환", n)
+        return n
 
     # ── 완료 보고 (sha 전진의 유일한 경로) ───────────────────
     def complete_run(self, db: Session, run_id: str, report: dict[str, Any]) -> dict:
@@ -184,11 +391,55 @@ class RunService:
         # Terminal guard — ingest_events()의 stale 가드와 대칭. cross-status 전이
         # (done↔failed) 만 차단하고 same-status(done→done) 는 final 데이터 갱신 허용.
         prev_status = run.status
-        if prev_status in ("done", "failed") and prev_status != status:
+        if prev_status in TERMINAL_STATUSES and prev_status != status:
             log.warning("complete webhook cross-status 거부 — run=%s prev=%s 보고=%s",
                         run_id, prev_status, status)
             return {"ok": True, "status": prev_status, "sha_advanced": False,
-                    "source_disabled": False, "idempotent": True}
+                    "source_disabled": False, "idempotent": True,
+                    "publish_state": run.publish_state,
+                    "publishable": run.publishable}
+
+        # Quality/coverage 우선 normalize — quality_status=fail 이면 status 를
+        # failed_quality_gate 로 강제한다. coverage fail 도 동일 정책.
+        quality_status = str(report.get("quality_status") or run.quality_status or "not_evaluated")
+        publishable = bool(report.get("publishable", run.publishable))
+        coverage_status = str(report.get("coverage_status") or "not_applicable")
+        # coverage table 직접 조회 — body 에 명시되지 않은 경우 DB 가 진실.
+        from ..models import RunCoverageReport
+        cov_row = db.scalars(
+            select(RunCoverageReport).where(RunCoverageReport.run_id == run_id)
+        ).first()
+        if cov_row and cov_row.status == "fail":
+            coverage_status = "fail"
+        if quality_status == "fail" and status == "done":
+            status = "failed_quality_gate"
+            if not run.blocked_reason:
+                run.blocked_reason = str(report.get("blocked_reason")
+                                         or report.get("failed_gate") or "quality gate failed")
+        if coverage_status == "fail" and status == "done":
+            status = "failed_quality_gate"
+            if not run.blocked_reason:
+                run.blocked_reason = "manual coverage below threshold"
+        if quality_status == "warning" and status == "done":
+            # warning_publish_policy 가 review_required 면 done 으로 두되 publish_state 만
+            # review_required 로 강등. block 이면 failed_quality_gate.
+            policy = str(run.warning_publish_policy or "review_required")
+            if policy == "block":
+                status = "done_with_warnings"
+                publishable = False
+                if not run.blocked_reason:
+                    run.blocked_reason = "warning publish policy = block"
+            else:
+                status = "done_with_warnings"
+                # publishable 도 policy 가 review_required 면 그대로 true (MR 제출은 가능)
+        # partial: 일부 산출물만 유효 / 일부 stage 만 성공
+        if str(report.get("partial") or "").lower() in ("1", "true", "yes"):
+            if status == "done":
+                status = "partial"
+                publishable = False
+                if not run.blocked_reason:
+                    run.blocked_reason = "partial completion"
+
         run.status = status
         run.from_sha = str(report.get("from_sha") or run.from_sha)
         run.to_sha = str(report.get("to_sha") or run.to_sha)
@@ -196,28 +447,71 @@ class RunService:
         run.mr_url = str(report.get("mr_url") or run.mr_url)
         if report.get("error"):
             run.error = str(report["error"])[:2000]
+        run.terminal_at = datetime.now(timezone.utc)
+        run.quality_status = quality_status
+        if report.get("quality_score") is not None:
+            try:
+                run.quality_score = int(report["quality_score"])
+            except (TypeError, ValueError):
+                pass
+        run.publishable = publishable
+        if report.get("blocked_reason"):
+            run.blocked_reason = str(report["blocked_reason"])[:5000]
+        if report.get("artifact_version"):
+            run.artifact_version = str(report["artifact_version"])[:120]
+        if report.get("release_tag"):
+            run.release_tag = str(report["release_tag"])[:120]
+
+        # publish_state 도출 (boolean publishable 보다 우선)
+        if quality_status == "not_evaluated" and not run.quality_status:
+            run.publish_state = "unknown"
+        elif status in ("done", "done_with_warnings") and publishable and quality_status == "pass":
+            run.publish_state = "publishable"
+        elif status == "done_with_warnings":
+            policy = str(run.warning_publish_policy or "review_required")
+            run.publish_state = "review_required" if policy != "block" else "blocked"
+        elif status in ("failed_quality_gate", "failed", "partial", "stale",
+                        "cancelled", "timeout"):
+            run.publish_state = "blocked"
+        else:
+            run.publish_state = "review_required"
+        run.snapshot_version = int(run.snapshot_version or 0) + 1
 
         source = db.get(Source, run.source_id) if run.source_id else None
         advanced = False
         disabled = False
+        stale_complete = False
 
-        if status == "done" and report.get("last_processed_sha") and source is not None:
+        if report.get("last_processed_sha") and source is not None \
+                and run.pipeline_id == "static":
             row = db.scalars(select(SourceBranch).where(
                 SourceBranch.source_id == source.id,
                 SourceBranch.role == (run.branch_role or "dev"))).first()
             if row is not None:
                 new_sha = str(report["last_processed_sha"])
-                # sha 되돌림 방지 — 동시 호출/재시도가 더 오래된 sha로 덮어쓰는
-                # 레이스 회피 (concept-idempotent-sha). 빈 포인터는 무조건 전진.
-                current = row.last_processed_sha or ""
-                if not current or new_sha >= current:
-                    row.last_processed_sha = new_sha
-                    advanced = True
+                # CAS: snapshot 과 pointer 가 같은 경우에만 전진. 다르면 stale.
+                snapshot = (run.from_sha_snapshot or "").strip()
+                current = (row.last_processed_sha or "").strip()
+                if snapshot and current and snapshot != current:
+                    log.warning("complete_run CAS 실패 — run=%s snapshot=%s current=%s",
+                                run_id, snapshot[:12], current[:12])
+                    stale_complete = True
+                    run.stale_complete = True
+                    if status in ("done", "done_with_warnings"):
+                        # stale 상태로 normalize — sha 전진 안 함
+                        run.status = "stale"
+                        run.publish_state = "blocked"
+                        run.blocked_reason = (
+                            f"source pointer changed mid-run (snapshot={snapshot[:12]} current={current[:12]})"
+                        )
+                else:
+                    if not current or new_sha >= current:
+                        row.last_processed_sha = new_sha
+                        advanced = True
 
         if status == "failed" and source is not None:
             error_kind = str(report.get("error_kind") or "")
             if error_kind == "not_found":
-                # 좀비 소스: 레포/브랜치 소실 — 자동 비활성화 (decision-branch-loss-policy)
                 source.enabled = False
                 source.disabled_reason = f"compare 404: {str(report.get('error') or '')[:200]}"
                 disabled = True
@@ -227,8 +521,6 @@ class RunService:
                 self.notifier.auth_revoked(where=f"source {source.label}",
                                            detail=str(report.get("error") or ""))
             elif error_kind == "rate_limited":
-                # SCM API rate limit — 토큰은 정상이다. 담당자 알림만 보내고 auth 알림/
-                # 자동 비활성화는 하지 않는다 (decision-scm-rate-limit-not-auth).
                 self.notifier.run_failed(source_label=source.label, run_id=run_id,
                                          error=str(report.get("error") or ""),
                                          owner_email=source.owner_email)
@@ -237,14 +529,20 @@ class RunService:
                                          error=str(report.get("error") or ""),
                                          owner_email=source.owner_email)
         db.flush()
-        self._publish({"type": "run_status", "run_id": run_id, "status": status,
+        self._publish({"type": "run_status", "run_id": run_id, "status": run.status,
                        "sha_advanced": advanced, "source_disabled": disabled,
-                       "mr_url": run.mr_url})
+                       "mr_url": run.mr_url, "publishable": run.publishable,
+                       "publish_state": run.publish_state,
+                       "snapshot_version": run.snapshot_version,
+                       "stale_complete": stale_complete})
         self._publish({"type": "runs_changed", "run_id": run_id})
         if disabled:
             self._publish({"type": "sources_changed"})
-        return {"ok": True, "status": status, "sha_advanced": advanced,
-                "source_disabled": disabled, "idempotent": False}
+        return {"ok": True, "status": run.status, "sha_advanced": advanced,
+                "source_disabled": disabled, "idempotent": False,
+                "publishable": run.publishable, "publish_state": run.publish_state,
+                "snapshot_version": run.snapshot_version,
+                "stale_complete": stale_complete}
 
     # ── 보존 정책 — 오래된 이벤트 정리 (이력 runs/보고는 영구 보존) ──
     def prune_events(self, db: Session, *, older_than_days: int) -> int:
@@ -288,15 +586,7 @@ class RunService:
         r = db.get(Run, run_id)
         if r is None:
             return None
-        return {
-            "run_id": r.id, "source_id": r.source_id, "pipeline_id": r.pipeline_id,
-            "mode": r.mode, "branch_role": r.branch_role, "trigger": r.trigger,
-            "status": r.status, "from_sha": r.from_sha, "to_sha": r.to_sha,
-            "doc_count": r.doc_count, "mr_url": r.mr_url, "error": r.error,
-            "input_tokens": r.input_tokens, "output_tokens": r.output_tokens,
-            "created_at": isoformat_z(r.created_at),
-            "updated_at": isoformat_z(r.updated_at),
-        }
+        return _run_view_dict(r)
 
     def list_runs(self, db: Session, limit: int = 100,
                   source_id: str | None = None) -> list[dict]:
@@ -304,15 +594,9 @@ class RunService:
         if source_id:
             stmt = stmt.where(Run.source_id == source_id)
         rows = db.scalars(stmt).all()
-        return [{
-            "run_id": r.id, "source_id": r.source_id, "pipeline_id": r.pipeline_id,
-            "mode": r.mode, "branch_role": r.branch_role, "trigger": r.trigger,
-            "status": r.status, "from_sha": r.from_sha, "to_sha": r.to_sha,
-            "doc_count": r.doc_count, "mr_url": r.mr_url, "error": r.error,
-            "input_tokens": r.input_tokens, "output_tokens": r.output_tokens,
-            "created_at": isoformat_z(r.created_at),
-            "updated_at": isoformat_z(r.updated_at),
-        } for r in rows]
+        return [_run_view_dict(r) for r in rows]
+
+
 
     def list_model_usage(self, db: Session, limit: int = 1000) -> list[dict]:
         rows = db.scalars(
@@ -373,7 +657,16 @@ class RunService:
                 "last_error": "", "last_error_kind": "",
                 "last_mr_url": "", "last_doc_count": 0,
                 "last_branch_role": "", "last_trigger": "",
+                "last_quality_status": "not_evaluated", "last_quality_score": None,
+                "last_publishable": False, "last_publish_state": "unknown",
+                "last_blocked_reason": "", "last_failed_gate": "",
+                "last_release_tag": "", "last_artifact_version": "",
+                "last_mr_readiness": "unknown", "last_repair_attempts": 0,
+                "warning_count_window": 0, "error_count_window": 0,
+                "quality_fail_count_window": 0,
+                "publishable_count_window": 0,
                 "success_window": 0, "failed_window": 0, "running": 0,
+                "done_with_warnings_window": 0, "failed_quality_gate_window": 0,
                 "total_tokens_window": 0, "mean_duration_sec": None,
                 "_done_durations": [],
             })
@@ -387,8 +680,22 @@ class RunService:
                 bucket["last_doc_count"] = int(r.doc_count or 0)
                 bucket["last_branch_role"] = r.branch_role
                 bucket["last_trigger"] = r.trigger
-                # error_kind 는 complete_run 시점에 분류되지 row 에 저장 안 됨 —
-                # error 문자열에서 heuristically 복원 (ScmNotFoundError/ScmAuthError ...)
+                bucket["last_quality_status"] = str(r.quality_status or "not_evaluated")
+                bucket["last_quality_score"] = r.quality_score
+                bucket["last_publishable"] = bool(r.publishable)
+                bucket["last_publish_state"] = str(r.publish_state or "unknown")
+                bucket["last_blocked_reason"] = str(r.blocked_reason or "")
+                bucket["last_release_tag"] = str(r.release_tag or "")
+                bucket["last_artifact_version"] = str(r.artifact_version or "")
+                bucket["last_repair_attempts"] = int(r.quality_score or 0)
+                if r.mr_url:
+                    if r.status in ("done",) and bool(r.publishable):
+                        bucket["last_mr_readiness"] = "ready"
+                    elif r.status == "done_with_warnings":
+                        bucket["last_mr_readiness"] = "review_required"
+                    elif r.status in ("failed", "failed_quality_gate", "stale",
+                                       "cancelled", "timeout", "partial"):
+                        bucket["last_mr_readiness"] = "blocked"
                 err = (r.error or "").lower()
                 if "notfound" in err or "404" in err:
                     bucket["last_error_kind"] = "not_found"
@@ -406,6 +713,15 @@ class RunService:
                         upd = as_utc(r.updated_at)
                         bucket["_done_durations"].append(
                             (upd - created).total_seconds())
+                    if bool(r.publishable):
+                        bucket["publishable_count_window"] += 1
+                elif r.status == "done_with_warnings":
+                    bucket["done_with_warnings_window"] += 1
+                    if bool(r.publishable):
+                        bucket["publishable_count_window"] += 1
+                elif r.status == "failed_quality_gate":
+                    bucket["failed_quality_gate_window"] += 1
+                    bucket["quality_fail_count_window"] += 1
                 elif r.status == "failed":
                     bucket["failed_window"] += 1
                 elif r.status == "running":
@@ -425,3 +741,28 @@ class RunService:
         # source_id, pipeline_id 순으로 정렬 — 프런트가 그룹핑하기 쉽게
         out.sort(key=lambda x: (x["source_id"], x["pipeline_id"]))
         return out
+
+
+def _run_view_dict(r: Run) -> dict:
+    return {
+        "run_id": r.id, "source_id": r.source_id, "pipeline_id": r.pipeline_id,
+        "mode": r.mode, "branch_role": r.branch_role, "trigger": r.trigger,
+        "status": r.status, "from_sha": r.from_sha, "to_sha": r.to_sha,
+        "doc_count": r.doc_count, "mr_url": r.mr_url, "error": r.error,
+        "input_tokens": r.input_tokens, "output_tokens": r.output_tokens,
+        "created_at": isoformat_z(r.created_at),
+        "updated_at": isoformat_z(r.updated_at),
+        "attempt": int(r.attempt or 1),
+        "publishable": bool(r.publishable),
+        "publish_state": str(r.publish_state or "unknown"),
+        "quality_status": str(r.quality_status or "not_evaluated"),
+        "quality_score": r.quality_score,
+        "blocked_reason": str(r.blocked_reason or ""),
+        "release_tag": str(r.release_tag or ""),
+        "artifact_version": str(r.artifact_version or ""),
+        "snapshot_version": int(r.snapshot_version or 0),
+        "stale_complete": bool(r.stale_complete),
+        "heartbeat_at": isoformat_z(r.heartbeat_at),
+        "started_at": isoformat_z(r.started_at),
+        "terminal_at": isoformat_z(r.terminal_at),
+    }

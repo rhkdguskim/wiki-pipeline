@@ -1,15 +1,21 @@
-"""Control Plane HTTP 클라이언트 + webhook 이벤트 배치 싱크."""
+"""Control Plane HTTP 클라이언트 + webhook 이벤트 배치 싱크 + heartbeat."""
 from __future__ import annotations
 
+import logging
+import os
 import queue
 import threading
+from datetime import datetime, timezone
 
 import httpx
 
 from ..common.retry import with_retry
 
+log = logging.getLogger("runner.client")
+
 _BATCH_MAX = 50          # 배치 1회 최대 이벤트 수
 _FLUSH_INTERVAL = 2.0    # 초 — 이벤트가 적어도 이 주기로 밀어낸다
+_HEARTBEAT_INTERVAL = 30.0   # 초 — 러너 heartbeat 주기
 
 
 class ControlPlaneClient:
@@ -29,6 +35,35 @@ class ControlPlaneClient:
         resp = self._client.post(f"{self.base}/api/webhook/events",
                                  json={"run_id": run_id, "events": events})
         resp.raise_for_status()
+
+    def heartbeat(self, run_id: str, *, attempt: int = 1, stage: str = "",
+                 pid: str = "") -> None:
+        """POST /api/webhook/heartbeat — best-effort, 실패해도 러너를 중단하지 않는다."""
+        try:
+            resp = self._client.post(
+                f"{self.base}/api/webhook/heartbeat",
+                json={"run_id": run_id, "attempt": attempt, "stage": stage,
+                      "pid": pid,
+                      "timestamp": datetime.now(timezone.utc).isoformat()},
+            )
+            resp.raise_for_status()
+        except Exception as e:  # noqa: BLE001 — heartbeat 실패는 조용히 무시
+            log.debug("heartbeat 전송 실패 run=%s: %s: %s", run_id, type(e).__name__, e)
+
+    def post_webhook(self, path: str, payload: dict) -> dict | None:
+        """best-effort webhook POST — 실패 시 None 반환, 예외 전파 안 함.
+
+        quality/evidence/coverage/artifact/vnc webhook 용. 엔드포인트가 아직
+        없거나 에러를 반환해도 러너 실행에는 영향을 주지 않는다.
+        """
+        try:
+            resp = self._client.post(f"{self.base}{path}", json=payload,
+                                     timeout=15.0)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:  # noqa: BLE001
+            log.warning("webhook %s 전송 실패: %s: %s", path, type(e).__name__, e)
+            return None
 
     def complete(self, run_id: str, report: dict) -> dict:
         resp = with_retry(lambda: self._client.post(
@@ -88,3 +123,44 @@ class WebhookEventSink:
         self._stop.set()
         self._thread.join(timeout=5)
         self._flush()
+
+
+class HeartbeatSender:
+    """백그라운드 스레드에서 주기적으로 heartbeat 를 전송한다.
+
+    execute() 시작 시 start(), 종료 시 stop() — 파이프라인 실행 중
+    Control Plane 이 run 이 살아있음을 알 수 있게 한다 (stuck run reaper 회피).
+    전송 실패는 무시한다 (best-effort).
+    """
+
+    def __init__(self, client: ControlPlaneClient, run_id: str, *,
+                 interval: float = _HEARTBEAT_INTERVAL, attempt: int = 1):
+        self._client = client
+        self._run_id = run_id
+        self._interval = interval
+        self._attempt = attempt
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._loop, daemon=True,
+                                        name="runner-heartbeat")
+        self._stage = ""
+
+    def start(self) -> None:
+        self._send()
+        self._thread.start()
+
+    def set_stage(self, stage: str) -> None:
+        self._stage = stage
+
+    def _loop(self) -> None:
+        while not self._stop.wait(self._interval):
+            self._send()
+
+    def _send(self) -> None:
+        self._client.heartbeat(
+            self._run_id, attempt=self._attempt, stage=self._stage,
+            pid=str(os.getpid()),
+        )
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=5)

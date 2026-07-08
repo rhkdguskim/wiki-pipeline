@@ -16,7 +16,8 @@ from ..common.config import Settings, load_settings
 from ..common.docshub import build_mr_plan, submit_change_request
 from ..common.observer import Observer
 from ..connectors.base import ScmAuthError, ScmNotFoundError, ScmRateLimitError
-from .client import ControlPlaneClient, WebhookEventSink
+from .client import ControlPlaneClient, HeartbeatSender, WebhookEventSink
+from .resource_reporter import report_all
 
 
 def build_run_settings(base: Settings, ctx: dict) -> Settings:
@@ -112,45 +113,72 @@ def classify_error(exc: BaseException) -> str:
     return ""
 
 
-def execute(run_id: str, mode: str, cp: ControlPlaneClient) -> dict:
-    """run 1건 실행 + 완료 보고. 반환값은 보고 결과 (테스트 관측용).
+def _summary_has_errors(summary: dict) -> bool:
+    docs = summary.get("themes") or summary.get("docs") or {}
+    return any("error" in v for v in docs.values() if isinstance(v, dict))
 
-    pipeline_id 에 따라 정적(static)·매뉴얼(manual) 파이프라인으로 분기한다
-    (decision-mvp-scope: MVP = 정적 + 매뉴얼 둘 다).
-    """
+
+def _summary_has_warnings(summary: dict) -> bool:
+    docs = summary.get("themes") or summary.get("docs") or {}
+    if any(v.get("warned") for v in docs.values() if isinstance(v, dict)):
+        return True
+    return bool(summary.get("warned"))
+
+
+def execute(run_id: str, mode: str, cp: ControlPlaneClient) -> dict:
     ctx = cp.runner_context(run_id)
     base = load_settings()
     settings = build_run_settings(base, ctx)
     branch = ctx["branch"]
     pipeline_id = (ctx["run"].get("pipeline_id") or "static").lower()
     effective = mode or ctx["run"].get("mode") or "auto"
+    attempt = int(ctx["run"].get("attempt") or 1)
 
     sink = WebhookEventSink(cp, run_id)
     Observer.register_global_sink(sink)
+    hb = HeartbeatSender(cp, run_id, attempt=attempt)
     report: dict = {"status": "failed", "error": "", "error_kind": ""}
     try:
+        hb.start()
         if pipeline_id == "manual":
-            summary = _run_manual_pipeline(settings, run_id=run_id)
+            settings = _apply_manual_profile(settings, ctx)
+            summary = _run_manual_pipeline(settings, ctx, run_id=run_id)
         else:
             effective = decide_mode(effective, branch)
             summary = _run_static_pipeline(settings, effective, branch, run_id=run_id)
 
+        report_all(cp, run_id, summary, pipeline_id=pipeline_id)
+
         submission = submit_to_targets(summary, settings, ctx)
         last_sha = summary.get("last_processed_sha", "")
-        # 매뉴얼 파이프라인은 sha 포인터를 쓰지 않는다 (버전 포인터 별도 — PoC).
-        # complete_run 은 last_processed_sha 가 비면 sha 를 전진시키지 않는다.
+
+        status = "done"
+        if _summary_has_errors(summary):
+            status = "failed"
+        elif _summary_has_warnings(summary):
+            status = "done_with_warnings"
+        elif pipeline_id == "static" and not last_sha:
+            status = "failed"
+
         report = {
-            "status": "done",
+            "status": status,
             "from_sha": branch.get("last_processed_sha", ""),
             "to_sha": last_sha,
             "last_processed_sha": last_sha,
             "doc_count": submission["doc_count"],
             "mr_url": submission["mr_url"],
         }
+        if status == "failed" and _summary_has_errors(summary):
+            docs = summary.get("themes") or summary.get("docs") or {}
+            errs = [f"{t}: {v.get('error', '')}"
+                    for t, v in docs.items()
+                    if isinstance(v, dict) and "error" in v]
+            report["error"] = "; ".join(errs)[:2000]
     except Exception as e:  # noqa: BLE001 — 모든 실패는 보고로 변환
         report = {"status": "failed", "error": f"{type(e).__name__}: {e}",
                   "error_kind": classify_error(e)}
     finally:
+        hb.stop()
         Observer.clear_global_sinks()
         sink.close()
     return cp.complete(run_id, report)
@@ -170,22 +198,42 @@ def _run_static_pipeline(settings: Settings, effective_mode: str,
                        themes=settings.theme_list or None, run_id=run_id)
 
 
-def _run_manual_pipeline(settings: Settings, *, run_id: str) -> dict:
-    """매뉴얼 파이프라인 — MCP 관측 → 하이브리드 순회 → 매뉴얼 생성.
+def _apply_manual_profile(settings: Settings, ctx: dict) -> Settings:
+    """컨텍스트의 manual_profile 로 settings 를 override — _run_manual_pipeline 이전에 호출."""
+    manual_profile = ctx.get("manual_profile")
+    if not manual_profile or not manual_profile.get("mcp_endpoint_url"):
+        if not settings.mcp_endpoint_url:
+            raise ValueError(
+                "MCP_ENDPOINT_URL 이 없습니다 — 매뉴얼 파이프라인 실행 불가. "
+                "소스가 매뉴얼 대상이면 Control Plane/.env 에 MCP 엔드포인트를 설정하세요."
+            )
+        return settings
+    overrides = {
+        "mcp_endpoint_url": manual_profile["mcp_endpoint_url"],
+        "mcp_transport": manual_profile.get("mcp_transport") or "sse",
+    }
+    allowlist = manual_profile.get("tool_allowlist") or []
+    if isinstance(allowlist, list):
+        overrides["manual_tool_allowlist"] = ",".join(allowlist)
+    return settings.model_copy(update=overrides)
 
-    v1 제한: MCP 엔드포인트·시나리오·테마는 글로벌 .env 기반. 소스별 MCP 호스트
-    (decision-app-host-connection 의 per-source IP/port)·시나리오는 후속 과제.
-    """
+
+def _run_manual_pipeline(settings: Settings, ctx: dict, *,
+                        run_id: str) -> dict:
     from ..manual_pipeline.runner import run_manual
 
-    if not settings.mcp_endpoint_url:
-        raise ValueError(
-            "MCP_ENDPOINT_URL 이 없습니다 — 매뉴얼 파이프라인 실행 불가. "
-            "소스가 매뉴얼 대상이면 Control Plane/.env 에 MCP 엔드포인트를 설정하세요."
-        )
+    manual_profile = ctx.get("manual_profile")
+    scenario_set_data = ctx.get("scenario_set")
+
+    scenarios_data = None
+    if scenario_set_data and scenario_set_data.get("scenarios"):
+        scenarios_data = scenario_set_data["scenarios"]
+
     return run_manual(
         settings, run_id=run_id,
+        scenarios_data=scenarios_data,
         themes=settings.manual_theme_list or None,
+        strict_allowlist=bool(manual_profile),
     )
 
 

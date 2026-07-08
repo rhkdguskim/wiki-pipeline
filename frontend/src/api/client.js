@@ -99,6 +99,84 @@ export const getRunSummary = runId => api(`/api/run-summary?run=${encodeURICompo
 
 export const getEvents = (runId, offset) => api(`/api/events?run=${encodeURIComponent(runId)}&offset=${offset}`).then(asJson);
 
+export const getRunEventsSeq = (runId, afterSeq = 0, limit = 500) =>
+  api(`/api/runs/${encodeURIComponent(runId)}/events?afterSeq=${afterSeq}&limit=${limit}`).then(asJson);
+
+export const getRunQuality = (runId, params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.severity) qs.set('severity', params.severity);
+  if (params.blocking != null) qs.set('blocking', String(params.blocking));
+  if (params.doc_id) qs.set('doc_id', params.doc_id);
+  const tail = qs.toString();
+  return api(`/api/runs/${encodeURIComponent(runId)}/quality${tail ? `?${tail}` : ''}`).then(asJson);
+};
+
+export const getRunEvidence = (runId, params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.kind) qs.set('kind', params.kind);
+  if (params.doc_id) qs.set('doc_id', params.doc_id);
+  if (params.limit) qs.set('limit', String(params.limit));
+  if (params.cursor) qs.set('cursor', params.cursor);
+  const tail = qs.toString();
+  return api(`/api/runs/${encodeURIComponent(runId)}/evidence${tail ? `?${tail}` : ''}`).then(asJson);
+};
+
+export const getRunEvidenceItem = (runId, itemId) =>
+  api(`/api/runs/${encodeURIComponent(runId)}/evidence/${encodeURIComponent(itemId)}`).then(asJson);
+
+export const getRunCoverage = runId =>
+  api(`/api/runs/${encodeURIComponent(runId)}/coverage`).then(asJson);
+
+export const getRunArtifacts = runId =>
+  api(`/api/runs/${encodeURIComponent(runId)}/artifacts`).then(asJson);
+
+export const getRunVncSession = runId =>
+  api(`/api/runs/${encodeURIComponent(runId)}/vnc-session`).then(asJson);
+
+export const getManualProfile = sourceId =>
+  api(`/api/sources/${encodeURIComponent(sourceId)}/manual-profile`).then(asJson);
+
+export const saveManualProfile = (sourceId, payload) =>
+  api(`/api/sources/${encodeURIComponent(sourceId)}/manual-profile`,
+    jsonBody(payload, 'PUT')).then(asJson);
+
+export const preflightManualProfile = sourceId =>
+  api(`/api/sources/${encodeURIComponent(sourceId)}/manual-profile/preflight`,
+    {method: 'POST'}).then(asJson);
+
+export const listScenarios = sourceId =>
+  api(`/api/sources/${encodeURIComponent(sourceId)}/scenarios`).then(asJson);
+
+export const createScenario = (sourceId, payload) =>
+  api(`/api/sources/${encodeURIComponent(sourceId)}/scenarios`,
+    jsonBody(payload, 'POST')).then(asJson);
+
+export const updateScenario = (sourceId, scenarioId, payload) =>
+  api(`/api/sources/${encodeURIComponent(sourceId)}/scenarios/${encodeURIComponent(scenarioId)}`,
+    jsonBody(payload, 'PUT')).then(asJson);
+
+export const deleteScenario = (sourceId, scenarioId) =>
+  api(`/api/sources/${encodeURIComponent(sourceId)}/scenarios/${encodeURIComponent(scenarioId)}`,
+    {method: 'DELETE'}).then(asJson);
+
+export const activateScenario = (sourceId, scenarioId) =>
+  api(`/api/sources/${encodeURIComponent(sourceId)}/scenarios/${encodeURIComponent(scenarioId)}/activate`,
+    {method: 'POST'}).then(asJson);
+
+export const lintScenarios = (sourceId, payload) =>
+  api(`/api/sources/${encodeURIComponent(sourceId)}/scenarios/lint`,
+    jsonBody(payload, 'POST')).then(asJson);
+
+export const preflightArtifact = (sourceId, payload) =>
+  api(`/api/sources/${encodeURIComponent(sourceId)}/artifacts/preflight`,
+    jsonBody(payload, 'POST')).then(asJson);
+
+export const reapStuckRuns = () =>
+  api('/api/internal/reap-stuck', {method: 'POST'}).then(asJson);
+
+export const getQualitySummary = (window = 168) =>
+  api(`/api/quality/summary?window=${window}`).then(asJson);
+
 export const getOverview = () => api('/api/overview').then(asJson);
 
 export const getPipelineStatus = (windowHours = 24) =>

@@ -461,6 +461,34 @@ p { margin: 0; }
 .pill.failed::before { background: var(--danger); }
 .pill.stalled { color: var(--warn); border-color: color-mix(in srgb, var(--warn), transparent 55%); background: var(--warn-soft); }
 .pill.stalled::before { background: var(--warn); }
+.pill.done_with_warnings { color: var(--warn); border-color: color-mix(in srgb, var(--warn), transparent 55%); background: var(--warn-soft); }
+.pill.done_with_warnings::before { background: var(--warn); }
+.pill.failed_quality_gate { color: var(--danger); border-color: color-mix(in srgb, var(--danger), transparent 55%); background: var(--danger-soft); }
+.pill.failed_quality_gate::before { background: var(--danger); }
+.pill.partial { color: var(--warn); border-color: color-mix(in srgb, var(--warn), transparent 55%); background: var(--warn-soft); }
+.pill.partial::before { background: var(--warn); }
+.pill.stale { color: var(--warn); border-color: color-mix(in srgb, var(--warn), transparent 55%); background: var(--warn-soft); }
+.pill.stale::before { background: var(--warn); }
+.pill.timeout { color: var(--danger); border-color: color-mix(in srgb, var(--danger), transparent 55%); background: var(--danger-soft); }
+.pill.timeout::before { background: var(--danger); }
+.pill.cancelled { color: var(--soft); border-color: var(--line); background: var(--bg); }
+.pill.cancelled::before { background: var(--soft); }
+.pill.pass { color: var(--success); border-color: color-mix(in srgb, var(--success), transparent 55%); background: var(--success-soft); }
+.pill.pass::before { background: var(--success); }
+.pill.warning { color: var(--warn); border-color: color-mix(in srgb, var(--warn), transparent 55%); background: var(--warn-soft); }
+.pill.warning::before { background: var(--warn); }
+.pill.fail { color: var(--danger); border-color: color-mix(in srgb, var(--danger), transparent 55%); background: var(--danger-soft); }
+.pill.fail::before { background: var(--danger); }
+.pill.not_evaluated { color: var(--soft); border-color: var(--line); background: var(--bg); }
+.pill.not_evaluated::before { background: var(--soft); }
+.pill.publishable { color: var(--success); border-color: color-mix(in srgb, var(--success), transparent 55%); background: var(--success-soft); }
+.pill.publishable::before { background: var(--success); }
+.pill.review_required { color: var(--warn); border-color: color-mix(in srgb, var(--warn), transparent 55%); background: var(--warn-soft); }
+.pill.review_required::before { background: var(--warn); }
+.pill.blocked { color: var(--danger); border-color: color-mix(in srgb, var(--danger), transparent 55%); background: var(--danger-soft); }
+.pill.blocked::before { background: var(--danger); }
+.pill.unknown { color: var(--soft); border-color: var(--line); background: var(--bg); }
+.pill.unknown::before { background: var(--soft); }
 .pill.small { height: auto; padding: 2px 8px; font-size: 10.5px; border-radius: var(--r-pill); }
 
 /* ── panels ──────────────────────────────────────────────────────────── */

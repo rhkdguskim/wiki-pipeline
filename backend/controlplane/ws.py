@@ -3,10 +3,14 @@
 러너 webhook으로 적재되는 이벤트·run 상태 변화·등록 변경을 접속한 대시보드에
 즉시 push한다. 폴링 API는 폴백으로 유지된다.
 
-메시지 형태:
-- {"type": "events", "run_id": "...", "events": [...]}      # 러너 이벤트 배치
-- {"type": "run_status", "run_id": "...", "status": "..."}  # 완료 보고 반영
-- {"type": "runs_changed" | "sources_changed" | "instances_changed" | "targets_changed"}
+메시지 형태 (2026-07-08 envelope 통일):
+- {"type": "events", "run_id": "...", "events": [...], "latest_seq": int, "snapshot_version": int}
+- {"type": "run_status", "run_id": "...", "status": "...", "publishable": bool,
+   "publish_state": str, "snapshot_version": int, ...}
+- {"type": "quality_updated" | "evidence_updated" | "coverage_updated" |
+   "artifact_updated" | "vnc_session_updated" | "mr_plan_updated" | "run_heartbeat"}
+- {"type": "runs_changed" | "sources_changed" | "pipeline_status_changed" | "costs_changed"}
+- {"type": "overflow", "run_id": "..."}  # 큐 overflow 시 클라이언트 fallback 유도
 
 Per-client 필터 (Track E):
   각 WS 클라이언트는 ?verbose=0|1 쿼리 파라미터로 필터 모드를 지정한다.
@@ -50,6 +54,26 @@ def passthrough_filter(message: dict[str, Any]) -> dict[str, Any] | None:
     return message
 
 
+def build_envelope(*, message_type: str, run_id: str = "", latest_seq: int = 0,
+                   snapshot_version: int = 0, payload: dict | None = None) -> dict:
+    """모든 WS message envelope — latest_seq / snapshot_version 표준 첨부.
+
+    frontend 가 이 필드를 보고 snapshot_version 증가 시 refetch, latest_seq 로
+    dedupe/seq replay 를 수행한다.
+    """
+    env = {
+        "type": message_type,
+        "message_id": f"msg-{message_type}-{asyncio.get_event_loop().time():.0f}",
+        "ts": "",
+        "run_id": run_id,
+        "latest_seq": int(latest_seq or 0),
+        "snapshot_version": int(snapshot_version or 0),
+    }
+    if payload:
+        env.update(payload)
+    return env
+
+
 class Broadcaster:
     """스레드(동기 라우트) -> asyncio(웹소켓) 브리지. publish는 스레드 안전.
 
@@ -60,6 +84,7 @@ class Broadcaster:
     def __init__(self):
         self._loop: asyncio.AbstractEventLoop | None = None
         self._clients: set[_Client] = set()
+        self._overflow_callbacks: list[Callable[[dict], None]] = []
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
@@ -90,6 +115,10 @@ class Broadcaster:
         except RuntimeError:
             pass   # 루프 종료 중 — 관측 push 실패는 치명 아님
 
+    def register_overflow_callback(self, fn: Callable[[dict], None]) -> None:
+        """WS 라우트에서 overflow 시 호출할 콜백 — ws_channel close 처리 위임."""
+        self._overflow_callbacks.append(fn)
+
     def _fanout(self, message: dict[str, Any]) -> None:
         dead = []
         for client in self._clients:
@@ -103,11 +132,15 @@ class Broadcaster:
                 client.queue.put_nowait(filtered)
             except asyncio.QueueFull:
                 dead.append(client)   # 소비를 멈춘 클라이언트 — 큐 정리 유도
+                # overflow 신호도 큐에 못 들어간다 — ws_channel close 콜백으로
+                # frontend 가 reconnect / snapshot refetch 하도록 유도.
+                for cb in self._overflow_callbacks:
+                    try:
+                        cb({"type": "overflow", "run_id": message.get("run_id", "")})
+                    except Exception:  # noqa: BLE001
+                        log.warning("overflow callback failed", exc_info=True)
         for client in dead:
             self._clients.discard(client)
-            # 큐가 가득 찬 상태에서는 overflow 신호도 큐에 못 들어간다 — 클라이언트는
-            # 다음 메시지 부재로 자연 타임아웃되거나, WS ping 실패로 끊긴다.
-            # 운영 가시성을 위해 warning 로그만 남긴다.
             log.warning("ws client overflow — discarded (queue=%d, clients_left=%d)",
                         _QUEUE_MAX, len(self._clients))
 

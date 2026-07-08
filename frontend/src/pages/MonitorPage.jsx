@@ -3,18 +3,39 @@ import {StatusPill} from '../components/StatusPill.jsx';
 import {PageHeader} from '../components/PageHeader.jsx';
 import {OverviewNarrative} from '../components/OverviewNarrative.jsx';
 import {PipelineFlow} from '../components/PipelineFlow.jsx';
+import {QualityGatePanel} from '../components/QualityGatePanel.jsx';
+import {EvidencePackPanel} from '../components/EvidencePackPanel.jsx';
+import {CoveragePanel} from '../components/CoveragePanel.jsx';
+import {ArtifactSelectorPanel} from '../components/ArtifactSelectorPanel.jsx';
+import {RemoteVncMonitor} from '../components/RemoteVncMonitor.jsx';
+import {AgentQualityTimeline} from '../components/AgentQualityTimeline.jsx';
+import {RunQualityBadge} from '../components/RunQualityBadge.jsx';
 import {StagesPage} from './StagesPage.jsx';
 import {TracePage} from './TracePage.jsx';
+import {
+  useRunQualityQuery, useRunEvidenceQuery, useRunCoverageQuery,
+  useRunArtifactsQuery, useRunVncQuery, usePreflightArtifactMutation,
+} from '../hooks/queries.js';
+import {preflightArtifact} from '../api/client.js';
 import {deriveStageState, fmtDur, STALL_SEC} from '../lib/format.js';
 import {narrateStageLabel} from '../lib/stageNarrative.js';
 
 const SUB_TABS = [
   {id: 'overview', label: '개요'},
+  {id: 'quality', label: '품질'},
+  {id: 'evidence', label: '근거'},
   {id: 'stages', label: '스테이지'},
+  {id: 'coverage', label: '커버리지'},
+  {id: 'artifacts', label: '산출물'},
+  {id: 'remote', label: '원격 모니터'},
   {id: 'feed', label: '트레이스'},
 ];
 
-const STATUS_LABEL = {pending: '대기', running: '실행 중', done: '완료', failed: '실패'};
+const STATUS_LABEL = {
+  pending: '대기', running: '실행 중', done: '완료', failed: '실패',
+  done_with_warnings: '경고 완료', failed_quality_gate: '품질 실패',
+  partial: '부분 완료', stale: '지연', timeout: '시간 초과', cancelled: '취소',
+};
 
 export function MonitorPage({
   runId, setRunId, filteredRuns, dbRuns = [],
@@ -85,7 +106,89 @@ export function MonitorPage({
       onSubmitMr={onSubmitMr} onOpenTrace={() => setMonitorView('feed')}
       runId={runId}
     />}
+    {monitorView === 'quality' && runId && <QualityTab runId={runId} runSummary={runSummary} S={S} />}
+    {monitorView === 'evidence' && runId && <EvidenceTab runId={runId} />}
     {monitorView === 'stages' && <StagesPage S={S} live={live} />}
+    {monitorView === 'coverage' && runId && <CoverageTab runId={runId} />}
+    {monitorView === 'artifacts' && runId && <ArtifactsTab runId={runId} runSummary={runSummary} />}
+    {monitorView === 'remote' && runId && <RemoteTab runId={runId} />}
     {monitorView === 'feed' && <TracePage S={S} live={live} state={state} stages={stages} />}
   </div>;
+}
+
+// ── Quality Tab ──────────────────────────────────────────────
+function QualityTab({runId, runSummary, S}) {
+  const qQuery = useRunQualityQuery(runId);
+  const quality = qQuery.data || runSummary?.quality;
+  const findings = qQuery.data?.findings || [];
+  const agentSteps = [...S.feed.entries()].filter(([, e]) =>
+    e.role || e.kind?.includes('agent') || e.kind?.includes('critic') ||
+    e.kind?.includes('quality') || e.kind?.includes('repair')
+  ).map(([id, e]) => ({id, ...e}));
+  return <div>
+    {runSummary && <div style={{marginBottom: 12}}>
+      <RunQualityBadge summary={runSummary} />
+    </div>}
+    <QualityGatePanel quality={quality} findings={findings} />
+    {agentSteps.length > 0 && <div style={{marginTop: 16}}>
+      <div className="panelHead"><h2>에이전트 역할 타임라인</h2></div>
+      <AgentQualityTimeline steps={agentSteps} />
+    </div>}
+  </div>;
+}
+
+// ── Evidence Tab ─────────────────────────────────────────────
+function EvidenceTab({runId}) {
+  const evQuery = useRunEvidenceQuery(runId);
+  if (evQuery.isLoading) return <div className="muted">불러오는 중…</div>;
+  if (evQuery.isError) return <div className="empty-state">근거 정보를 불러올 수 없습니다.</div>;
+  return <EvidencePackPanel
+    pack={evQuery.data}
+    onItemClick={() => {}}
+  />;
+}
+
+// ── Coverage Tab ─────────────────────────────────────────────
+function CoverageTab({runId}) {
+  const covQuery = useRunCoverageQuery(runId);
+  if (covQuery.isLoading) return <div className="muted">불러오는 중…</div>;
+  if (covQuery.isError) return <div className="empty-state">커버리지 정보를 불러올 수 없습니다.</div>;
+  return <CoveragePanel coverage={covQuery.data} />;
+}
+
+// ── Artifacts Tab ────────────────────────────────────────────
+function ArtifactsTab({runId, runSummary}) {
+  const artQuery = useRunArtifactsQuery(runId);
+  const preflightMut = usePreflightArtifactMutation();
+  const artifact = artQuery.data || runSummary?.artifact;
+  const sourceId = runSummary?.source_id || '';
+  return <div>
+    {artQuery.isLoading && <div className="muted">불러오는 중…</div>}
+    {artifact && <div className="panel" style={{marginBottom: 12}}>
+      <div className="panelHead"><h2>아티팩트 상태</h2></div>
+      <dl className="metaList">
+        <dt>릴리스 태그</dt><dd className="mono">{artifact.release_tag || '-'}</dd>
+        <dt>아티팩트</dt><dd className="mono">{artifact.artifact_name || '-'}</dd>
+        <dt>설치 버전</dt><dd className="mono">{artifact.installed_version || '-'}</dd>
+        <dt>빌드</dt><dd>{artifact.build_status || '-'}</dd>
+        <dt>배포</dt><dd>{artifact.deploy_status || '-'}</dd>
+        <dt>설치</dt><dd>{artifact.install_status || '-'}</dd>
+        <dt>준비</dt><dd>{artifact.readiness_status || '-'}</dd>
+        <dt>스모크</dt><dd>{artifact.smoke_status || '-'}</dd>
+      </dl>
+    </div>}
+    {sourceId && <ArtifactSelectorPanel
+      preflightResult={preflightMut.data}
+      onPreflight={(payload) => preflightMut.mutate({sourceId, payload})}
+      busy={preflightMut.isPending}
+    />}
+  </div>;
+}
+
+// ── Remote Monitor Tab ───────────────────────────────────────
+function RemoteTab({runId}) {
+  const vncQuery = useRunVncQuery(runId);
+  if (vncQuery.isLoading) return <div className="muted">불러오는 중…</div>;
+  if (vncQuery.isError || !vncQuery.data) return <div className="empty-state">VNC 세션 정보를 불러올 수 없습니다.</div>;
+  return <RemoteVncMonitor session={vncQuery.data} />;
 }

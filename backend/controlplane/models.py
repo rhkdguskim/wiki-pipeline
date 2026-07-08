@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint,
+    JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -111,7 +111,11 @@ class SourceSchedule(Base):
 
 
 class Run(Base):
-    """파이프라인 실행 1건 — Data Plane 러너가 webhook으로 상태를 갱신한다."""
+    """파이프라인 실행 1건 — Data Plane 러너가 webhook으로 상태를 갱신한다.
+
+    status enum: pending | running | done | done_with_warnings | failed |
+    failed_quality_gate | partial | stale | cancelled | timeout
+    """
 
     __tablename__ = "runs"
 
@@ -121,20 +125,42 @@ class Run(Base):
     mode: Mapped[str] = mapped_column(String(16), default="")         # init | diff | manual
     branch_role: Mapped[str] = mapped_column(String(16), default="dev")
     trigger: Mapped[str] = mapped_column(String(16), default="manual")  # manual | schedule
-    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending|running|done|failed
+    status: Mapped[str] = mapped_column(String(16), default="pending")
     from_sha: Mapped[str] = mapped_column(String(64), default="")
     to_sha: Mapped[str] = mapped_column(String(64), default="")
+    from_sha_snapshot: Mapped[str] = mapped_column(String(64), default="")
     doc_count: Mapped[int] = mapped_column(Integer, default=0)
     mr_url: Mapped[str] = mapped_column(String(500), default="")
     error: Mapped[str] = mapped_column(Text, default="")
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    attempt: Mapped[int] = mapped_column(Integer, default=1)
+    runner_pid: Mapped[str] = mapped_column(String(20), default="")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    terminal_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status_reason: Mapped[str] = mapped_column(Text, default="")
+    publishable: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    blocked_reason: Mapped[str] = mapped_column(Text, default="")
+    quality_status: Mapped[str] = mapped_column(String(24), default="not_evaluated", index=True)
+    quality_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    publish_state: Mapped[str] = mapped_column(String(24), default="unknown")
+    warning_publish_policy: Mapped[str] = mapped_column(String(24), default="review_required")
+    artifact_version: Mapped[str] = mapped_column(String(120), default="")
+    release_tag: Mapped[str] = mapped_column(String(120), default="")
+    source_version_ref: Mapped[str] = mapped_column(String(120), default="")
+    snapshot_version: Mapped[int] = mapped_column(Integer, default=0)
+    stale_complete: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 class RunEvent(Base):
-    """진행 이벤트 (decision-observability-event-contract) — id가 증분 폴링 커서."""
+    """진행 이벤트 (decision-observability-event-contract) — id가 증분 폴링 커서.
+
+    seq 는 server-assigned monotonic order. event_id 는 외부에서 보낸 stable id로
+    webhook idempotency 의 진짜 키다.
+    """
 
     __tablename__ = "run_events"
 
@@ -145,6 +171,13 @@ class RunEvent(Base):
     stage: Mapped[str] = mapped_column(String(200), default="")
     status: Mapped[str] = mapped_column(String(16), default="")
     payload: Mapped[str] = mapped_column(Text, default="{}")   # 원본 이벤트 JSON
+    event_id: Mapped[str] = mapped_column(String(120), default="")
+    seq: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    kind: Mapped[str] = mapped_column(String(120), default="")
+    severity: Mapped[str] = mapped_column(String(16), default="info")
+    role: Mapped[str] = mapped_column(String(80), default="")
+    dedupe_key: Mapped[str] = mapped_column(String(200), default="")
+    received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class RunModelUsage(Base):
@@ -200,6 +233,12 @@ class SourceReleaseTag(Base):
     last_seen_tag: Mapped[str] = mapped_column(String(200), default="")
     last_seen_sha: Mapped[str] = mapped_column(String(64), default="")
     last_run_id: Mapped[str] = mapped_column(String(120), default="")
+    last_triggered_tag: Mapped[str] = mapped_column(String(200), default="")
+    last_submitted_tag: Mapped[str] = mapped_column(String(200), default="")
+    last_merged_tag: Mapped[str] = mapped_column(String(200), default="")
+    last_successful_run_id: Mapped[str] = mapped_column(String(120), default="")
+    artifact_digest: Mapped[str] = mapped_column(String(64), default="")
+    last_launch_status: Mapped[str] = mapped_column(String(24), default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
@@ -261,3 +300,241 @@ class SystemSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
                                                  default=utcnow, onupdate=utcnow)
     updated_by: Mapped[str] = mapped_column(String(120), default="")
+
+
+# ── AI pipeline quality/evidence/manual profile tables (2026-07-08) ─────────
+
+
+class RunQualityReport(Base):
+    """run 의 최종 quality snapshot. run 당 1행."""
+
+    __tablename__ = "run_quality_reports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("runs.id"), nullable=False, index=True, unique=True)
+    status: Mapped[str] = mapped_column(String(24), default="not_evaluated")
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    publishable: Mapped[bool] = mapped_column(Boolean, default=False)
+    failed_gate: Mapped[str] = mapped_column(String(80), default="")
+    warning_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_count: Mapped[int] = mapped_column(Integer, default=0)
+    repair_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    deterministic_verifier_status: Mapped[str] = mapped_column(String(16), default="")
+    grounding_critic_status: Mapped[str] = mapped_column(String(16), default="")
+    schema_status: Mapped[str] = mapped_column(String(16), default="")
+    mermaid_status: Mapped[str] = mapped_column(String(16), default="")
+    redaction_status: Mapped[str] = mapped_column(String(16), default="")
+    gates_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
+                                                 default=utcnow, onupdate=utcnow)
+
+
+class RunQualityFinding(Base):
+    """critic/verifier finding 단위 row."""
+
+    __tablename__ = "run_quality_findings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), nullable=False, index=True)
+    doc_id: Mapped[str] = mapped_column(String(200), default="")
+    gate: Mapped[str] = mapped_column(String(80), default="")
+    code: Mapped[str] = mapped_column(String(120), default="")
+    severity: Mapped[str] = mapped_column(String(16), default="warning")
+    blocking: Mapped[bool] = mapped_column(Boolean, default=False)
+    message: Mapped[str] = mapped_column(Text, default="")
+    location: Mapped[str] = mapped_column(String(200), default="")
+    evidence_ref: Mapped[str] = mapped_column(String(200), default="")
+    repair_status: Mapped[str] = mapped_column(String(40), default="")
+    metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class RunEvidencePack(Base):
+    """Evidence Builder 결과 pack — run 당 1행."""
+
+    __tablename__ = "run_evidence_packs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), nullable=False, index=True)
+    source_id: Mapped[str] = mapped_column(String(64), default="")
+    pipeline_id: Mapped[str] = mapped_column(String(32), default="")
+    version_ref: Mapped[str] = mapped_column(String(120), default="")
+    item_count: Mapped[int] = mapped_column(Integer, default=0)
+    source_file_count: Mapped[int] = mapped_column(Integer, default=0)
+    observation_count: Mapped[int] = mapped_column(Integer, default=0)
+    unsupported_claim_count: Mapped[int] = mapped_column(Integer, default=0)
+    truncated: Mapped[bool] = mapped_column(Boolean, default=False)
+    omitted_count: Mapped[int] = mapped_column(Integer, default=0)
+    manifest_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class RunEvidenceItem(Base):
+    """개별 evidence item. 큰 내용은 content_uri 참조만."""
+
+    __tablename__ = "run_evidence_items"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    pack_id: Mapped[str] = mapped_column(
+        ForeignKey("run_evidence_packs.id"), nullable=False, index=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(40), default="source_file")
+    title: Mapped[str] = mapped_column(String(300), default="")
+    path: Mapped[str] = mapped_column(String(500), default="")
+    line_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    line_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    observation_id: Mapped[str] = mapped_column(String(64), default="")
+    scenario_id: Mapped[str] = mapped_column(String(64), default="")
+    artifact_ref: Mapped[str] = mapped_column(String(500), default="")
+    content_preview: Mapped[str] = mapped_column(Text, default="")
+    content_uri: Mapped[str] = mapped_column(String(500), default="")
+    metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class RunDocOutput(Base):
+    """생성된 문서 단위 metadata."""
+
+    __tablename__ = "run_doc_outputs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), nullable=False, index=True)
+    theme: Mapped[str] = mapped_column(String(200), default="")
+    path: Mapped[str] = mapped_column(String(500), default="")
+    title: Mapped[str] = mapped_column(String(300), default="")
+    action: Mapped[str] = mapped_column(String(40), default="create")
+    quality_status: Mapped[str] = mapped_column(String(24), default="not_evaluated")
+    publishable: Mapped[bool] = mapped_column(Boolean, default=False)
+    warning_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_count: Mapped[int] = mapped_column(Integer, default=0)
+    unsupported_claim_count: Mapped[int] = mapped_column(Integer, default=0)
+    evidence_count: Mapped[int] = mapped_column(Integer, default=0)
+    schema_status: Mapped[str] = mapped_column(String(16), default="")
+    mermaid_status: Mapped[str] = mapped_column(String(16), default="")
+    mr_inclusion_status: Mapped[str] = mapped_column(String(24), default="candidate")
+    content_sha256: Mapped[str] = mapped_column(String(64), default="")
+    metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SourceManualProfile(Base):
+    """source 별 manual automation profile. secret value 는 저장 안 함."""
+
+    __tablename__ = "source_manual_profiles"
+
+    source_id: Mapped[str] = mapped_column(ForeignKey("sources.id"), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    mcp_endpoint_url: Mapped[str] = mapped_column(String(500), default="")
+    mcp_transport: Mapped[str] = mapped_column(String(16), default="sse")
+    host_label: Mapped[str] = mapped_column(String(200), default="")
+    host_ip: Mapped[str] = mapped_column(String(64), default="")
+    host_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    vnc_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    vnc_host: Mapped[str] = mapped_column(String(64), default="")
+    vnc_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    vnc_gateway_policy: Mapped[str] = mapped_column(String(40), default="view_only")
+    tool_allowlist_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    secret_refs_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    artifact_selector_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    install_profile_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    readiness_check_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    smoke_check_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    coverage_threshold: Mapped[int] = mapped_column(Integer, default=70)
+    failure_policy: Mapped[str] = mapped_column(String(40), default="block")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
+                                                 default=utcnow, onupdate=utcnow)
+    updated_by: Mapped[str] = mapped_column(String(120), default="")
+
+
+class ManualScenarioSet(Base):
+    """scenario set + version. source 당 active 1개."""
+
+    __tablename__ = "manual_scenario_sets"
+    __table_args__ = (UniqueConstraint("source_id", "name"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_id: Mapped[str] = mapped_column(ForeignKey("sources.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(120), default="default")
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    status: Mapped[str] = mapped_column(String(16), default="draft")
+    scenario_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    lint_status: Mapped[str] = mapped_column(String(16), default="")
+    lint_errors_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
+                                                 default=utcnow, onupdate=utcnow)
+    updated_by: Mapped[str] = mapped_column(String(120), default="")
+
+
+class RunArtifact(Base):
+    """manual artifact/deploy/install/readiness/smoke 결과."""
+
+    __tablename__ = "run_artifacts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), nullable=False, index=True)
+    source_id: Mapped[str] = mapped_column(String(64), default="")
+    release_tag: Mapped[str] = mapped_column(String(120), default="")
+    artifact_name: Mapped[str] = mapped_column(String(200), default="")
+    artifact_url: Mapped[str] = mapped_column(String(500), default="")
+    artifact_sha256: Mapped[str] = mapped_column(String(64), default="")
+    artifact_type: Mapped[str] = mapped_column(String(16), default="unknown")
+    selected_by: Mapped[str] = mapped_column(String(32), default="policy")
+    build_status: Mapped[str] = mapped_column(String(16), default="unknown")
+    download_status: Mapped[str] = mapped_column(String(16), default="unknown")
+    deploy_status: Mapped[str] = mapped_column(String(16), default="unknown")
+    install_status: Mapped[str] = mapped_column(String(16), default="unknown")
+    readiness_status: Mapped[str] = mapped_column(String(16), default="unknown")
+    smoke_status: Mapped[str] = mapped_column(String(16), default="unknown")
+    installed_version: Mapped[str] = mapped_column(String(120), default="")
+    error: Mapped[str] = mapped_column(Text, default="")
+    metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
+                                                 default=utcnow, onupdate=utcnow)
+
+
+class RunCoverageReport(Base):
+    """manual coverage summary. run 당 1행."""
+
+    __tablename__ = "run_coverage_reports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("runs.id"), nullable=False, unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(24), default="not_applicable")
+    percentage: Mapped[float | None] = mapped_column(Float, nullable=True)
+    threshold: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reached: Mapped[int] = mapped_column(Integer, default=0)
+    expected: Mapped[int] = mapped_column(Integer, default=0)
+    missed_count: Mapped[int] = mapped_column(Integer, default=0)
+    misses_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    scenario_results_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class RunVncSession(Base):
+    """mcp-vnc monitoring session. run 당 1행. view-only 가 기본."""
+
+    __tablename__ = "run_vnc_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("runs.id"), nullable=False, unique=True, index=True)
+    session_id: Mapped[str] = mapped_column(String(64), default="")
+    status: Mapped[str] = mapped_column(String(24), default="unavailable")
+    host_label: Mapped[str] = mapped_column(String(200), default="")
+    host_ip_encrypted: Mapped[str] = mapped_column(Text, default="")
+    host_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    gateway_url: Mapped[str] = mapped_column(String(500), default="")
+    view_only: Mapped[bool] = mapped_column(Boolean, default=True)
+    current_scenario_step: Mapped[str] = mapped_column(String(200), default="")
+    current_action: Mapped[str] = mapped_column(String(200), default="")
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    resolution: Mapped[str] = mapped_column(String(40), default="")
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
+                                                 default=utcnow, onupdate=utcnow)
+    error: Mapped[str] = mapped_column(Text, default="")
