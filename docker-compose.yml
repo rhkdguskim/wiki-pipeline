@@ -1,0 +1,96 @@
+# wiki-pipeline — 단일 포트(8420) 통합 스택 (Backend + Frontend SPA + PostgreSQL)
+#
+# 사용법:
+#   1) backend/.env 에 시크릿 채우기 (CONTROL_API_TOKENS, CONTROL_SECRET_KEY, ...)
+#   2) docker compose up -d --build
+#   3) http://<host>:8420 접속 → SPA 가 서빙되고 /api/* 는 같은 포트에서 라우팅
+#
+# 기본 DB 는 PostgreSQL. .env 에 CONTROL_DB_URL=sqlite:///<path> 명시 시 SQLite 로 폴백.
+
+services:
+  # ── PostgreSQL — wiki-pipeline 의 SoT ─────────────────────────
+  # control-plane-postgresql decision: docker-compose 안에서 단일 인스턴스로 기동.
+  # 비밀번호는 compose env 로만 주입 (이미지/소스에 하드코딩 금지).
+  db:
+    image: postgres:16-alpine
+    container_name: wiki-pipeline-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: wpipe
+      POSTGRES_USER: wpipe
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 환경변수 필수}
+      # 한국어 collation / timezone 보존.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      TZ: Asia/Seoul
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wpipe -d wpipe"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+  # ── App (Control Plane + Frontend SPA) ──────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: wiki-pipeline:latest
+    container_name: wiki-pipeline
+    restart: unless-stopped
+
+    # 단일 포트 매핑 — API + SPA + WebSocket + /metrics 모두 8420.
+    ports:
+      - "8420:8420"
+
+    volumes:
+      # run 산출물 + JSONL 감사 로그 (영속).
+      - out-data:/app/out
+      # 호스트 .env 를 컨테이너에 주입 (read-only). 시크릿은 이미지/소스에 절대 넣지 않는다.
+      - ./backend/.env:/app/backend/.env:ro
+
+    environment:
+      # 컨테이너 내부 호스트명 'db' 가 postgres 서비스로 해석.
+      - CONTROL_DB_URL=postgresql+psycopg://wpipe:${POSTGRES_PASSWORD}@db:5432/wpipe
+      # SPA 마운트 — Dockerfile 멀티스테이지가 frontend/dist 를 /app/frontend/dist 에 복사.
+      - CONTROL_FRONTEND_DIST=/app/frontend/dist
+      - CONTROL_HOST=0.0.0.0
+      - CONTROL_PORT=8420
+      - LOG_FORMAT=json
+      - PYTHONUNBUFFERED=1
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+    # Dockerfile 의 HEALTHCHECK 와 동일 — compose 가 컨테이너 상태로 표시.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8420/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+    # OOM 방지 — 러너 subprocess 가 동시에 N개 뜨는 경우 헤드룸 필요.
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+    # docker-compose down 시 30초 안에 graceful shutdown (uvicorn lifespan).
+    stop_grace_period: 30s
+
+# 명명 볼륨 — 호스트 디렉토리 바인드 없이 docker 가 관리.
+# 호스트 경로로 직접 마운트하려면 - /var/lib/wpipe/out:/app/out 형태로 변경.
+volumes:
+  out-data:
+  pg-data:

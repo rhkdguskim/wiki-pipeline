@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -93,7 +95,8 @@ def _seed_from_env(app: FastAPI) -> None:
             log.info("docs-hub target 'product-common' seeded")
 
 
-def create_app(settings: ControlPlaneSettings | None = None) -> FastAPI:
+def create_app(settings: ControlPlaneSettings | None = None, *,
+               frontend_dist: Path | None = None) -> FastAPI:
     settings = settings or load_cp_settings()
 
     @asynccontextmanager
@@ -215,16 +218,53 @@ def create_app(settings: ControlPlaneSettings | None = None) -> FastAPI:
     app.state.runner_token = settings.control_runner_token
     app.state.db_ok = True
 
+# ── SPA (frontend/dist) 서빙 ──
+    # dist 소스: frontend_dist 인자(테스트) > CONTROL_FRONTEND_DIST 환경변수(Docker).
+    # 없거나 디렉터리가 존재하지 않으면 SPA 마운트 스킵 (API-only 모드).
+    _dist: Path | None = frontend_dist
+    if _dist is None:
+        _env = os.environ.get("CONTROL_FRONTEND_DIST")
+        if _env:
+            _dist = Path(_env)
+    if _dist and _dist.is_dir():
+        from fastapi.staticfiles import StaticFiles as _StaticFiles
+        from fastapi.responses import FileResponse as _FileResponse
+
+        _assets = _dist / "assets"
+        if _assets.is_dir():
+            app.mount("/assets", _StaticFiles(directory=str(_assets)), name="spa-assets")
+
+        @app.get("/", include_in_schema=False)
+        def _spa_root() -> _FileResponse:
+            return _FileResponse(str(_dist / "index.html"))
+
     # ── Routers ──
     app.include_router(router)
     app.include_router(health_router)
 
-    # ── /metrics (Prometheus exposition) ── 인증 면제 (rate limit 도 면제)
+    # ── /metrics (Prometheus exposition) — 인증 면제 (rate limit 도 면제)
     from fastapi import Response as _Response
     @app.get("/metrics", include_in_schema=False)
     def metrics() -> _Response:
         body, content_type = render_metrics()
         return _Response(content=body, media_type=content_type)
+
+    # ── SPA catch-all (가장 마지막) ──
+    if _dist and _dist.is_dir():
+        @app.get("/{full_path:path}", include_in_schema=False)
+        def _spa_fallback(full_path: str):
+            # 백엔드 도메인 prefix 는 SPA fallback 금지 — 404 그대로 노출.
+            if (full_path == "api" or full_path.startswith("api/")
+                    or full_path == "metrics" or full_path == "openapi.json"
+                    or full_path == "docs" or full_path == "redoc"
+                    or full_path.startswith("health")
+                    or full_path.startswith("docs/")):
+                from fastapi import HTTPException as _HTTPException
+                raise _HTTPException(404, "not found")
+            target = _dist / full_path
+            if target.is_file():
+                return _FileResponse(str(target))
+            return _FileResponse(str(_dist / "index.html"))
 
     return app
 

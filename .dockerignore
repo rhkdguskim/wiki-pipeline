@@ -1,0 +1,64 @@
+# wiki-pipeline — Docker build 컨텍스트 제외 규칙
+# (Docker 는 context root 의 .dockerignore 를 사용한다)
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.so
+.venv
+venv
+*.egg-info
+
+# Node / Frontend build artifacts (재빌드 시 새로 만듦)
+node_modules
+frontend/node_modules
+frontend/dist
+dist
+
+# Git / 개발자 도구
+.git
+.gitignore
+.github
+.obsidian
+.omc
+.omo
+.codebase-memory
+.codegraph
+.pytest_cache
+
+# 시크릿·환경파일 — 절대 이미지에 포함 금지
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+
+# 테스트·로컬 산출물
+tests
+**/tests/**
+test_*.py
+**/test_*.py
+backend/tests
+out
+backend/out
+backend/output
+backend/logs
+*.log
+*.jsonl
+*.sqlite
+*.sqlite-journal
+
+# 위키·문서·misc
+wiki
+raw
+schema.md
+README.md
+*.md
+docker-compose.yml
+Dockerfile
+.dockerignore
+backend/.dockerignore
+.agents
+.zai

@@ -181,6 +181,14 @@ class RunService:
         if run is None:
             raise ValueError(f"알 수 없는 run: {run_id}")
         status = str(report.get("status") or "done")
+        # Terminal guard — ingest_events()의 stale 가드와 대칭. cross-status 전이
+        # (done↔failed) 만 차단하고 same-status(done→done) 는 final 데이터 갱신 허용.
+        prev_status = run.status
+        if prev_status in ("done", "failed") and prev_status != status:
+            log.warning("complete webhook cross-status 거부 — run=%s prev=%s 보고=%s",
+                        run_id, prev_status, status)
+            return {"ok": True, "status": prev_status, "sha_advanced": False,
+                    "source_disabled": False, "idempotent": True}
         run.status = status
         run.from_sha = str(report.get("from_sha") or run.from_sha)
         run.to_sha = str(report.get("to_sha") or run.to_sha)
@@ -236,7 +244,7 @@ class RunService:
         if disabled:
             self._publish({"type": "sources_changed"})
         return {"ok": True, "status": status, "sha_advanced": advanced,
-                "source_disabled": disabled}
+                "source_disabled": disabled, "idempotent": False}
 
     # ── 보존 정책 — 오래된 이벤트 정리 (이력 runs/보고는 영구 보존) ──
     def prune_events(self, db: Session, *, older_than_days: int) -> int:

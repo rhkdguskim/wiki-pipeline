@@ -19,8 +19,8 @@ class ControlPlaneSettings(BaseSettings):
     control_port: int = 8420
 
     # ── DB (decision-control-plane-postgresql) ──
-    # 운영: postgresql+psycopg://user:pass@host:5432/wikipipeline
-    # 개발 기본값: out/ 아래 SQLite (단일 프로세스 개발 편의)
+    # 비우면 db_url property 가 PostgreSQL 기본값을 사용 (docker-compose 의 'db').
+    # SQLite 가 필요하면 .env 에 CONTROL_DB_URL=sqlite:///<path> 명시.
     control_db_url: str = ""
 
     # ── 인증 (decision-server-vm-self-token) ──
@@ -102,7 +102,9 @@ class ControlPlaneSettings(BaseSettings):
     def db_url(self) -> str:
         if self.control_db_url.strip():
             return self.control_db_url.strip()
-        return f"sqlite:///{self.out_path / 'control-plane.sqlite'}"
+        # 기본값: docker-compose 의 'db' 서비스(PostgreSQL). 컨테이너 외부에서 직접
+        # 기동할 때도 CONTROL_DB_URL 만 설정하면 그대로 동작 — SQLite 폴백은 제거.
+        return "postgresql+psycopg://wpipe:wpipe@db:5432/wpipe"
 
     @property
     def api_token_map(self) -> dict[str, str]:

@@ -470,6 +470,74 @@ def test_complete_run_sha_does_not_regress(client, monkeypatch):
         "더 오래된 sha가 최신 sha를 덮어썼다"
 
 
+def test_complete_run_terminal_guard_idempotent(client, monkeypatch):
+    """이미 terminal 인 run 에 늦게 도착한 complete 가 status/mr_url/doc_count 를
+    덮지 못한다 — done→failed, failed→done 전이 차단 (raw/2026-07-08 P0-3).
+
+    같은 run_id 의 두 번째 complete 는 idempotent 응답만 반환하고 DB 는 보존.
+    """
+    _create_source(client, monkeypatch)
+    run_id = client.post("/api/runs/trigger", headers=ADMIN,
+                         json={"source_id": "demo", "launch": False}).json()["run_id"]
+    client.post("/api/webhook/events", headers=RUNNER, json={
+        "run_id": run_id,
+        "events": [{"layer": "stage", "stage": "compare", "status": "done",
+                    "ts": "2026-07-08T10:00:00"}],
+    })
+    resp = client.post("/api/webhook/complete", headers=RUNNER, json={
+        "run_id": run_id, "status": "done",
+        "last_processed_sha": "c" * 40,
+        "doc_count": 3, "mr_url": "http://gitlab.local/mr/100",
+    })
+    assert resp.status_code == 200
+    assert resp.json()["idempotent"] is False
+    assert resp.json()["sha_advanced"] is True
+    resp2 = client.post("/api/webhook/complete", headers=RUNNER, json={
+        "run_id": run_id, "status": "failed",
+        "last_processed_sha": "d" * 40,
+        "doc_count": 99, "mr_url": "http://gitlab.local/mr/999",
+        "error": "late retry",
+    })
+    assert resp2.status_code == 200
+    assert resp2.json()["idempotent"] is True
+    assert resp2.json()["status"] == "done"
+    assert resp2.json()["sha_advanced"] is False
+    summary = client.get(f"/api/run-summary?run={run_id}", headers=ADMIN).json()
+    assert summary["status"] == "done"
+    assert summary["doc_count"] == 3
+    assert summary["mr_url"] == "http://gitlab.local/mr/100"
+    assert summary["error"] == ""
+    src = client.get("/api/sources", headers=ADMIN).json()[0]
+    assert src["last_processed_sha"] == "c" * 40
+
+
+def test_complete_run_failed_idempotent_blocks_done_overwrite(client, monkeypatch):
+    """failed run 에 done complete 도 차단 — 반대 방향도 같은 idempotent 보호."""
+    _create_source(client, monkeypatch)
+    run_id = client.post("/api/runs/trigger", headers=ADMIN,
+                         json={"source_id": "demo", "launch": False}).json()["run_id"]
+    client.post("/api/webhook/events", headers=RUNNER, json={
+        "run_id": run_id,
+        "events": [{"layer": "stage", "stage": "compare", "status": "done",
+                    "ts": "2026-07-08T10:00:00"}],
+    })
+    resp = client.post("/api/webhook/complete", headers=RUNNER, json={
+        "run_id": run_id, "status": "failed",
+        "error_kind": "not_found",
+        "error": "compare 404",
+    })
+    assert resp.json()["source_disabled"] is True
+    resp2 = client.post("/api/webhook/complete", headers=RUNNER, json={
+        "run_id": run_id, "status": "done",
+        "last_processed_sha": "e" * 40, "doc_count": 5,
+        "mr_url": "http://gitlab.local/mr/200",
+    })
+    assert resp2.json()["idempotent"] is True
+    assert resp2.json()["status"] == "failed"
+    src = client.get("/api/sources", headers=ADMIN).json()[0]
+    assert src["enabled"] is False
+
+
 def test_audit_actor_in_dev_mode_is_not_literal_braces(client, monkeypatch):
     """dev 모드(api_tokens 비어있음)에서 actor가 리터럴 '{}'가 되면 안 된다.
     (과거 버그: `_state(request).api_tokens and (...)`의 short-circuit로
@@ -618,3 +686,77 @@ def test_resolve_actor_returns_no_token_sentinel_not_first_token(client):
     assert actor == "(no-token)", \
         f"토큰 미제시인데 '{actor}' 로 반환 — 첫 토큰 폴백 버그 재현"
     assert actor != "admin", "인증되지 않은 요청이 'admin' 으로 기록됨"
+
+
+def test_control_db_url_default_is_postgresql(monkeypatch):
+    """CONTROL_DB_URL 미설정 시 기본값은 PostgreSQL (docker-compose 의 'db' 서비스).
+
+    SQLite 폴백은 제거 — 운영 표준 정렬. SQLite 가 필요하면 .env 에 명시적으로
+    CONTROL_DB_URL=sqlite:///<path> 를 설정한다 (테스트 fixture 가 그 패턴).
+    """
+    monkeypatch.delenv("CONTROL_DB_URL", raising=False)
+    from backend.controlplane.settings import ControlPlaneSettings
+    settings = ControlPlaneSettings()
+    assert settings.control_db_url == "", "control_db_url 필드 자체는 빈 문자열"
+    assert settings.db_url.startswith("postgresql+psycopg://"), \
+        f"db_url 기본값이 PostgreSQL 이어야 함: {settings.db_url}"
+    assert "@db:5432/wpipe" in settings.db_url, \
+        "docker-compose 의 'db' 서비스 호스트명 사용해야 함"
+
+
+def test_control_db_url_explicit_override(monkeypatch):
+    """CONTROL_DB_URL 명시 시 그대로 사용 — SQLite 등 다른 DB 도 허용."""
+    monkeypatch.setenv("CONTROL_DB_URL", "sqlite:///./out/dev.sqlite")
+    from backend.controlplane.settings import ControlPlaneSettings
+    settings = ControlPlaneSettings()
+    assert settings.db_url == "sqlite:///./out/dev.sqlite"
+
+
+def test_create_app_with_frontend_dist_serves_spa(client, tmp_path):
+    """create_app(frontend_dist=...) 로 SPA 마운트 — / 는 index.html, /assets/* 는 정적 파일.
+
+    백엔드 도메인 prefix (/api/* /health /metrics 등)는 SPA fallback 하지 않고 404 그대로.
+    """
+    import shutil
+    dist = tmp_path / "fake_dist"
+    assets = dist / "assets"
+    assets.mkdir(parents=True)
+    (dist / "index.html").write_text("<html><body>SPA</body></html>", encoding="utf-8")
+    (assets / "app.js").write_text("console.log('app');", encoding="utf-8")
+
+    from backend.controlplane.app import create_app
+    from backend.controlplane.settings import ControlPlaneSettings
+    from cryptography.fernet import Fernet
+    from fastapi.testclient import TestClient
+
+    settings = ControlPlaneSettings(
+        control_db_url=f"sqlite:///{tmp_path}/cp_spa.sqlite",
+        control_api_tokens="admin:tok",
+        control_runner_token="rt",
+        control_secret_key=Fernet.generate_key().decode(),
+        scheduler_enabled=False,
+        notify_mode="log",
+        admin_email="a@b.c",
+        out_dir=str(tmp_path / "out"),
+    )
+    spa_app = create_app(settings, frontend_dist=dist)
+    with TestClient(spa_app) as c:
+        r = c.get("/")
+        assert r.status_code == 200
+        assert "SPA" in r.text
+        r = c.get("/assets/app.js")
+        assert r.status_code == 200
+        assert "console.log" in r.text
+        r = c.get("/pipelines/123")
+        assert r.status_code == 200
+        assert "SPA" in r.text
+        r = c.get("/api/nonexistent")
+        assert r.status_code == 404
+        r = c.get("/health/nonexistent")
+        assert r.status_code == 404
+        r = c.get("/metrics")
+        assert r.status_code == 200
+        r = c.get("/favicon.ico")
+        # favicon.ico 가 dist 에 없으면 SPA fallback 이 index.html(200) 반환 — 브라우저는 무시.
+        assert r.status_code == 200
+        assert "SPA" in r.text
