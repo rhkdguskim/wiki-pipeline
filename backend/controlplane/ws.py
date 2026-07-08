@@ -102,13 +102,14 @@ class Broadcaster:
             try:
                 client.queue.put_nowait(filtered)
             except asyncio.QueueFull:
-                dead.append(client)   # 소비를 멈춘 클라이언트 — 연결 정리 유도
+                dead.append(client)   # 소비를 멈춘 클라이언트 — 큐 정리 유도
         for client in dead:
             self._clients.discard(client)
-            try:
-                client.queue.put_nowait({"type": "overflow"})
-            except asyncio.QueueFull:
-                pass
+            # 큐가 가득 찬 상태에서는 overflow 신호도 큐에 못 들어간다 — 클라이언트는
+            # 다음 메시지 부재로 자연 타임아웃되거나, WS ping 실패로 끊긴다.
+            # 운영 가시성을 위해 warning 로그만 남긴다.
+            log.warning("ws client overflow — discarded (queue=%d, clients_left=%d)",
+                        _QUEUE_MAX, len(self._clients))
 
 
 class _Client:

@@ -2,9 +2,12 @@
 .DS_Store
 
 # ── 개발 도구 내부 상태 (저장소 운영과 무관) ─────────────
-.codebase-memory/          # opencode 코드베이스 인덱스 캐시
-.omo/                      # oh-my-opencode session continuation
-.playwright-mcp/            # Playwright MCP 디버그 로그·스냅샷
+# opencode 코드베이스 인덱스 캐시
+.codebase-memory/
+# oh-my-opencode session continuation
+.omo/
+# Playwright MCP 디버그 로그·스냅샷
+.playwright-mcp/
 
 # Obsidian 개인 UI 상태 (세션마다 바뀜 — 공유 대상 아님)
 # 루트 및 하위 vault(wiki/ 등) 모두 적용

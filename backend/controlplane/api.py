@@ -104,6 +104,14 @@ def _check_run_id(run: str) -> str:
     return run
 
 
+def _extract_run_id(payload: dict) -> str:
+    """webhook 페이로드의 run_id — 검증 후 반환. 누락/오류 시 400/422.
+    webhook_events·webhook_complete 가 동일하게 사용 — 한 곳 변경이 모두 반영되도록.
+    """
+    run_id = str(payload.get("run_id") or "")
+    return _check_run_id(run_id)
+
+
 # ── audit (ENT-F) ──────────────────────────────────────────────
 
 def _resolve_actor(request: Request) -> str:
@@ -155,24 +163,21 @@ def _audit(request: Request, *, action: str, target_kind: str = "",
 
 @router.get("/")
 @router.get("/api")
-def index() -> dict:
+def index(request: Request) -> dict:
+    # OpenAPI 스키마에서 자동 수집 — app.routes 평탄 순회로는 _IncludedRouter
+    # 안에 갇힌 라우트를 못 찾는다. openapi()는 모든 라우트를 정규화해 노출.
+    spec = request.app.openapi()
+    seen: set[tuple[str, str]] = set()
+    for path, ops in (spec.get("paths") or {}).items():
+        for method in (ops or {}).keys():
+            m = method.upper()
+            if m in ("HEAD", "OPTIONS"):
+                continue
+            seen.add((m, path))
+    endpoints = sorted(f"{m} {p}" if m != "GET" else p for m, p in seen)
     return {
         "service": "wiki-pipeline control plane",
-        "endpoints": [
-            "/api/runs", "/api/runs/db", "POST /api/runs/trigger",
-            "/api/pipelines/status",
-            "/api/sources", "/api/schedules", "POST /api/sources", "PATCH /api/sources/{id}",
-            "PATCH /api/sources/{id}/schedule",
-            "POST /api/sources/{id}/schedules", "PATCH /api/sources/{id}/schedules/{schedule_id}",
-            "POST /api/sources/validate", "POST /api/sources/{id}/verify",
-            "/api/instances", "POST /api/instances",
-            "/api/docs-hub", "/api/docs-hub/mr-plan?run=<id>&target=<id>",
-            "POST /api/docs-hub/submit-mr",
-            "/api/overview", "/api/run-summary?run=<id>",
-            "/api/events?run=<id>&offset=<cursor>",
-            "POST /api/webhook/events", "POST /api/webhook/complete",
-            "/api/costs", "/health",
-        ],
+        "endpoints": endpoints,
     }
 
 
@@ -220,8 +225,8 @@ def update_llm_settings(request: Request, payload: dict = Body(...),
     Data Plane 러너를 재기동해야 적용된다 (Control Plane 재기동으로는 부족).
     """
     svc = request.app.state.settings_service
-    actor = _extract_token(request) or "(api)"
-    result = svc.set_llm(db, payload, actor=actor)
+    # _resolve_actor 로 토큰 평문이 audit detail 에 남는 것을 방지.
+    result = svc.set_llm(db, payload, actor=_resolve_actor(request))
     db.commit()
     _audit(request, action="llm_settings.update", target_kind="system_settings",
            target_id="llm", detail={"source": result.get("source")})
@@ -405,7 +410,9 @@ def trigger_run(request: Request, db=Depends(_db),
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     db.commit()
-    launched = st.run_service.launch_runner(run) is not None if payload.get("launch", True) else False
+    # launch=False 이면 run 행만 만들고 러너는 띄우지 않는다 — 테스트/리허스용.
+    should_launch = bool(payload.get("launch", True))
+    launched = should_launch and st.run_service.launch_runner(run) is not None
     return {"ok": True, "run_id": run.id, "launched": launched}
 
 
@@ -728,9 +735,18 @@ def delete_source(source_id: str, request: Request, db=Depends(_db)) -> dict:
     if source is None:
         raise HTTPException(404, f"source 없음: {source_id}")
     label = source.label or source.id
-    schedule_count = db.query(SourceSchedule).filter_by(source_id=source_id).delete()
-    branch_count = db.query(SourceBranch).filter_by(source_id=source_id).delete()
-    tag_count = db.query(SourceReleaseTag).filter_by(source_id=source_id).delete()
+    from sqlalchemy import delete
+    # SQLAlchemy 2.x 호환 — execute(delete(Model).where(...)) 패턴.
+    # synchronize_session=False 로 ORM identity map 순회 비용 제거 (대량 삭제 시).
+    schedule_count = db.execute(
+        delete(SourceSchedule).where(SourceSchedule.source_id == source_id)
+    ).rowcount
+    branch_count = db.execute(
+        delete(SourceBranch).where(SourceBranch.source_id == source_id)
+    ).rowcount
+    tag_count = db.execute(
+        delete(SourceReleaseTag).where(SourceReleaseTag.source_id == source_id)
+    ).rowcount
     db.delete(source)
     db.commit()
     st.scheduler.reload_jobs()
@@ -1068,7 +1084,7 @@ def runner_context(request: Request, db=Depends(_db), run: str = Query("")) -> d
 @router.post("/api/webhook/events", dependencies=[Depends(require_runner_token)])
 def webhook_events(request: Request, db=Depends(_db), payload: dict = Body(...)) -> dict:
     st = _state(request)
-    run_id = _check_run_id(str(payload.get("run_id") or ""))
+    run_id = _extract_run_id(payload)
     events = payload.get("events") or []
     if not isinstance(events, list):
         raise HTTPException(400, "events는 배열이어야 합니다.")
@@ -1087,7 +1103,7 @@ def webhook_events(request: Request, db=Depends(_db), payload: dict = Body(...))
 @router.post("/api/webhook/complete", dependencies=[Depends(require_runner_token)])
 def webhook_complete(request: Request, db=Depends(_db), payload: dict = Body(...)) -> dict:
     st = _state(request)
-    run_id = _check_run_id(str(payload.get("run_id") or ""))
+    run_id = _extract_run_id(payload)
     try:
         result = st.run_service.complete_run(db, run_id, payload)
     except ValueError as e:
@@ -1095,10 +1111,8 @@ def webhook_complete(request: Request, db=Depends(_db), payload: dict = Body(...
     # ENT-C: 파이프라인 종료 메트릭 (status·duration·token)
     try:
         from .observability import record_run_completion
-        # run_row 가 있으면 pipeline_id 조회, 없으면 payload 에서 추정
-        pipeline_id = str(payload.get("pipeline_id") or "")
-        from sqlalchemy import select
         from .models import Run as RunModel
+        pipeline_id = str(payload.get("pipeline_id") or "")
         run_row = db.get(RunModel, run_id)
         if run_row is not None and not pipeline_id:
             pipeline_id = run_row.pipeline_id
@@ -1112,8 +1126,9 @@ def webhook_complete(request: Request, db=Depends(_db), payload: dict = Body(...
             input_tokens=int(run_row.input_tokens if run_row else 0),
             output_tokens=int(run_row.output_tokens if run_row else 0),
         )
-    except Exception:  # noqa: BLE001 — 메트릭 실패는 무시
-        pass
+    except Exception as e:  # noqa: BLE001 — 메트릭 실패는 응답을 막지 않는다
+        log.warning("run completion metric emit failed run=%s: %s: %s",
+                    run_id, type(e).__name__, e)
     return result
 
 

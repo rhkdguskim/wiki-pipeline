@@ -503,3 +503,100 @@ def test_set_llm_does_not_leak_payload_as_env_default(client, monkeypatch):
     # (과거에는 payload 기반 dict라 180이 되었다)
     assert data["timeout_sec"] == 240.0, \
         f"expected 240.0 from env, got {data['timeout_sec']} — env_dict가 payload 기반"
+
+
+# ── regression: 신규 개선점 회귀 방지 ───────────────────────────────
+
+def test_index_endpoint_auto_discovers_routes(client):
+    """index()가 라우터에서 자동 수집 — 하드코딩 목록에 의존하지 않는다.
+    누락되면 운영자가 새 엔드포인트가 있는지 알 수 없다."""
+    body = client.get("/").json()
+    assert body["service"] == "wiki-pipeline control plane"
+    endpoints = body["endpoints"]
+    assert "/api/runs" in endpoints
+    assert "/api/sources" in endpoints
+    assert "/api/audit/recent" in endpoints
+    assert "/health" in endpoints
+    assert any(e.startswith("POST ") and "/api/runs/trigger" in e for e in endpoints)
+    assert any(e.startswith("DELETE ") and "/api/sources/{source_id}" in e for e in endpoints)
+
+
+def test_run_doc_rejects_path_traversal(client, monkeypatch, tmp_path):
+    """/api/runs/{run_id}/doc 경로 traversal 차단 — run 디렉터리 밖 접근 금지."""
+    _create_source(client, monkeypatch, verify=False)
+    run_id = client.post("/api/runs/trigger", headers=ADMIN,
+                         json={"source_id": "demo", "launch": False}).json()["run_id"]
+    resp = client.get(f"/api/runs/{run_id}/doc?path=readme.md", headers=ADMIN)
+    assert resp.status_code == 404
+    resp = client.get(f"/api/runs/{run_id}/doc?path=../secret.txt", headers=ADMIN)
+    assert resp.status_code == 400, f"경로 traversal이 차단되지 않음: {resp.status_code}"
+    resp = client.get(f"/api/runs/{run_id}/doc?path=foo.py", headers=ADMIN)
+    assert resp.status_code == 400
+    resp = client.get("/api/runs/../etc/passwd/doc?path=foo.md", headers=ADMIN)
+    assert resp.status_code in (400, 404), f"경로 traversal이 처리되지 않음: {resp.status_code}"
+    resp = client.get(f"/api/runs/{run_id}/doc?path=foo%20bar.md", headers=ADMIN)
+    assert resp.status_code == 400
+
+
+def test_audit_recent_filters_by_actor_and_action(client, monkeypatch):
+    """audit_recent의 actor/action 필터가 동작해야 한다 (운영 디버깅 핵심)."""
+    _create_source(client, monkeypatch, verify=False)
+    client.delete("/api/sources/demo", headers=ADMIN)
+    resp = client.get("/api/audit/recent?limit=100&action=source.delete", headers=ADMIN)
+    assert resp.status_code == 200
+    entries = resp.json()["entries"]
+    assert entries, "source.delete audit이 없다"
+    assert all(e["action"] == "source.delete" for e in entries)
+    resp = client.get("/api/audit/recent?limit=100&actor=admin", headers=ADMIN)
+    assert resp.status_code == 200
+    entries = resp.json()["entries"]
+    assert all(e["actor"] == "admin" for e in entries)
+    resp = client.get("/api/audit/recent?limit=1", headers=ADMIN)
+    assert resp.status_code == 200
+    assert len(resp.json()["entries"]) <= 1
+    assert client.get("/api/audit/recent?limit=0", headers=ADMIN).status_code == 422
+    assert client.get("/api/audit/recent?limit=501", headers=ADMIN).status_code == 422
+
+
+def test_delete_source_uses_sqlalchemy_2x_delete(client, monkeypatch):
+    """delete_source가 SQLAlchemy 2.x delete() 패턴으로 동작 — 자식 행도 정리."""
+    _create_source(client, monkeypatch, verify=False)
+    resp = client.post("/api/sources/demo/schedules", headers=ADMIN, json={
+        "label": "추가 스케줄", "pipeline_id": "static", "mode": "auto",
+        "branch_role": "dev", "schedule_time": "12:00", "schedule_weekdays": ["sun"],
+    })
+    assert resp.status_code == 201
+    resp = client.delete("/api/sources/demo", headers=ADMIN)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body == {"ok": True, "deleted": "demo"}
+    from backend.controlplane.db import session_scope
+    from backend.controlplane.models import (SourceSchedule, SourceBranch,
+                                              SourceReleaseTag)
+    factory = client.app.state.session_factory
+    with session_scope(factory) as db:
+        assert db.query(SourceSchedule).filter_by(source_id="demo").count() == 0, \
+            "스케줄 자식 행이 남아있다"
+        assert db.query(SourceBranch).filter_by(source_id="demo").count() == 0, \
+            "브랜치 자식 행이 남아있다"
+        assert db.query(SourceReleaseTag).filter_by(source_id="demo").count() == 0, \
+            "릴리스 태그 자식 행이 남아있다"
+
+
+def test_webhook_complete_metric_failure_does_not_break_response(client, monkeypatch):
+    """webhook_complete에서 메트릭 emit이 실패해도 응답은 정상 반환 — 회귀 방지."""
+    _create_source(client, monkeypatch)
+    run_id = client.post("/api/runs/trigger", headers=ADMIN,
+                         json={"source_id": "demo", "launch": False}).json()["run_id"]
+    resp = client.post("/api/webhook/complete", headers=RUNNER, json={
+        "run_id": run_id, "status": "done", "last_processed_sha": "b" * 40,
+        "doc_count": 0, "mr_url": "",
+    })
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["sha_advanced"] is True
+    resp = client.post("/api/webhook/complete", headers=RUNNER, json={"status": "done"})
+    # run_id 누락 — _check_run_id 가 빈 문자열을 거부 (400).
+    assert resp.status_code == 400
+    resp = client.post("/api/webhook/complete", headers=RUNNER,
+                       json={"run_id": "../bad", "status": "done"})
+    assert resp.status_code == 400
