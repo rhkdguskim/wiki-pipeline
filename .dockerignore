@@ -50,12 +50,12 @@ backend/logs
 *.sqlite
 *.sqlite-journal
 
-# 위키·문서·misc
+# 위키·문서·misc (schema.md 는 Dockerfile 이 COPY 하므로 제외 금지)
 wiki
 raw
-schema.md
 README.md
 *.md
+!schema.md
 docker-compose.yml
 Dockerfile
 .dockerignore
