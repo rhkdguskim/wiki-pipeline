@@ -10,11 +10,14 @@ import {ArtifactSelectorPanel} from '../components/ArtifactSelectorPanel.jsx';
 import {RemoteVncMonitor} from '../components/RemoteVncMonitor.jsx';
 import {AgentQualityTimeline} from '../components/AgentQualityTimeline.jsx';
 import {RunQualityBadge} from '../components/RunQualityBadge.jsx';
+import {MrReadinessPanel} from '../components/MrReadinessPanel.jsx';
+import {ChangeImpactPanel} from '../components/ChangeImpactPanel.jsx';
 import {StagesPage} from './StagesPage.jsx';
 import {TracePage} from './TracePage.jsx';
 import {
   useRunQualityQuery, useRunEvidenceQuery, useRunCoverageQuery,
   useRunArtifactsQuery, useRunVncQuery, usePreflightArtifactMutation,
+  useMrPlanQuery,
 } from '../hooks/queries.js';
 import {preflightArtifact} from '../api/client.js';
 import {deriveStageState, fmtDur, STALL_SEC} from '../lib/format.js';

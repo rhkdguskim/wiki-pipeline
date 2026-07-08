@@ -90,3 +90,10 @@ test('publishStateBadge null is muted', () => {
   const b = publishStateBadge(null);
   assert.equal(b.tone, 'muted');
 });
+
+test('runStateLabel distinguishes publishable review_required blocked', () => {
+  // Quick sanity that new statuses have distinct visual labels
+  assert.notEqual(runStateLabel('done_with_warnings'), runStateLabel('failed_quality_gate'));
+  assert.notEqual(runStateLabel('review_required'), runStateLabel('publishable'));
+  assert.notEqual(runStateLabel('blocked'), runStateLabel('warning'));
+});

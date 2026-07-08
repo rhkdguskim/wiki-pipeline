@@ -4,6 +4,8 @@ import {narrateStage} from '../lib/stageNarrative.js';
 import {fmtDur, fmtNum} from '../lib/format.js';
 import {RunQualityBadge} from './RunQualityBadge.jsx';
 import {VncSessionBadge} from './VncSessionBadge.jsx';
+import {ChangeImpactPanel} from './ChangeImpactPanel.jsx';
+import {MrReadinessPanel} from './MrReadinessPanel.jsx';
 
 const DocViewer = lazy(() => import('./DocViewer.jsx').then(m => ({default: m.DocViewer})));
 
@@ -97,6 +99,19 @@ export function OverviewNarrative({S, live, state, stages, activeRun, runSummary
       </div>
     </section>
 
+    {runSummary?.changed_files && (
+      <section className="panel">
+        <div className="panelHead"><h2>변경 영향</h2></div>
+        <ChangeImpactPanel summary={{
+          changed_files: runSummary.changed_files,
+          affected_themes: runSummary.affected_themes || [],
+          skipped_themes: runSummary.skipped_themes || [],
+          from_sha: runSummary.from_sha,
+          to_sha: runSummary.to_sha,
+        }} />
+      </section>
+    )}
+
     <section className="panel">
       <div className="panelHead"><h2><FileText size={14} />만들어진 문서</h2><span className="coordTag">{generated.length} DOCS</span></div>
       {generated.length ? <ul className="docList">
@@ -119,6 +134,13 @@ export function OverviewNarrative({S, live, state, stages, activeRun, runSummary
       {publishState === 'blocked' && !mrUrl && <div className="emptyPanel"><AlertTriangle size={14} /> {runSummary?.blocked_reason || '품질 게이트 실패로 MR 제출이 차단됐습니다'}</div>}
       {mrMessage && <p className="formMessage">{mrMessage}</p>}
     </section>
+
+    {mrPlan && (
+      <section className="panel">
+        <div className="panelHead"><h2><GitPullRequest size={14} />MR 준비 상태</h2></div>
+        <MrReadinessPanel plan={mrPlan} onSubmit={canSubmit ? onSubmitMr : null} busy={mrBusy} />
+      </section>
+    )}
 
     <button type="button" className="narrativeFootnote" onClick={onOpenTrace}>
       <Radio size={12} />LLM 호출 {S.llmCalls}회 · 토큰 {fmtNum(S.inTok + S.outTok)}{topModel?.model ? ` · ${topModel.provider}/${topModel.model}` : ''}

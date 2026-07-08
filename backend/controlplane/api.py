@@ -1408,11 +1408,89 @@ def _mr_plan(request: Request, db, run: str, target_id: str) -> dict:
     plan["coverage"] = coverage
     plan["requires_override"] = bool(not publishable
                                       and not payload_overrides_run("mr-override"))
+    _augment_mr_plan_with_doc_outputs(plan, db, run)
     return plan
 
 
+def _augment_mr_plan_with_doc_outputs(plan: dict, db, run_id: str) -> None:
+    """MR Plan 을 file-level quality-aware 로 강화.
+
+    raw/2026-07-08-backend-api-ai-pipeline-improvement-plan.md §10.1-10.2:
+    - publishable doc만 기본 포함
+    - failed quality doc은 excluded
+    - warning doc은 review_required 표시
+    - deprecated candidates 포함
+    - file-level included_files / excluded_files / review_checklist 보강
+    """
+    from .models import RunDocOutput
+    doc_rows = db.scalars(
+        select(RunDocOutput).where(RunDocOutput.run_id == run_id)
+    ).all()
+    included: list[dict] = []
+    excluded: list[dict] = []
+    review_checklist: list[str] = []
+    publish_state = str(plan.get("publish_state") or "unknown")
+    readiness = str(plan.get("readiness") or "unknown")
+    for r in doc_rows:
+        item = {
+            "id": r.id, "path": r.path, "theme": r.theme or "",
+            "title": r.title or "", "action": r.action,
+            "quality_status": r.quality_status or "not_evaluated",
+            "publishable": bool(r.publishable),
+            "mr_inclusion_status": r.mr_inclusion_status or "candidate",
+            "evidence_count": int(r.evidence_count or 0),
+            "unsupported_claim_count": int(r.unsupported_claim_count or 0),
+            "warning_count": int(r.warning_count or 0),
+        }
+        include_result = _decide_doc_inclusion(item, readiness, publish_state)
+        if include_result[0] is True:
+            included.append({**item, "review_required": False}
+                            if include_result[2] else item)
+            review_checklist.extend(include_result[2])
+        elif include_result[0] is False:
+            excluded.append({**item, "reason": include_result[1]})
+            review_checklist.extend(include_result[2])
+        else:
+            included.append({**item, "review_required": True})
+            review_checklist.extend(include_result[2])
+
+    plan["included_files"] = included
+    plan["excluded_files"] = excluded
+    plan["review_checklist"] = review_checklist
+    if excluded and plan.get("blocked_reason"):
+        plan["blocked_reason"] = plan["blocked_reason"] + " / 일부 문서 제외"
+    plan["needs_review"] = any(f.get("review_required") for f in included)
+
+
+def _decide_doc_inclusion(
+    item: dict, readiness: str, publish_state: str
+) -> tuple[bool, str, list[str]]:
+    """문서 단위 포함 결정.
+
+    - quality_status=fail 또는 readiness=blocked 또는 publish_state=blocked → 제외
+    - 그 외엔 포함 (warning/review_required 상태에서는 review checklist 항목 추가)
+    """
+    qs = str(item.get("quality_status") or "not_evaluated")
+    if readiness == "blocked":
+        return False, "run readiness=blocked", []
+    if qs == "fail":
+        return False, "doc quality_status=fail", []
+    if publish_state == "blocked":
+        return False, "publish_state=blocked", []
+    path = item.get("path", "?")
+    checklist: list[str] = []
+    if int(item.get("unsupported_claim_count", 0)) > 0:
+        checklist.append(f"문서 {path} 에 unsupported_claim — review 전 확인")
+    if qs == "warning" or publish_state == "review_required":
+        checklist.append(f"문서 {path} quality=warning — review 필수")
+    if item.get("mr_inclusion_status") == "deprecated_candidate":
+        checklist.append(f"문서 {path} deprecated 후보 — MR 포함 확인")
+    include = True if not checklist else "review"
+    return include, "", checklist
+
+
 def payload_overrides_run(token: str) -> bool:
-    """placeholder helper for future override flag — currently always False."""
+    """override flag — 현재는 항상 False (권한 시스템은 추후 도입)."""
     return False
 
 

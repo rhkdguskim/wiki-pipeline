@@ -639,3 +639,130 @@ def test_terminal_guard_idempotent(client):
     assert rv2.json()["idempotent"] is True
     rv3 = client.get(f"/api/run-summary?run={run_id}", headers=ADMIN)
     assert rv3.json()["status"] == "done"
+
+
+def test_mr_plan_quality_aware_doc_inclusion(client):
+    """MR Plan 이 file-level quality-aware 인지 검증.
+
+    raw/2026-07-08-backend-api-ai-pipeline-improvement-plan.md §10.1-10.2:
+    - publishable doc만 기본 포함
+    - failed quality doc → excluded
+    - warning doc → review_required 표시
+    - unsupported_claim > 0 → review checklist 추가
+    """
+    from backend.controlplane.models import Run, RunDocOutput
+    run_id = _trigger_run(client)
+    client.post("/api/docs-hub", headers=ADMIN, json={
+        "id": "product-common", "label": "hub", "kind": "gitlab",
+        "url": "http://gitlab.local/grp/hub", "project_id": "grp/hub",
+        "project_path": "grp/hub", "token": "t", "default_branch": "master",
+        "enabled": True,
+    })
+    client.post("/api/webhook/events", headers=RUNNER, json={
+        "run_id": run_id,
+        "events": [{"ts": "2026-07-08T10:00:00Z", "layer": "run",
+                    "stage": "", "status": "running", "event_id": "evt-x"}],
+    })
+
+    def _mr_setup(sha: str = "abc") -> None:
+        client.post("/api/webhook/quality", headers=RUNNER,
+                     json={"run_id": run_id, "status": "pass",
+                            "publishable": True})
+        client.post("/api/webhook/complete", headers=RUNNER,
+                     json={"run_id": run_id, "status": "done",
+                            "last_processed_sha": sha, "doc_count": 3,
+                            "mr_url": "https://gitlab.example.com/grp/hub/-/merge_requests/9"})
+    _mr_setup()
+
+    with client.app.state.session_factory() as db:
+        db.add_all([
+            RunDocOutput(run_id=run_id, path="docs/intro.md",
+                         theme="intro", title="Intro",
+                         action="create", quality_status="pass",
+                         publishable=True, evidence_count=2,
+                         mr_inclusion_status="candidate"),
+            RunDocOutput(run_id=run_id, path="docs/setup.md",
+                         theme="setup", title="Setup",
+                         action="update", quality_status="fail",
+                         publishable=False, evidence_count=1,
+                         unsupported_claim_count=3,
+                         mr_inclusion_status="candidate"),
+            RunDocOutput(run_id=run_id, path="docs/deprecated.md",
+                         theme="legacy", title="Legacy",
+                         action="deprecate_candidate", quality_status="warning",
+                         publishable=True, evidence_count=1,
+                         warning_count=2,
+                         mr_inclusion_status="deprecated_candidate"),
+            RunDocOutput(run_id=run_id, path="docs/warn.md",
+                         theme="guide", title="Guide",
+                         action="update", quality_status="warning",
+                         publishable=True, evidence_count=1,
+                         unsupported_claim_count=1,
+                         mr_inclusion_status="candidate"),
+        ])
+        db.commit()
+
+    rv = client.get(f"/api/docs-hub/mr-plan?run={run_id}&target=product-common",
+                     headers=ADMIN)
+    assert rv.status_code == 200, rv.text
+    data = rv.json()
+    assert data["readiness"] == "ready"
+    paths_in = {f["path"] for f in data["included_files"]}
+    paths_out = {f["path"] for f in data["excluded_files"]}
+    assert "docs/setup.md" in paths_out
+    assert "docs/setup.md" not in paths_in
+    assert "docs/intro.md" in paths_in
+    assert "docs/deprecated.md" in paths_in
+    assert "docs/warn.md" in paths_in
+    assert data["needs_review"] is True
+    combined_review = " ".join(data["review_checklist"])
+    assert "unsupported_claim" in combined_review
+    assert "deprecated 후보" in combined_review
+    assert "quality=warning" in combined_review
+
+
+def test_mr_plan_doc_outputs_excluded_when_run_readiness_blocked(client):
+    """run readiness=blocked 이면 모든 doc 이 excluded — raw §10.1."""
+    from backend.controlplane.models import Run, RunDocOutput
+    run_id = _trigger_run(client)
+    target_id = "product-common"
+    client.post("/api/docs-hub", headers=ADMIN, json={
+        "id": target_id, "label": "hub", "kind": "gitlab",
+        "url": "http://gitlab.local/grp/hub", "project_id": "grp/hub",
+        "project_path": "grp/hub", "token": "t", "default_branch": "master",
+        "enabled": True,
+    })
+    client.post("/api/webhook/events", headers=RUNNER, json={
+        "run_id": run_id,
+        "events": [{"ts": "2026-07-08T10:00:00Z", "layer": "run",
+                    "stage": "", "status": "running", "event_id": "evt-r"}],
+    })
+    client.post("/api/webhook/quality", headers=RUNNER,
+                 json={"run_id": run_id, "status": "pass",
+                        "publishable": True})
+    client.post("/api/webhook/complete", headers=RUNNER,
+                 json={"run_id": run_id, "status": "done",
+                        "last_processed_sha": "abc", "doc_count": 1,
+                        "mr_url": "https://gitlab.example.com/grp/hub/-/merge_requests/1"})
+    with client.app.state.session_factory() as db:
+        run = db.get(Run, run_id)
+        run.status = "done"
+        run.publishable = False
+        run.publish_state = "blocked"
+        run.blocked_reason = "coverage below threshold"
+        db.add(RunDocOutput(run_id=run_id, path="docs/x.md", theme="t",
+                             quality_status="pass", publishable=True,
+                             mr_inclusion_status="candidate",
+                             evidence_count=1))
+        db.commit()
+
+    rv = client.get(f"/api/docs-hub/mr-plan?run={run_id}&target={target_id}",
+                     headers=ADMIN)
+    assert rv.status_code == 200, rv.text
+    data = rv.json()
+    assert data["readiness"] == "blocked"
+    paths = {f["path"] for f in data["included_files"]}
+    assert "docs/x.md" not in paths
+    excluded_x = next((f for f in data["excluded_files"] if f["path"] == "docs/x.md"), None)
+    assert excluded_x is not None, f"excluded_files: {data['excluded_files']}"
+    assert "blocked" in excluded_x["reason"].lower() or "publish_state" in excluded_x["reason"].lower()
