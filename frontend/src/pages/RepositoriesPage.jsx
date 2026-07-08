@@ -6,7 +6,7 @@ import {LoadingBlock, ErrorBanner} from '../components/QueryState.jsx';
 
 export function RepositoriesPage({
   sources, query, onQueryChange, onOpenWizard, onOpenDetail,
-  onVerifySource, onTriggerSource, onToggleSourceEnabled,
+  onVerifySource, onTriggerSource, onToggleSourceEnabled, onDeleteSource,
   busy, message, isLoading, isError, error, onRetry,
 }) {
   const visibleSources = sources.filter(s => !query || `${s.label} ${s.project_id} ${s.id}`.toLowerCase().includes(query.toLowerCase()));
@@ -31,7 +31,7 @@ export function RepositoriesPage({
           {hasSources && <label className="search"><Search size={15} /><input value={query} onChange={e => onQueryChange(e.target.value)} placeholder="소스 검색" /></label>}
         </div>
         {hasSources
-          ? <SourcesTable sources={visibleSources} onOpenDetail={onOpenDetail} onVerify={onVerifySource} onTrigger={onTriggerSource} onToggleEnabled={onToggleSourceEnabled} />
+          ? <SourcesTable sources={visibleSources} onOpenDetail={onOpenDetail} onVerify={onVerifySource} onTrigger={onTriggerSource} onToggleEnabled={onToggleSourceEnabled} onDelete={onDeleteSource} />
           : <EmptyState icon={Server} title="등록된 소스가 없습니다" description="GitLab 또는 GitHub 저장소를 연결해 문서 자동화를 시작하세요" actionLabel="+ 소스 추가" onAction={onOpenWizard} />}
       </section>
     </>}

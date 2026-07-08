@@ -1,21 +1,14 @@
-import {useState} from 'react';
 import {Activity, CheckCircle2, Clock3, History, Server} from 'lucide-react';
 import {PageHeader} from '../components/PageHeader.jsx';
 import {RunsTable} from '../components/RunsTable.jsx';
 import {ErrorBanner, LoadingBlock} from '../components/QueryState.jsx';
 import {usePipelineStatusQuery} from '../hooks/queries.js';
 import {fmtClock, fmtDur, fmtNum, nf} from '../lib/format.js';
-
-const WINDOWS = [
-  {value: 1, label: '1H'},
-  {value: 6, label: '6H'},
-  {value: 24, label: '24H'},
-  {value: 72, label: '3D'},
-  {value: 168, label: '7D'},
-];
+import {MonitorPage} from './MonitorPage.jsx';
 
 const STATUS_PILL = {pending: '대기', running: '실행 중', done: '완료', failed: '실패'};
 const PIPELINE_LABEL = {static: '정적', manual: '매뉴얼'};
+const PIPELINE_WINDOW_HOURS = 24;
 
 function fmtRelative(iso) {
   if (!iso) return '-';
@@ -39,11 +32,43 @@ export function PipelineStatusPage({
   onOpenSource, onOpenRun, onTrigger,
   dbRuns = [], dbRunsIsLoading = false, dbRunsIsError = false, dbRunsError = null,
   onRetryDbRuns, sources = [],
+  runId, setRunId, filteredRuns, selectedSource, setSelectedSource,
+  S, live, state, stages, activeRun, runSummary,
+  mrPlan, mrBusy, mrMessage, onSubmitMr,
+  monitorView, setMonitorView, onOpenRepositories,
 }) {
-  const [windowHours, setWindowHours] = useState(24);
+  const windowHours = PIPELINE_WINDOW_HOURS;
   const psQuery = usePipelineStatusQuery(windowHours);
   const pipelines = psQuery.data?.pipelines || [];
   const generatedAt = psQuery.data?.generated_at;
+
+  if (runId) {
+    return <MonitorPage
+      runId={runId}
+      setRunId={setRunId}
+      filteredRuns={filteredRuns}
+      dbRuns={dbRuns}
+      selectedSource={selectedSource}
+      setSelectedSource={setSelectedSource}
+      sources={sources}
+      S={S}
+      live={live}
+      state={state}
+      stages={stages}
+      activeRun={activeRun}
+      runSummary={runSummary}
+      mrPlan={mrPlan}
+      mrBusy={mrBusy}
+      mrMessage={mrMessage}
+      onSubmitMr={onSubmitMr}
+      monitorView={monitorView}
+      setMonitorView={setMonitorView}
+      onOpenRepositories={onOpenRepositories}
+      title="파이프라인"
+      eyebrow={`RUN · ${runId.slice(0, 12)}`}
+      description="선택한 run의 실시간 진행 흐름과 산출물 상태"
+    />;
+  }
 
   // aggregate
   const totals = {
@@ -65,21 +90,7 @@ export function PipelineStatusPage({
     <PageHeader
       eyebrow="PIPELINES"
       title="파이프라인"
-      description={`(source × pipeline) 헬스 집계와 실행 이력을 한 화면에서. ${windowHours}H 윈도우.`}
-      actions={
-        <div className="windowSelector" role="group" aria-label="집계 윈도우">
-          {WINDOWS.map(w => (
-            <button
-              key={w.value}
-              type="button"
-              className={`windowBtn ${windowHours === w.value ? 'active' : ''}`}
-              onClick={() => setWindowHours(w.value)}
-            >
-              {w.label}
-            </button>
-          ))}
-        </div>
-      }
+      description="소스별 파이프라인 헬스와 최근 실행 이력을 한 화면에서 확인합니다"
     />
 
     <section className="stats">

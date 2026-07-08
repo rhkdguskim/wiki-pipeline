@@ -4,7 +4,7 @@ import {
   useSourcesQuery, useInstancesQuery, useDocTargetsQuery, useRunsQuery, useDbRunsQuery,
   useSourceRunsQuery, useCostsQuery, useOverviewQuery, useHealthQuery, useMrPlanQuery,
   useHealthReadyQuery,
-  useSaveSourceMutation, useVerifySourceMutation, useSaveInstanceMutation,
+  useSaveSourceMutation, useDeleteSourceMutation, useVerifySourceMutation, useSaveInstanceMutation,
   useSaveDocTargetMutation, useTriggerRunMutation, useSubmitMrMutation,
   useCreateSourceScheduleMutation, useUpdateSourceScheduleMutation,
   useDeleteSourceScheduleMutation,
@@ -21,7 +21,6 @@ import {SourceWizard} from './components/SourceWizard.jsx';
 import {Toasts} from './components/Toasts.jsx';
 
 import {HomePage} from './pages/HomePage.jsx';
-import {MonitorPage} from './pages/MonitorPage.jsx';
 import {RepositoriesPage} from './pages/RepositoriesPage.jsx';
 import {SourceDetailPage} from './pages/SourceDetailPage.jsx';
 import {CostsPage} from './pages/CostsPage.jsx';
@@ -75,6 +74,7 @@ export function App() {
   }, [docTargets]);
 
   const saveSourceMutation = useSaveSourceMutation();
+  const deleteSourceMutation = useDeleteSourceMutation();
   const verifySourceMutation = useVerifySourceMutation();
   const saveInstanceMutation = useSaveInstanceMutation();
   const saveDocTargetMutation = useSaveDocTargetMutation();
@@ -95,7 +95,7 @@ export function App() {
   const stages = [...S.stages.values()].filter(s => s.status != null);
 
   useEffect(() => {
-    if (page !== 'monitor') return;
+    if (page !== 'pipelines') return;
     // 대시보드를 랜딩 뷰로 사용 — 더 이상 첫 run으로 자동 진입하지 않는다.
     // 사용자가 대시보드에서 run을 고르면 runId가 설정되어 상세 뷰로 드릴다운.
     if (runId && !filteredRuns.length && !runs.some(r => r.run_id === runId)) {
@@ -147,6 +147,20 @@ export function App() {
     try {
       await saveSourceMutation.mutateAsync({form: {id: source.id, enabled: !source.enabled}, existing: true});
       pushToast(source.enabled ? `${source.label} 비활성화됨 (소프트 삭제)` : `${source.label} 활성화됨`, 'success');
+    } catch (e) {
+      pushToast(e.message, 'error');
+    }
+  };
+
+  const deleteSource = async (source) => {
+    if (!source?.id) return;
+    const label = source.label || source.id;
+    if (!confirm(`소스 설정을 삭제할까요?\n\n${label}\n\nrun 이력과 감사 로그는 보존됩니다.`)) return;
+    try {
+      await deleteSourceMutation.mutateAsync(source.id);
+      if (sourceDetailId === source.id) closeSourceDetail();
+      if (selectedSource === source.id) setSelectedSource('all');
+      pushToast(`소스 삭제 완료: ${label}`, 'success');
     } catch (e) {
       pushToast(e.message, 'error');
     }
@@ -243,6 +257,7 @@ export function App() {
           onOpenWizard={openWizard}
           onSelectRun={setRunId}
           onOpenRepositories={goRepositories}
+          onOpenPipelines={() => setPage('pipelines')}
         />}
 
         {page === 'repositories' && (sourceDetailId
@@ -278,10 +293,11 @@ export function App() {
             onVerifySource={doVerifySource}
             onTriggerSource={doTriggerRun}
             onToggleSourceEnabled={toggleSourceEnabled}
+            onDeleteSource={deleteSource}
             targetForm={targetForm}
             onTargetFormChange={setTargetForm}
             onSaveTarget={saveDocTarget}
-            busy={saveSourceMutation.isPending || saveInstanceMutation.isPending || saveDocTargetMutation.isPending}
+            busy={saveSourceMutation.isPending || deleteSourceMutation.isPending || saveInstanceMutation.isPending || saveDocTargetMutation.isPending}
             message=""
             isLoading={sourcesQuery.isLoading || instancesQuery.isLoading}
             isError={sourcesQuery.isError || instancesQuery.isError}
@@ -289,18 +305,6 @@ export function App() {
             onRetry={() => { sourcesQuery.refetch(); instancesQuery.refetch(); }}
           />
         )}
-
-        {page === 'monitor' && <MonitorPage
-          runId={runId} setRunId={setRunId} filteredRuns={filteredRuns}
-          dbRuns={dbRuns}
-          selectedSource={selectedSource} setSelectedSource={setSelectedSource} sources={sources}
-          S={S} live={live} state={state} stages={stages} activeRun={activeRun}
-          runSummary={runSummary} mrPlan={mrPlan} mrBusy={submitMrMutation.isPending}
-          mrMessage={submitMrMutation.error?.message || (submitMrMutation.data?.result?.merge_request?.web_url ? `MR 생성 완료: ${submitMrMutation.data.result.merge_request.web_url}` : '')}
-          onSubmitMr={doSubmitMr}
-          monitorView={monitorView} setMonitorView={setMonitorView}
-          onOpenRepositories={goRepositories}
-        />}
 
         {page === 'costs' && <CostsPage
           costs={costsQuery.data} overview={overviewQuery.data}
@@ -312,7 +316,7 @@ export function App() {
 
         {page === 'pipelines' && <PipelineStatusPage
           onOpenSource={(id) => { openSourceDetail(id); setPage('repositories'); }}
-          onOpenRun={(rid) => { setRunId(rid); setPage('monitor'); }}
+          onOpenRun={setRunId}
           onTrigger={doTriggerRun}
           dbRuns={dbRuns}
           dbRunsIsLoading={dbRunsQuery.isLoading}
@@ -320,6 +324,24 @@ export function App() {
           dbRunsError={dbRunsQuery.error}
           onRetryDbRuns={() => dbRunsQuery.refetch()}
           sources={sources}
+          runId={runId}
+          setRunId={setRunId}
+          filteredRuns={filteredRuns}
+          selectedSource={selectedSource}
+          setSelectedSource={setSelectedSource}
+          S={S}
+          live={live}
+          state={state}
+          stages={stages}
+          activeRun={activeRun}
+          runSummary={runSummary}
+          mrPlan={mrPlan}
+          mrBusy={submitMrMutation.isPending}
+          mrMessage={submitMrMutation.error?.message || (submitMrMutation.data?.result?.merge_request?.web_url ? `MR 생성 완료: ${submitMrMutation.data.result.merge_request.web_url}` : '')}
+          onSubmitMr={doSubmitMr}
+          monitorView={monitorView}
+          setMonitorView={setMonitorView}
+          onOpenRepositories={goRepositories}
         />}
 
         {page === 'audit' && <AuditLogPage

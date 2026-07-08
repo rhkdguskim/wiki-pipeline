@@ -84,6 +84,23 @@ def test_source_registration_with_verify(client, monkeypatch):
     assert "secret-token" not in str(view)
 
 
+def test_source_delete_removes_config_but_keeps_endpoint_audited(client, monkeypatch):
+    _create_source(client, monkeypatch)
+    resp = client.delete("/api/sources/demo", headers=ADMIN)
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"ok": True, "deleted": "demo"}
+
+    listing = client.get("/api/sources", headers=ADMIN).json()
+    assert all(s["id"] != "demo" for s in listing)
+
+    schedules = client.get("/api/schedules", headers=ADMIN).json()
+    assert all(s["source_id"] != "demo" for s in schedules)
+
+    audit = client.get("/api/audit/recent?limit=20", headers=ADMIN).json()
+    assert any(e["action"] == "source.delete" and e["target_id"] == "demo"
+               for e in audit["entries"])
+
+
 def test_source_schedule_management(client, monkeypatch):
     _patch_fake_connector(client, monkeypatch)
     resp = client.post("/api/sources", headers=ADMIN, json={

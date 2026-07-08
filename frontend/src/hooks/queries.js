@@ -1,6 +1,6 @@
 import {useMutation, useQuery, useQueryClient} from '@tanstack/react-query';
 import {
-  getSources, saveSource, saveSourceSchedule,
+  getSources, saveSource, deleteSource, saveSourceSchedule,
   createSourceSchedule, updateSourceSchedule, deleteSourceSchedule,
   verifySource, preflightSource,
   getInstances, saveInstance,
@@ -10,7 +10,8 @@ import {
   getOverview, getPipelineStatus, getCosts, getHealth,
   getHealthReady, getHealthLive, getHealthStartup,
   getAuditRecent,
-  getLlmSettings, getRunDoc,
+  getLlmSettings, updateLlmSettings, resetLlmSettings, testLlmSettings,
+  getRunDoc,
 } from '../api/client.js';
 import {useLiveSocketStore} from '../store/liveSocket.js';
 
@@ -126,6 +127,28 @@ export function useLlmSettingsQuery() {
   return useQuery({queryKey: ['llm-settings'], queryFn: getLlmSettings, staleTime: 60000});
 }
 
+export function useUpdateLlmSettingsMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload) => updateLlmSettings(payload),
+    onSuccess: () => qc.invalidateQueries({queryKey: ['llm-settings']}),
+  });
+}
+
+export function useResetLlmSettingsMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => resetLlmSettings(),
+    onSuccess: () => qc.invalidateQueries({queryKey: ['llm-settings']}),
+  });
+}
+
+export function useTestLlmConnectionMutation() {
+  return useMutation({
+    mutationFn: (payload) => testLlmSettings(payload || {}),
+  });
+}
+
 // run 산출물 문서 원문 (마크다운/머메이드).
 export function useRunDocQuery(runId, path, enabled = true) {
   return useQuery({
@@ -157,6 +180,18 @@ export function useSaveSourceMutation() {
     mutationFn: ({form, existing}) => saveSource(form, existing),
     onSuccess: () => {
       qc.invalidateQueries({queryKey: ['sources']});
+    },
+  });
+}
+
+export function useDeleteSourceMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id) => deleteSource(id),
+    onSuccess: () => {
+      qc.invalidateQueries({queryKey: ['sources']});
+      qc.invalidateQueries({queryKey: ['dbRuns']});
+      qc.invalidateQueries({queryKey: ['pipelineStatus']});
     },
   });
 }

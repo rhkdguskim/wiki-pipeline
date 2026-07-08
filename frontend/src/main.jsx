@@ -16,7 +16,7 @@ const queryClient = new QueryClient({
 
 // 401 감지 시 toast로 안내. pushToast는 zustand 어디서든 호출 가능 (React 컴포넌트 밖도 OK).
 setAuthErrorHandler(() => {
-  useUiStore.getState().pushToast('인증 토큰을 확인하세요 — 좌측 하단 토큰 설정', 'error');
+  useUiStore.getState().pushToast('인증 토큰을 확인하세요 — 설정 > 인증', 'error');
 });
 
 createRoot(document.getElementById('root')).render(

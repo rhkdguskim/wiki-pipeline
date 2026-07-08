@@ -1,7 +1,7 @@
 // Control Plane 자체 토큰 인증 (CONTROL_API_TOKENS 설정 시):
 // localStorage.cp_token을 모든 API 호출에 첨부.
-// 401 응답은 친절한 에러로 정규화 — TokenSettings UI에서 토큰을 다시 입력하도록 안내.
-const AUTH_ERROR_HINT = '인증 토큰이 유효하지 않습니다. 좌측 하단 토큰 설정을 확인하세요.';
+// 401 응답은 친절한 에러로 정규화 — 설정 > 인증에서 토큰을 다시 입력하도록 안내.
+const AUTH_ERROR_HINT = '인증 토큰이 유효하지 않습니다. 설정 > 인증에서 API 토큰을 확인하세요.';
 // ENT-E rate limit. 429 + Retry-After 헤더는 호출자가 보고용으로 쓸 수 있게
 // 일반화 — asJson 이 throw 하기 전에 콜백을 한 번 부른다.
 let rateLimitHandler = null;
@@ -55,6 +55,9 @@ export const getSources = () => api('/api/sources').then(asJson);
 export const saveSource = (form, existing) =>
   api(existing ? `/api/sources/${encodeURIComponent(form.id)}` : '/api/sources',
     jsonBody(form, existing ? 'PATCH' : 'POST')).then(asJson);
+
+export const deleteSource = id =>
+  api(`/api/sources/${encodeURIComponent(id)}`, {method: 'DELETE'}).then(asJson);
 
 export const saveSourceSchedule = (sourceId, schedule) =>
   api(`/api/sources/${encodeURIComponent(sourceId)}/schedule`, jsonBody(schedule, 'PATCH')).then(asJson);
@@ -118,6 +121,15 @@ export const getHealthReady = () => api('/health/ready').then(asJson);
 export const getHealthStartup = () => api('/health/startup').then(asJson);
 
 export const getLlmSettings = () => api('/api/settings/llm').then(asJson);
+
+export const updateLlmSettings = (payload) =>
+  api('/api/settings/llm', jsonBody(payload, 'PATCH')).then(asJson);
+
+export const resetLlmSettings = () =>
+  api('/api/settings/llm', {method: 'DELETE'}).then(asJson);
+
+export const testLlmSettings = (payload = {}) =>
+  api('/api/settings/llm/test', jsonBody(payload || {}, 'POST')).then(asJson);
 
 export const getRunDoc = (runId, path) =>
   api(`/api/runs/${encodeURIComponent(runId)}/doc?path=${encodeURIComponent(path)}`).then(asJson);

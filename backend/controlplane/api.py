@@ -17,7 +17,7 @@ from fastapi import (APIRouter, Body, Depends, HTTPException, Query, Request,
 
 from ..common.docshub import build_mr_plan, submit_change_request
 from . import projection
-from .models import DocTarget, ScmInstance, Source, SourceSchedule
+from .models import DocTarget, ScmInstance, Source, SourceBranch, SourceReleaseTag, SourceSchedule
 from .schedule import normalize_schedule_payload
 from .schemas import (
     AuditRecentResponse,
@@ -145,29 +145,162 @@ def health(request: Request) -> dict:
             "secretbox": request.app.state.box.enabled}
 
 
-# ── 시스템 설정 (읽기 전용 상태) ─────────────────────────────
+# ── 시스템 설정 (DB 영구 저장) ─────────────────────────────
 
-@router.get("/api/settings/llm", dependencies=[Depends(require_api_token)])
-def get_llm_settings() -> dict:
-    """LLM 런타임 설정 상태 (키는 has_key 불린만 노출 — 값 노출 금지).
-
-    .env에서 로드되므로 갱신하려면 .env 수정 후 재기동. 쓰기 엔드포인트는
-    의도적으로 제공하지 않는다 — 런타임 핫리로드는 권한·감사 축에서 위험.
-
-    os.environ에서 직접 읽는다 — common.Settings가 다른 분기(이전 ControlPlaneSettings
-    분리 작업)에 있어도 일관되게 동작하도록.
-    """
+def _env_llm_dict() -> dict[str, str]:
+    """LLM_* 환경변수를 dict 로 — SettingsService.get_llm_effective 입력용."""
     import os
     return {
-        "provider": os.getenv("LLM_PROVIDER", "openai-compatible"),
-        "base_url": os.getenv("LLM_BASE_URL", ""),
-        "model": os.getenv("LLM_MODEL", ""),
-        "has_key": bool(os.getenv("LLM_API_KEY", "").strip()),
-        "max_tokens": int(os.getenv("LLM_MAX_TOKENS", "65536")),
-        "temperature": float(os.getenv("LLM_TEMPERATURE", "0.2")),
-        "timeout_sec": float(os.getenv("LLM_TIMEOUT", "180")),
-        "retry_attempts": int(os.getenv("LLM_RETRY_ATTEMPTS", "4")),
+        "LLM_PROVIDER": os.getenv("LLM_PROVIDER", "openai-compatible"),
+        "LLM_BASE_URL": os.getenv("LLM_BASE_URL", ""),
+        "LLM_API_KEY": os.getenv("LLM_API_KEY", ""),
+        "LLM_MODEL": os.getenv("LLM_MODEL", ""),
+        "LLM_MAX_TOKENS": os.getenv("LLM_MAX_TOKENS", "65536"),
+        "LLM_TEMPERATURE": os.getenv("LLM_TEMPERATURE", "0.2"),
+        "LLM_TIMEOUT": os.getenv("LLM_TIMEOUT", "180"),
+        "LLM_RETRY_ATTEMPTS": os.getenv("LLM_RETRY_ATTEMPTS", "4"),
     }
+
+
+@router.get("/api/settings/llm", dependencies=[Depends(require_api_token)])
+def get_llm_settings(request: Request, db=Depends(_db)) -> dict:
+    """LLM 런타임 설정 상태.
+
+    DB 에 저장된 값이 우선, 없으면 .env 의 기본값 (source 표시).
+    키 값은 has_key 불린만 노출 — 값 자체는 응답에 포함되지 않는다.
+    """
+    svc = request.app.state.settings_service
+    return svc.get_llm_effective(db, _env_llm_dict())
+
+
+@router.patch("/api/settings/llm", dependencies=[Depends(require_api_token)])
+def update_llm_settings(request: Request, payload: dict = Body(...),
+                        db=Depends(_db)) -> dict:
+    """LLM settings 갱신 — DB 에 저장. 빈 문자열 / null 은 해당 키 삭제(env 복귀).
+
+    ⚠ 런타임 provider 는 import 시점에 settings.llm_* 를 캡처한다. 변경 후
+    Data Plane 러너를 재기동해야 적용된다 (Control Plane 재기동으로는 부족).
+    """
+    svc = request.app.state.settings_service
+    actor = _extract_token(request) or "(api)"
+    result = svc.set_llm(db, payload, actor=actor)
+    db.commit()
+    _audit(request, action="llm_settings.update", target_kind="system_settings",
+           target_id="llm", detail={"source": result.get("source")})
+    return result
+
+
+@router.delete("/api/settings/llm", dependencies=[Depends(require_api_token)])
+def reset_llm_settings(request: Request, db=Depends(_db)) -> dict:
+    """LLM settings DB 행 전부 삭제 — .env 기본값으로 폴백.
+
+    부분 삭제(특정 키만) 도 같은 효과지만, 보통 일괄 reset 이 운영 의도다.
+    """
+    from ..models import SystemSetting
+    from sqlalchemy import delete
+    db.execute(delete(SystemSetting).where(SystemSetting.key.like("llm.%")))
+    db.commit()
+    _audit(request, action="llm_settings.reset", target_kind="system_settings",
+           target_id="llm", detail={"reset_to": "env"})
+    return get_llm_settings(request, db)
+
+
+@router.post("/api/settings/llm/test", dependencies=[Depends(require_api_token)])
+def test_llm_settings(request: Request, db=Depends(_db),
+                      payload: dict = Body(default_factory=dict)) -> dict:
+    """LLM 연결 테스트 — effective settings (또는 overrides) 로 짧은 호출.
+
+    payload 가 비면 현재 effective (DB + .env) 를 그대로 쓴다. payload 에
+    필드가 있으면 그 값으로 덮어써 테스트한다 — 저장 전에 미리 확인용.
+
+    반환: {ok, model, latency_ms, response_preview, error}.
+    오류 시 ok=False, error 에 예외 메시지·HTTP status 등을 넣는다.
+    """
+    import os
+    import time
+    svc = request.app.state.settings_service
+    env_dict = _env_llm_dict()
+    # payload (있는 필드만) 를 effective 위에 덮어쓰기.
+    merged_env = dict(env_dict)
+    overrides = payload or {}
+    field_to_env = {
+        "provider": "LLM_PROVIDER", "base_url": "LLM_BASE_URL",
+        "api_key": "LLM_API_KEY", "model": "LLM_MODEL",
+    }
+    for k, env_key in field_to_env.items():
+        if k in overrides and overrides[k] not in (None, ""):
+            merged_env[env_key] = str(overrides[k])
+    for k, env_key in [
+        ("max_tokens", "LLM_MAX_TOKENS"), ("temperature", "LLM_TEMPERATURE"),
+        ("timeout_sec", "LLM_TIMEOUT"), ("retry_attempts", "LLM_RETRY_ATTEMPTS"),
+    ]:
+        if k in overrides and overrides[k] not in (None, ""):
+            try:
+                merged_env[env_key] = str({
+                    "max_tokens": int, "temperature": float,
+                    "timeout_sec": float, "retry_attempts": int,
+                }[k](overrides[k]))
+            except (TypeError, ValueError):
+                pass
+    # 검증 — 키·모델이 없으면 호출 불가.
+    api_key = (merged_env.get("LLM_API_KEY") or "").strip()
+    if not api_key:
+        return {"ok": False, "error": "API 키가 비어 있습니다. (DB/ .env 모두 확인)"}
+    model_name = (merged_env.get("LLM_MODEL") or "").strip()
+    if not model_name:
+        return {"ok": False, "error": "모델이 비어 있습니다."}
+    # Settings 인스턴스 빌드 — build_chat_model 이 받는 형태.
+    from ..common.config import Settings
+    test_settings = Settings(
+        llm_provider=merged_env.get("LLM_PROVIDER", "openai-compatible"),
+        llm_base_url=merged_env.get("LLM_BASE_URL", ""),
+        llm_api_key=merged_env.get("LLM_API_KEY", ""),
+        llm_model=merged_env.get("LLM_MODEL", ""),
+        llm_max_tokens=int(merged_env.get("LLM_MAX_TOKENS", "16")),
+        llm_temperature=float(merged_env.get("LLM_TEMPERATURE", "0")),
+        llm_timeout=float(merged_env.get("LLM_TIMEOUT", "30")),
+        out_dir=os.getenv("OUT_DIR", "./out"),
+        log_level=os.getenv("LOG_LEVEL", "INFO"),
+    )
+    try:
+        from ..common.llm import build_chat_model
+        model = build_chat_model(test_settings)
+        # 짧은 호출 — "ping" 또는 빈 메시지로 토큰 1개만 요청.
+        started = time.perf_counter()
+        from langchain_core.messages import HumanMessage
+        result = model.invoke([HumanMessage(content="ping")])
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        # 응답 본문 짧게 — AIMessage.content 는 str 또는 list[str].
+        content = result.content if hasattr(result, "content") else str(result)
+        if isinstance(content, list):
+            content = "".join(str(p) for p in content)
+        preview = str(content)[:120]
+        # DB 행 표시(저장 여부)
+        saved_in_db = any(
+            svc.get(db, f"llm.{k}") is not None
+            for k in ("provider", "base_url", "api_key", "model")
+        )
+        return {
+            "ok": True, "model": model_name, "latency_ms": latency_ms,
+            "response_preview": preview, "saved_in_db": saved_in_db,
+        }
+    except Exception as e:  # noqa: BLE001
+        # httopenai / anthropic 모두 다양한 예외를 던진다 — 메시지만 정규화.
+        msg = str(e)
+        if not msg:
+            msg = f"{type(e).__name__}"
+        # 흔한 케이스: 인증 실패 / 모델 없음 / endpoint 오류.
+        kind = "unknown"
+        low = msg.lower()
+        if "auth" in low or "401" in msg or "invalid api key" in low or "api_key" in low:
+            kind = "auth"
+        elif "404" in msg or "model_not_found" in low or "not found" in low:
+            kind = "model_not_found"
+        elif "timeout" in low or "timed out" in low:
+            kind = "timeout"
+        elif "connection" in low or "name resolution" in low or "resolve" in low:
+            kind = "network"
+        return {"ok": False, "model": model_name, "error": msg[:300], "error_kind": kind}
 
 
 @router.get("/api/runs/{run_id}/doc", dependencies=[Depends(require_api_token)])
@@ -323,7 +456,7 @@ def overview(request: Request, db=Depends(_db)) -> dict:
             response_model=PipelineStatusResponse)
 def pipelines_status(request: Request, db=Depends(_db),
                      window: int = Query(24, ge=1, le=168)) -> dict:
-    """각 (source × pipeline_id) 쌍의 상태 집계 — 프런트 MonitorDashboard 가 쓴다.
+    """각 (source × pipeline_id) 쌍의 상태 집계 — 프런트 파이프라인 페이지가 쓴다.
 
     반환: {pipelines: [...], window_hours, generated_at}. 한 번의 호출로
     useDbRunsQuery + 수동 집계하던 것을 서버가 단일 응답으로 제공한다.
@@ -482,6 +615,30 @@ def update_source(source_id: str, request: Request, db=Depends(_db),
     _audit(request, action="source.update", target_kind="source",
            target_id=source.id, detail={"verified": bool(verification.get("verified"))})
     return view
+
+
+@router.delete("/api/sources/{source_id}", dependencies=[Depends(require_api_token)])
+def delete_source(source_id: str, request: Request, db=Depends(_db)) -> dict:
+    st = _state(request)
+    source = db.get(Source, source_id)
+    if source is None:
+        raise HTTPException(404, f"source 없음: {source_id}")
+    label = source.label or source.id
+    schedule_count = db.query(SourceSchedule).filter_by(source_id=source_id).delete()
+    branch_count = db.query(SourceBranch).filter_by(source_id=source_id).delete()
+    tag_count = db.query(SourceReleaseTag).filter_by(source_id=source_id).delete()
+    db.delete(source)
+    db.commit()
+    st.scheduler.reload_jobs()
+    st.broadcaster.publish({"type": "sources_changed"})
+    _audit(request, action="source.delete", target_kind="source",
+           target_id=source_id, detail={
+               "label": label,
+               "schedules": int(schedule_count or 0),
+               "branches": int(branch_count or 0),
+               "release_tags": int(tag_count or 0),
+           })
+    return {"ok": True, "deleted": source_id}
 
 
 @router.patch("/api/sources/{source_id}/schedule", dependencies=[Depends(require_api_token)])

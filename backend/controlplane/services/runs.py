@@ -281,7 +281,7 @@ class RunService:
     def pipeline_status(self, db: Session, window_hours: int = 24) -> list[dict]:
         """각 (source × pipeline_id) 쌍의 최근 상태 + window 집계를 반환한다.
 
-        프런트 MonitorDashboard 가 useDbRunsQuery + 수동 집계하던 것을 서버가
+        프런트 파이프라인 페이지가 useDbRunsQuery + 수동 집계하던 것을 서버가
         단일 호출로 제공한다. 각 항목:
         - last_run_id, last_status, last_run_at, last_error, last_mr_url, last_doc_count
         - success_{w}h, failed_{w}h, running, total_tokens_{w}h, mean_duration_sec

@@ -15,7 +15,7 @@ function clearTimer(id) {
 
 // UI 전용 상태(서버 상태 아님) — 페이지 라우팅/선택/토스트
 export const useUiStore = create((set, get) => ({
-  // 최상위 페이지: home | repositories | monitor | runs | costs
+  // 최상위 페이지: home | repositories | pipelines | costs | audit | settings
   page: 'home',
   setPage: (page) => set({page}),
 
@@ -23,9 +23,9 @@ export const useUiStore = create((set, get) => ({
   setSelectedSource: (id) => set({selectedSource: id}),
 
   runId: '',
-  setRunId: (id) => set({runId: id, page: 'monitor'}),
+  setRunId: (id) => set({runId: id, page: 'pipelines'}),
 
-  // monitor 페이지 내부 서브뷰: overview(개요) | stages(스테이지) | feed(트레이스)
+  // 파이프라인 상세 내부 서브뷰: overview(개요) | stages(스테이지) | feed(트레이스)
   monitorView: 'overview',
   setMonitorView: (monitorView) => set({monitorView}),
 

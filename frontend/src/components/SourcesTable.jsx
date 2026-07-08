@@ -1,7 +1,7 @@
-import {ExternalLink, Play, ShieldCheck} from 'lucide-react';
+import {ExternalLink, Play, ShieldCheck, Trash2} from 'lucide-react';
 import {formatSchedule} from '../lib/schedule.js';
 
-export function SourcesTable({sources, onOpenDetail, onVerify, onTrigger, onToggleEnabled}) {
+export function SourcesTable({sources, onOpenDetail, onVerify, onTrigger, onToggleEnabled, onDelete}) {
   return <div className="tableScroll">
     <table>
       <thead>
@@ -30,6 +30,9 @@ export function SourcesTable({sources, onOpenDetail, onVerify, onTrigger, onTogg
               <button type="button" className="iconTextBtn" disabled={!s.enabled} onClick={() => onTrigger(s.id)} title={s.enabled ? '지금 실행' : s.disabled_reason || '비활성 소스'}><Play size={14} />실행</button>
               <button type="button" className="iconTextBtn" onClick={() => onToggleEnabled(s)} title={s.enabled ? '비활성화 (소프트 삭제)' : '활성화'}>
                 {s.enabled ? '비활성화' : '활성화'}
+              </button>
+              <button type="button" className="dangerBtn" onClick={() => onDelete(s)} title="소스 설정 삭제">
+                <Trash2 size={14} />삭제
               </button>
             </div>
           </td>

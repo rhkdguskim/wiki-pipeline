@@ -45,6 +45,7 @@ from .services.notifier import Notifier
 from .services.registration import RegistrationService
 from .services.runs import RunService
 from .services.scheduler import SourceScheduler
+from .services.settings import SettingsService
 from .services.tag_poller import TagPoller
 from .settings import ControlPlaneSettings, load_cp_settings
 from .ws import Broadcaster
@@ -196,6 +197,7 @@ def create_app(settings: ControlPlaneSettings | None = None) -> FastAPI:
     run_service = RunService(settings, notifier, broadcaster)
     tag_poller = TagPoller(settings, session_factory, run_service, notifier)
     audit_service = AuditService(session_factory)
+    settings_service = SettingsService(session_factory)
 
     app.state.settings = settings
     app.state.engine = engine
@@ -207,6 +209,7 @@ def create_app(settings: ControlPlaneSettings | None = None) -> FastAPI:
     app.state.run_service = run_service
     app.state.tag_poller = tag_poller
     app.state.audit_service = audit_service
+    app.state.settings_service = settings_service
     app.state.scheduler = SourceScheduler(settings, session_factory, run_service, tag_poller)
     app.state.api_tokens = settings.api_token_map
     app.state.runner_token = settings.control_runner_token

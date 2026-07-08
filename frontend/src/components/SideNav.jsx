@@ -1,16 +1,14 @@
-import {Bot, Coins, LayoutGrid, Radio, Server, Settings, ShieldCheck, Workflow} from 'lucide-react';
+import {Bot, Coins, LayoutGrid, Server, Settings, ShieldCheck, Workflow} from 'lucide-react';
 import {useLiveSocketStore} from '../store/liveSocket.js';
 import {useUiStore} from '../store/ui.js';
-import {TokenSettings} from './TokenSettings.jsx';
 
 const NAV = [
   {id: 'home', label: '홈', icon: LayoutGrid, key: '01'},
   {id: 'repositories', label: '저장소', icon: Server, key: '02'},
-  {id: 'monitor', label: '모니터', icon: Radio, key: '03'},
-  {id: 'pipelines', label: '파이프라인', icon: Workflow, key: '04'},
-  {id: 'costs', label: '비용', icon: Coins, key: '05'},
-  {id: 'audit', label: '감사', icon: ShieldCheck, key: '06'},
-  {id: 'settings', label: '설정', icon: Settings, key: '07'},
+  {id: 'pipelines', label: '파이프라인', icon: Workflow, key: '03'},
+  {id: 'costs', label: '비용', icon: Coins, key: '04'},
+  {id: 'audit', label: '감사', icon: ShieldCheck, key: '05'},
+  {id: 'settings', label: '설정', icon: Settings, key: '06'},
 ];
 
 function fmtRelative(ms) {
@@ -112,7 +110,6 @@ export function SideNav({page, onNavigate, health, healthReady}) {
       <div className="railSignalRow" title={healthTitle}>
         <span className={`healthDot ${healthOk ? 'ok' : healthKnown ? 'bad' : ''}`} aria-hidden="true" />
         <small>서버 {healthLabel}</small>
-        <TokenSettings />
       </div>
       <div className="railSignalRow" title={readyTitle}>
         <span className={`healthDot ${readyOk ? 'ok' : readyKnown ? 'bad' : ''}`} aria-hidden="true" />

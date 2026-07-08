@@ -53,8 +53,8 @@ export function StageChecklist({S, live}) {
       return <li className={`checklistItem ${effectiveState}`} key={key}>
         <span className="checklistIcon"><StatusIcon state={effectiveState} /></span>
         <div className="checklistBody">
-          <strong className="ellipsis" title={label}>{label}</strong>
-          {auxLabel && <span className="checklistHint ellipsis" title={auxLabel}>{auxLabel}</span>}
+          <strong title={label}>{label}</strong>
+          {auxLabel && <span className="checklistHint" title={auxLabel}>{auxLabel}</span>}
         </div>
         <span className="checklistDur">{mainStage.firstTs ? fmtDur(latestEnd - mainStage.firstTs) : '-'}</span>
       </li>;

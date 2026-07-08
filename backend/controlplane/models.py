@@ -242,3 +242,22 @@ class AuditLog(Base):
     request_id: Mapped[str] = mapped_column(String(40), default="")
     detail: Mapped[str] = mapped_column(Text, default="")   # JSON payload (secrets 포함 금지)
     remote_addr: Mapped[str] = mapped_column(String(64), default="")
+
+
+class SystemSetting(Base):
+    """시스템 설정 키-값 저장 (ENT-F 후속 · LLM Settings).
+
+    .env 의존을 줄이고 운영 중 대시보드에서 변경 가능하게 한다. key 가 "namespace.field"
+    형식 (예: "llm.provider", "llm.api_key") 이고 value 는 문자열로 직렬화.
+    비밀 값(API key 등) 도 평문 저장 — 운영에서는 Fernet 암호화 컬럼 또는
+    SecretBox 적용이 이상이나 v1 은 .env 대체 수단으로 평문 저장 (SecretBox 와 별도
+    컨텍스트로 격리).
+    """
+
+    __tablename__ = "system_settings"
+
+    key: Mapped[str] = mapped_column(String(200), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),
+                                                 default=utcnow, onupdate=utcnow)
+    updated_by: Mapped[str] = mapped_column(String(120), default="")
