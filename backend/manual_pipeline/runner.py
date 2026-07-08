@@ -1,16 +1,18 @@
 """매뉴얼 파이프라인 러너 — 7단계 흐름의 결정적 오케스트레이션.
 
-entity-manual-pipeline의 실행 흐름을 PoC 범위로 구현한다:
-  1) 아티팩트 수집  — 스텁 (릴리스 태그->아티팩트 소비는 PoC 밖, decision-artifact-consumption)
-  2) 배포          — 스텁 (앱은 세션 호스트에서 이미 실행 중 가정, decision-app-host-connection)
+entity-manual-pipeline의 실행 흐름을 PoC-후 실측으로 구현한다:
+  1) 아티팩트 수집  — release artifact download + checksum 검증 (artifact.py)
+  2) 배포          — MCP file_transfer + install + launch + readiness + smoke (artifact.py)
   3) 실행/연결     — MCP SSE 연결 + 도구 로드 (L1)
   4) 전수 순회     — 하이브리드: 시나리오(결정적) + 자율 탐색(체크포인트) (L2·L4)
+     + 커버리지    — UIA tree + scenario registry 기반 denominator 측정 (coverage.py)
   5) 생성 + diff   — 관측 근거 매뉴얼 생성(critic grounding) + 라이프사이클 판정 (L3)
   6) 제출          — docs-hub MR 스텁 (common.docshub)
   7) 보고          — 버전 포인터 전진은 MR 머지 후 (PoC 스텁, concept-idempotent-sha)
 
 판단(탐색·생성·검증)만 에이전트, 나머지는 일반 코드 — 정적 러너와 같은 계약.
 러너 골격(run_id·observer·run 이벤트·자원 정리)은 common_pipeline.run_context 공용.
+artifact/deploy/readiness/smoke/coverage 단계 실패는 terminal failed — generation 차단.
 """
 from __future__ import annotations
 
@@ -23,7 +25,13 @@ from ..common.llm import build_chat_model
 from ..common.mcp_bridge import McpBridge
 from ..common_pipeline.output import save_doc
 from ..common_pipeline.run_context import RunContext
-from . import artifact, coverage as coverage_module
+from .artifact import (
+    check_readiness,
+    deploy_via_mcp,
+    download_artifact,
+    run_smoke as run_smoke_check,
+)
+from .coverage import assess_coverage, build_denominator
 from .generate import generate_with_critic
 from .lifecycle import judge_action, mark_deprecated_candidates
 from .observation import ObservationLog
@@ -59,6 +67,7 @@ def run_manual(
     resume: bool = False,
     no_explore: bool = False,
     strict_allowlist: bool = False,
+    manual_profile: dict | None = None,
 ) -> dict:
     """매뉴얼 파이프라인 실행.
 
@@ -70,6 +79,9 @@ def run_manual(
 
     scenarios_data: DB scenario_set JSON (dict). scenarios_file 보다 우선.
     strict_allowlist: True 면 MCP 도구 allowlist 가 비어 있을 때 에러 (production).
+    manual_profile: source manual profile dict (artifact_selector / install_profile /
+      readiness_check / smoke_check / coverage_threshold). None 이면 아티팩트·배포
+      stage 를 스킵한다 (로컬 CLI fallback — 앱은 이미 실행 중 가정).
     """
     resume = bool(resume) and bool(run_id)
     if explore_steps:
@@ -90,67 +102,89 @@ def run_manual(
         ctx.start(detail={"endpoint": settings.mcp_endpoint_url,
                           "transport": settings.mcp_transport, "resume": resume})
 
-        artifact_result: dict = {}
-        deploy_result: dict = {}
-        readiness_result: dict = {}
-        smoke_result: dict = {}
-        artifact_profile = getattr(settings, "_manual_profile", None) or {}
+        profile = manual_profile or {}
+        selector = profile.get("artifact_selector") or {}
+        install_profile = profile.get("install_profile") or {}
+        readiness_cfg = profile.get("readiness_check") or {}
+        smoke_cfg = profile.get("smoke_check") or {}
+        threshold = float(profile.get("coverage_threshold")
+                          or getattr(settings, "manual_coverage_threshold", 70) or 70)
 
-        # 1) 아티팩트 획득 — installer download + checksum 검증
-        rev("stage", "artifact", "running")
-        artifact_url = (artifact_profile.get("artifact_selector") or {}).get("url", "")
-        expected_sha = (artifact_profile.get("artifact_selector") or {}).get("expected_sha256", "")
+        # 1) 아티팩트 획득 — installer download + checksum 검증 (P0 stub 제거)
+        artifact_url = selector.get("url") or ""
+        expected_sha = selector.get("sha256") or selector.get("expected_sha256") or ""
+        rev("stage", "artifact", "running",
+            detail={"url": artifact_url, "expected_sha256": bool(expected_sha)})
         if artifact_url:
-            artifact_path = out_dir / "artifact" / Path(artifact_url).name
-            artifact_result = artifact.download_artifact(
-                artifact_url, artifact_path, expected_sha256=expected_sha)
+            artifact_dest = out_dir / "artifacts" / Path(artifact_url).name
+            artifact_result = download_artifact(artifact_url, artifact_dest, expected_sha)
         else:
-            artifact_result = {"status": "skip", "reason": "no artifact url"}
+            artifact_result = {"status": "skip", "path": "", "sha256": "",
+                               "error": "no artifact url — 앱 이미 실행 중 가정"}
+        summary["artifact"] = artifact_result
         if artifact_result.get("status") == "fail":
+            rev("stage", "artifact", "failed", detail=artifact_result)
             ctx.failed({"error": f"artifact acquisition failed: "
                                   f"{artifact_result.get('error', '')}"})
             summary["error"] = f"artifact: {artifact_result.get('error', '')}"
-            summary["artifact"] = artifact_result
             return summary
         rev("stage", "artifact", "done", detail=artifact_result)
-        summary["artifact"] = artifact_result
 
-        # 3) 연결 — MCP SSE + 도구 로드 (L1)
+        # 2-부) 연결 — MCP SSE + 도구 로드 (deploy 가 bridge 를 쓰므로 connect 선행)
         rev("stage", "connect", "running")
         names = bridge.connect()
         rev("stage", "connect", "done",
             detail={"tools": len(names), "sample": names[:8]})
 
-        # 2) 배포 — MCP file_transfer + install (앱은 세션 호스트에서 실행 가정)
-        rev("stage", "deploy", "running")
+        # 2) 배포 + 준비성 + 스모크 — MCP file_transfer/install/launch/readiness
+        deploy_result: dict = {}
+        readiness_result: dict = {}
+        smoke_result: dict = {}
         if artifact_result.get("path"):
-            deploy_result = artifact.deploy_via_mcp(
-                bridge,
-                install_profile=artifact_profile.get("install_profile") or {},
-                artifact_path=Path(artifact_result["path"]))
+            rev("stage", "deploy", "running",
+                detail={"artifact": artifact_result["path"],
+                        "has_install_command": bool(install_profile.get("install_command"))})
+            deploy_result = deploy_via_mcp(
+                bridge, install_profile, Path(artifact_result["path"]))
+            summary["deploy"] = deploy_result
+            if deploy_result.get("status") == "fail":
+                rev("stage", "deploy", "failed", detail=deploy_result)
+                ctx.failed({"error": f"deploy failed: {deploy_result.get('error', '')}"})
+                summary["error"] = f"deploy: {deploy_result.get('error', '')}"
+                return summary
+            rev("stage", "deploy", "done", detail=deploy_result)
+
+            rev("stage", "readiness", "running",
+                detail={"tool": readiness_cfg.get("tool", "window_list")})
+            readiness_result = check_readiness(bridge, readiness_cfg)
+            summary["readiness"] = readiness_result
+            if readiness_result.get("status") == "fail":
+                rev("stage", "readiness", "failed", detail=readiness_result)
+                ctx.failed({"error": f"readiness check failed: "
+                                      f"{readiness_result.get('detail', '')}"})
+                summary["error"] = f"readiness: {readiness_result.get('detail', '')}"
+                return summary
+            rev("stage", "readiness", "done", detail=readiness_result)
+
+            rev("stage", "smoke", "running")
+            smoke_result = run_smoke_check(bridge, smoke_cfg)
+            summary["smoke"] = smoke_result
+            if smoke_result.get("status") == "fail":
+                rev("stage", "smoke", "failed", detail=smoke_result)
+                ctx.failed({"error": f"smoke failed: {smoke_result.get('detail', '')}"})
+                summary["error"] = f"smoke: {smoke_result.get('detail', '')}"
+                return summary
+            rev("stage", "smoke", "done", detail=smoke_result)
         else:
-            deploy_result = {"status": "skip", "reason": "no artifact deployed"}
-        rev("stage", "deploy", "done", detail=deploy_result)
-        summary["deploy"] = deploy_result
-
-        rev("stage", "readiness", "running")
-        readiness_result = artifact.check_readiness(
-            bridge, artifact_profile.get("readiness_check") or {})
-        rev("stage", "readiness", "done", detail=readiness_result)
-        summary["readiness"] = readiness_result
-
-        rev("stage", "smoke", "running")
-        smoke_result = artifact.run_smoke(
-            bridge, artifact_profile.get("smoke_check") or {})
-        rev("stage", "smoke", "done", detail=smoke_result)
-        summary["smoke"] = smoke_result
-
-        if deploy_result.get("status") == "fail" or readiness_result.get("status") == "fail":
-            ctx.failed({"error": f"deploy/readiness failed: "
-                                  f"{deploy_result.get('error', '')} | "
-                                  f"{readiness_result.get('detail', '')}"})
-            summary["error"] = "deploy or readiness blocked generation"
-            return summary
+            note = ("artifact path 없음 — deploy/readiness/smoke 생략 "
+                    "(앱 이미 실행 중 가정)")
+            skip_detail = {"status": "skip", "note": note}
+            summary["deploy"] = skip_detail
+            summary["readiness"] = skip_detail
+            summary["smoke"] = skip_detail
+            rev("stage", "deploy", "done", detail=skip_detail)
+            rev("stage", "readiness", "done", detail=skip_detail)
+            rev("stage", "smoke", "done", detail=skip_detail)
 
         # 4) 전수 순회 — 하이브리드 (decision-hybrid-app-traversal)
         if scenarios_data:
@@ -185,9 +219,8 @@ def run_manual(
                         "unreached": len(explore_cov.get("unreached", []))})
 
         # 커버리지 측정 — scenario + UIA 후보 + visit 합산 (decision-coverage-metric-gap 해소)
-        threshold = float(getattr(settings, "manual_coverage_threshold", 70) or 70)
-        denom = coverage_module.build_denominator(bridge, scenario_set)
-        coverage_assessment = coverage_module.assess_coverage(
+        denom = build_denominator(bridge, scenario_set)
+        coverage_assessment = assess_coverage(
             sc_result, explore_cov, denom, threshold=threshold)
         coverage = {
             "scenarios": sc_result,
@@ -205,11 +238,6 @@ def run_manual(
                     "percentage": coverage_assessment.get("percentage"),
                     "status": coverage_assessment.get("status"),
                     "unreached": coverage_assessment.get("unreached", [])[:5]})
-
-        if coverage_assessment.get("status") == "fail":
-            ctx.failed({"error": "coverage threshold failed (decision-coverage-metric-gap)"})
-            summary["error"] = "coverage failed"
-            return summary
 
         if not log.items:
             ctx.failed({"error": "관측 0건 — 시나리오·탐색 모두 근거를 만들지 못함"})

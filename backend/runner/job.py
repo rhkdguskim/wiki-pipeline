@@ -234,6 +234,7 @@ def _run_manual_pipeline(settings: Settings, ctx: dict, *,
         scenarios_data=scenarios_data,
         themes=settings.manual_theme_list or None,
         strict_allowlist=bool(manual_profile),
+        manual_profile=manual_profile,
     )
 
 

@@ -44,48 +44,50 @@ TERMINAL_STATUSES = (
 ACTIVE_STATUSES = ("pending", "running")
 
 
+def _flush_session_publishes(session: Session) -> None:
+    """after_commit callback — publish all deferred WS messages for this session."""
+    pending = session.info.pop("_cp_pending_publish", None)
+    if not pending:
+        return
+    for broadcaster, msg in pending:
+        try:
+            broadcaster.publish(msg)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _clear_session_publishes(session: Session) -> None:
+    """after_rollback callback — discard deferred messages (uncommitted state)."""
+    session.info.pop("_cp_pending_publish", None)
+
+
 class RunService:
     def __init__(self, settings: ControlPlaneSettings, notifier: Notifier,
                  broadcaster=None):
         self.settings = settings
         self.notifier = notifier
         self.broadcaster = broadcaster
-        self._pending_publishes: list[dict] = []
 
-    def _publish(self, message: dict) -> None:
-        if self.broadcaster is not None:
+    def _publish(self, message: dict, db: Session | None = None) -> None:
+        """Publish a WS message — deferred until db commit if db is provided.
+
+        When db is provided, the message is queued on session.info and flushed
+        by the after_commit SQLAlchemy event. On rollback, queued messages are
+        discarded. This prevents subscribers from seeing state for data that
+        wasn't committed yet.
+        """
+        if self.broadcaster is None:
+            return
+        if db is None:
             self.broadcaster.publish(message)
-
-    def publish_deferred(self, message: dict) -> None:
-        self._pending_publishes.append(message)
-
-    def flush_pending_publishes(self) -> int:
-        if not self.broadcaster:
-            self._pending_publishes.clear()
-            return 0
-        n = len(self._pending_publishes)
-        for msg in self._pending_publishes:
-            self.broadcaster.publish(msg)
-        self._pending_publishes.clear()
-        return n
-
-    def install_after_commit_publish(self, db: Session) -> None:
+            return
         from sqlalchemy import event
-        service_ref = self
-
-        def _flush():
-            for msg in list(service_ref._pending_publishes):
-                if service_ref.broadcaster:
-                    service_ref.broadcaster.publish(msg)
-            service_ref._pending_publishes.clear()
-
-        @event.listens_for(db, "after_commit")
-        def _after_commit(session):
-            _flush()
-
-        @event.listens_for(db, "after_rollback")
-        def _after_rollback(session):
-            service_ref._pending_publishes.clear()
+        pending = db.info.setdefault("_cp_pending_publish", [])
+        pending.append((self.broadcaster, message))
+        if not db.info.get("_cp_publish_hook"):
+            db.info["_cp_publish_hook"] = True
+            event.listen(db, "after_commit", _flush_session_publishes)
+            event.listen(db, "after_rollback", _clear_session_publishes)
 
     def next_seq(self, db: Session, run_id: str) -> int:
         """run 의 server-assigned monotonic seq — webhook ingest 의 ordering 진실."""
@@ -119,7 +121,7 @@ class RunService:
                   from_sha_snapshot=from_sha_snapshot)
         db.add(run)
         db.flush()
-        self._publish({"type": "runs_changed", "run_id": run_id})
+        self._publish({"type": "runs_changed", "run_id": run_id}, db)
         return run
 
     def launch_runner(self, run: Run) -> subprocess.Popen | None:
@@ -182,7 +184,7 @@ class RunService:
             run.attempt = int(attempt)
         db.flush()
         self._publish({"type": "run_heartbeat", "run_id": run_id,
-                       "stage": stage, "ts": isoformat_z(now)})
+                       "stage": stage, "ts": isoformat_z(now)}, db)
         return {"ok": True, "heartbeat_at": isoformat_z(now),
                 "status": run.status, "attempt": run.attempt}
 
@@ -310,7 +312,7 @@ class RunService:
                 "events": accepted,
                 "latest_seq": latest_seq,
                 "snapshot_version": int(run.snapshot_version or 0),
-            })
+            }, db)
         return count
 
     def read_db_events(self, db: Session, run_id: str, after_id: int = 0,
@@ -395,7 +397,7 @@ class RunService:
                 r.status_reason = r.error
                 n += 1
                 self._publish({"type": "run_status", "run_id": r.id,
-                               "status": r.status, "reason": "stuck_pending"})
+                               "status": r.status, "reason": "stuck_pending"}, db)
         idle_candidates = db.scalars(
             select(Run).where(Run.status == "running")
         ).all()
@@ -410,7 +412,7 @@ class RunService:
                 r.status_reason = r.error
                 n += 1
                 self._publish({"type": "run_status", "run_id": r.id,
-                               "status": r.status, "reason": "heartbeat_timeout"})
+                               "status": r.status, "reason": "heartbeat_timeout"}, db)
         if n:
             db.flush()
             log.info("reaper: %d run 을 terminal 로 전환", n)
@@ -568,10 +570,10 @@ class RunService:
                        "mr_url": run.mr_url, "publishable": run.publishable,
                        "publish_state": run.publish_state,
                        "snapshot_version": run.snapshot_version,
-                       "stale_complete": stale_complete})
-        self._publish({"type": "runs_changed", "run_id": run_id})
+                       "stale_complete": stale_complete}, db)
+        self._publish({"type": "runs_changed", "run_id": run_id}, db)
         if disabled:
-            self._publish({"type": "sources_changed"})
+            self._publish({"type": "sources_changed"}, db)
         return {"ok": True, "status": run.status, "sha_advanced": advanced,
                 "source_disabled": disabled, "idempotent": False,
                 "publishable": run.publishable, "publish_state": run.publish_state,

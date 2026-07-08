@@ -888,3 +888,159 @@ def get_doc_outputs(db: Session, run_id: str) -> list[dict]:
         "mr_inclusion_status": r.mr_inclusion_status,
         "content_sha256": r.content_sha256,
     } for r in rows]
+
+
+# ── final-pack per-item validation ──────────────────────────────
+
+
+def validate_quality_report(payload: Any) -> tuple[bool, str]:
+    if not isinstance(payload, dict):
+        return False, "not_object"
+    status = str(payload.get("status") or "")
+    if status and status not in ("pass", "warning", "fail", "not_evaluated"):
+        return False, f"invalid_status:{status}"
+    return True, ""
+
+
+def validate_evidence_pack(payload: Any) -> tuple[bool, str]:
+    if not isinstance(payload, dict):
+        return False, "not_object"
+    items = payload.get("items")
+    if items is not None and not isinstance(items, list):
+        return False, "items_not_list"
+    return True, ""
+
+
+def validate_coverage(payload: Any) -> tuple[bool, str]:
+    if not isinstance(payload, dict):
+        return False, "not_object"
+    status = str(payload.get("status") or "")
+    if status and status not in ("pass", "fail", "not_applicable"):
+        return False, f"invalid_status:{status}"
+    pct = payload.get("percentage")
+    if pct is not None:
+        try:
+            float(pct)
+        except (TypeError, ValueError):
+            return False, "percentage_not_numeric"
+    return True, ""
+
+
+def validate_artifact(payload: Any) -> tuple[bool, str]:
+    if not isinstance(payload, dict):
+        return False, "not_object"
+    return True, ""
+
+
+def validate_doc_outputs(payload: Any) -> tuple[bool, str]:
+    if not isinstance(payload, list):
+        return False, "not_list"
+    return True, ""
+
+
+_FINAL_PACK_VALIDATORS = {
+    "quality": validate_quality_report,
+    "evidence": validate_evidence_pack,
+    "coverage": validate_coverage,
+    "artifact": validate_artifact,
+    "doc_outputs": validate_doc_outputs,
+}
+
+_FINAL_PACK_UPSERTERS = {
+    "quality": lambda db, rid, p: upsert_quality_report(db, rid, p),
+    "evidence": lambda db, rid, p: upsert_evidence_pack(db, rid, p),
+    "coverage": lambda db, rid, p: upsert_coverage(db, rid, p),
+    "artifact": lambda db, rid, p: upsert_artifact(db, rid, p),
+    "vnc": lambda db, rid, p: upsert_vnc_session(db, rid, p),
+}
+
+
+def final_pack_required_items(pipeline_id: str) -> list[str]:
+    """pipeline_id 에 따라 final-pack 번들에 필수인 item key 목록.
+
+    static: evidence + quality
+    manual: evidence + quality + coverage + artifact
+    """
+    base = ["evidence", "quality"]
+    if (pipeline_id or "static") == "manual":
+        base += ["coverage", "artifact"]
+    return base
+
+
+def ingest_final_pack(db: Session, run_id: str, payload: dict,
+                      pipeline_id: str = "") -> dict:
+    """final-pack bundle 을 부분 ingest — per-item validate 후 upsert.
+
+    반환:
+      - ok: True (항상 — 부분 실패도 응답은 정상)
+      - partial: True 면 하나 이상 item 실패
+      - items: {key: {ok, ...} or {ok:False, error}}
+      - required_missing: 필수 item 중 누락/실패한 key 목록
+      - blocks_done: required_missing 이 비어있지 않으면 True
+    """
+    result: dict[str, Any] = {
+        "ok": True, "partial": False, "items": {},
+        "required_missing": [], "blocks_done": False,
+    }
+    required = final_pack_required_items(pipeline_id)
+
+    for key in ("evidence", "quality", "coverage", "artifact", "vnc"):
+        sub = payload.get(key)
+        if sub is None:
+            continue
+        validator = _FINAL_PACK_VALIDATORS.get(key)
+        if validator:
+            ok, err = validator(sub)
+            if not ok:
+                result["partial"] = True
+                result["items"][key] = {"ok": False, "error": err}
+                continue
+        try:
+            upserted = _FINAL_PACK_UPSERTERS[key](db, run_id, sub)
+            if isinstance(upserted, dict) and upserted.get("ok") is False:
+                result["partial"] = True
+                result["items"][key] = upserted
+            else:
+                result["items"][key] = upserted
+        except ValueError as e:
+            result["partial"] = True
+            result["items"][key] = {"ok": False, "error": str(e)}
+
+    docs = payload.get("doc_outputs")
+    if docs is not None:
+        ok, err = validate_doc_outputs(docs)
+        if not ok:
+            result["partial"] = True
+            result["items"]["doc_outputs"] = {"ok": False, "error": err}
+        else:
+            try:
+                n = upsert_doc_outputs(db, run_id, docs)
+                result["items"]["doc_outputs"] = {"ok": True, "upserted": n}
+            except Exception as e:  # noqa: BLE001
+                result["partial"] = True
+                result["items"]["doc_outputs"] = {"ok": False, "error": str(e)}
+
+    mr_summary = payload.get("mr_summary")
+    if mr_summary is not None:
+        result["items"]["mr_summary"] = {"ok": True, "received": True}
+
+    for req in required:
+        item_result = result["items"].get(req)
+        if item_result is None:
+            result["required_missing"].append(req)
+        elif isinstance(item_result, dict) and item_result.get("ok") is False:
+            result["required_missing"].append(req)
+
+    if result["required_missing"]:
+        result["blocks_done"] = True
+        run = db.get(Run, run_id)
+        if run is not None:
+            run.publishable = False
+            run.publish_state = "blocked"
+            missing_str = ", ".join(result["required_missing"])
+            existing = str(run.blocked_reason or "")
+            reason = f"final-pack missing required items: {missing_str}"
+            if reason not in existing:
+                run.blocked_reason = (existing + " / " + reason).strip(" /") \
+                    if existing else reason
+    return result

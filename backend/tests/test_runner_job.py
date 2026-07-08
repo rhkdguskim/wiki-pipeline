@@ -431,11 +431,13 @@ def test_manual_pipeline_uses_mcp_endpoint_from_context(monkeypatch, tmp_path):
 
     def fake_run_manual(settings, *, run_id=None, scenarios_data=None,
                         scenarios_file=None, themes=None, explore_steps=None,
-                        resume=False, no_explore=False, strict_allowlist=False):
+                        resume=False, no_explore=False, strict_allowlist=False,
+                        manual_profile=None):
         captured["mcp_endpoint_url"] = settings.mcp_endpoint_url
         captured["manual_allowlist"] = settings.manual_allowlist
         captured["strict"] = strict_allowlist
         captured["scenarios_data"] = scenarios_data
+        captured["manual_profile"] = manual_profile
         manual_dir = settings.out_path / "manual"
         manual_dir.mkdir(parents=True, exist_ok=True)
         doc = manual_dir / "user-manual.md"
@@ -468,7 +470,8 @@ def test_manual_pipeline_falls_back_to_env_when_no_profile(monkeypatch, tmp_path
 
     def fake_run_manual(settings, *, run_id=None, scenarios_data=None,
                         scenarios_file=None, themes=None, explore_steps=None,
-                        resume=False, no_explore=False, strict_allowlist=False):
+                        resume=False, no_explore=False, strict_allowlist=False,
+                        manual_profile=None):
         captured["mcp_endpoint_url"] = settings.mcp_endpoint_url
         captured["strict"] = strict_allowlist
         return {"run_id": run_id, "themes": {}, "observations": 0, "warned": []}

@@ -126,13 +126,22 @@ def emit_coverage(cp: ControlPlaneClient, run_id: str, summary: dict) -> None:
 
 
 def emit_artifact(cp: ControlPlaneClient, run_id: str, summary: dict) -> None:
+    artifact = summary.get("artifact") or {}
+    deploy = summary.get("deploy") or {}
+    readiness = summary.get("readiness") or {}
+    smoke = summary.get("smoke") or {}
     payload: dict = {
         "run_id": run_id,
-        "build_status": "unknown",
-        "deploy_status": "unknown",
-        "install_status": "unknown",
-        "readiness_status": "unknown",
-        "smoke_status": "unknown",
+        "build_status": artifact.get("status") or "unknown",
+        "deploy_status": deploy.get("status") or "unknown",
+        "install_status": deploy.get("status") or "unknown",
+        "readiness_status": readiness.get("status") or "unknown",
+        "smoke_status": smoke.get("status") or "unknown",
+        "artifact_path": artifact.get("path", ""),
+        "artifact_sha256": artifact.get("sha256", ""),
+        "deploy_error": deploy.get("error", ""),
+        "readiness_detail": readiness.get("detail", ""),
+        "smoke_detail": smoke.get("detail", ""),
     }
     cp.post_webhook("/api/webhook/artifact", payload)
 

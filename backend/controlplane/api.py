@@ -692,9 +692,15 @@ def get_run_vnc_session(run_id: str, request: Request, db=Depends(_db)) -> dict:
     _check_run_id(run_id)
     from .services import resources
     view = resources.get_vnc_view(db, run_id)
-    # view_only 가 false 이면 websocket_url 미발급 (운영 안전)
     if not view.get("view_only", True):
         view["websocket_url"] = ""
+        view["ws_token"] = ""
+        return {"run_id": run_id, **view}
+    gateway = getattr(request.app.state, "vnc_gateway", None)
+    if gateway is not None and view.get("session_id"):
+        view["ws_token"] = gateway.issue_token(run_id, view["session_id"])
+    else:
+        view["ws_token"] = ""
     return {"run_id": run_id, **view}
 
 
@@ -1588,33 +1594,19 @@ async def ws_channel(websocket: WebSocket, verbose: int = Query(0)):
 async def vnc_ws_channel(websocket: WebSocket, run_id: str,
                          session: str = Query(""),
                          token: str = Query("")):
-    """VNC monitoring WebSocket — browser react-vnc 와 mcp-vnc 사이 proxy (v1 stub).
+    """VNC monitoring WebSocket — browser react-vnc 와 mcp-vnc 사이 proxy (v1).
 
     v1: session 검증, view-only 강제, audit log, 주기적 status frame 송신.
-    실제 TCP VNC proxy (upstream frame relay) 는 v2 — 이 라우트는 auth/guard
-    구조만 갖추고 연결을 유지한다.
+    실제 TCP VNC proxy (upstream frame relay) 는 v2.
     """
     from .vnc_gateway import (
-        VncGateway, WS_CLOSE_SESSION_NOT_FOUND, WS_CLOSE_SESSION_EXPIRED,
+        WS_CLOSE_SESSION_NOT_FOUND, WS_CLOSE_SESSION_EXPIRED,
         WS_CLOSE_VIEW_ONLY_FALSE, WS_CLOSE_INVALID_TOKEN,
     )
     _check_run_id(run_id)
     state = websocket.app.state
-    gateway: VncGateway = state.vnc_gateway
+    gateway = state.vnc_gateway
 
-    # auth: API 토큰 (websocket 은 query param 인증 — ws_channel 과 동일)
-    tokens: dict[str, str] = state.api_tokens
-    if tokens:
-        presented = websocket.query_params.get("token", "")
-        # token param 이 VNC gateway token 이면 API 인증을 별도로 해야 하지만,
-        # v1 에서는 API 토큰 인증을 우선하고 gateway token 검증은 별도 단계.
-        if presented and not any(secrets.compare_digest(presented, t) for t in tokens):
-            # API 토큰이 아니면 VNC gateway token 으로 시도하지만, session 검증에서
-            # 별도로 처리한다. 여기서는 API 토큰이 아니어도 계속 진행 — session
-            # 검증이 실질적 인증이다.
-            pass
-
-    # session 검증: run_vnc_sessions 테이블에서 session_id 조회
     db = state.session_factory()
     try:
         session_row = gateway.get_session(db, run_id, session)
@@ -1623,19 +1615,16 @@ async def vnc_ws_channel(websocket: WebSocket, run_id: str,
                           detail={"reason": "session_not_found"})
             await websocket.close(code=WS_CLOSE_SESSION_NOT_FOUND)
             return
-        # view_only=False → 거부 (보안 정책)
         if not gateway.is_view_only(session_row):
             gateway.audit(run_id=run_id, session_id=session, event="rejected",
                           detail={"reason": "view_only_false"})
             await websocket.close(code=WS_CLOSE_VIEW_ONLY_FALSE)
             return
-        # session 만료 검사
         if gateway.is_expired(session_row):
             gateway.audit(run_id=run_id, session_id=session, event="rejected",
                           detail={"reason": "expired"})
             await websocket.close(code=WS_CLOSE_SESSION_EXPIRED)
             return
-        # token 검증 (있으면). token 이 없으면 session_id 만으로 진입 허용 (v1).
         if token and not gateway.validate_token(token, run_id, session):
             gateway.audit(run_id=run_id, session_id=session, event="rejected",
                           detail={"reason": "invalid_token"})
@@ -1648,16 +1637,12 @@ async def vnc_ws_channel(websocket: WebSocket, run_id: str,
     gateway.audit(run_id=run_id, session_id=session, event="open",
                   remote_addr=(websocket.client.host if websocket.client else ""))
 
-    # v1: 실제 TCP VNC proxy 없이 연결을 유지하며 주기적 status frame 송신.
-    # 클라이언트가 보내는 input frame 은 모두 드랍 (view-only).
     _STATUS_INTERVAL = 2.0
     try:
         while True:
-            # 클라이언트 메시지 수신 (input frame) — view-only 이므로 드랍.
             try:
                 msg = await asyncio.wait_for(
                     websocket.receive_text(), timeout=_STATUS_INTERVAL)
-                # input frame 검증: keyboard/mouse/clipboard → 드랍
                 try:
                     import json as _json
                     parsed = _json.loads(msg) if msg else {}
@@ -1668,10 +1653,9 @@ async def vnc_ws_channel(websocket: WebSocket, run_id: str,
                                   event="input_dropped",
                                   detail={"frame_type": parsed.get("type", "")})
                     continue
-                # non-input frame (예: ping) 은 무시
             except asyncio.TimeoutError:
                 pass
-            # 주기적 status frame 송신
+
             db2 = state.session_factory()
             try:
                 row = gateway.get_session(db2, run_id, session)
@@ -2023,52 +2007,43 @@ def webhook_doc_outputs(request: Request, db=Depends(_db), payload: dict = Body(
 def webhook_final_pack(request: Request, db=Depends(_db), payload: dict = Body(...)) -> dict:
     """Final Packager 가 보내는 한방 번들 — evidence/quality/coverage/artifact 일괄.
 
-    부분 실패가 있어도 webhook 은 부분 ingest 응답을 받지만, complete webhook 을
-    보내기 전에 이 endpoint 가 정상 응답해야 backend 가 일관성 check 를 통과했다고
-    본다. partial ingest 는 `partial=true` 응답으로 표시.
+    per-item schema 검증 → 부분 ingest. 필수 item 누락 시 run 을 blocked 로
+    표시하여 complete webhook 이 done 으로 끝나는 것을 방지한다.
     """
     from .services import resources
+    from .models import Run as RunModel
     run_id = _extract_run_id(payload)
+    run_row = db.get(RunModel, run_id)
+    if run_row is None:
+        raise HTTPException(404, f"알 수 없는 run: {run_id}")
+    pipeline_id = str(run_row.pipeline_id or "static")
     try:
-        result: dict[str, Any] = {"ok": True, "partial": False, "items": {}}
-        for key, fn in (
-            ("evidence", resources.upsert_evidence_pack),
-            ("quality", resources.upsert_quality_report),
-            ("coverage", resources.upsert_coverage),
-            ("artifact", resources.upsert_artifact),
-            ("vnc", resources.upsert_vnc_session),
-        ):
-            sub = payload.get(key)
-            if sub is None:
-                continue
-            if not isinstance(sub, dict):
-                result["partial"] = True
-                result["items"][key] = {"ok": False, "error": "not_object"}
-                continue
-            try:
-                result["items"][key] = fn(db, run_id, sub)
-            except ValueError as e:
-                result["partial"] = True
-                result["items"][key] = {"ok": False, "error": str(e)}
-        # doc_outputs 도 같은 묶음으로 받는다
-        docs = payload.get("doc_outputs")
-        if isinstance(docs, list):
-            try:
-                result["items"]["doc_outputs"] = {
-                    "ok": True, "upserted": resources.upsert_doc_outputs(db, run_id, docs),
-                }
-            except Exception as e:  # noqa: BLE001
-                result["partial"] = True
-                result["items"]["doc_outputs"] = {"ok": False, "error": str(e)}
+        result = resources.ingest_final_pack(db, run_id, payload,
+                                              pipeline_id=pipeline_id)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
-    db.commit()
+    if result.get("partial"):
+        run_row.publishable = False
+        if not run_row.blocked_reason:
+            run_row.blocked_reason = "final-pack partial ingest"
     if not result["partial"]:
-        from .models import Run as RunModel
-        run_row = db.get(RunModel, run_id)
-        if run_row is not None:
-            run_row.snapshot_version = int(run_row.snapshot_version or 0) + 1
-            db.commit()
+        run_row.snapshot_version = int(run_row.snapshot_version or 0) + 1
+    db.commit()
+
+    st = _state(request)
+    if st.broadcaster is not None:
+        st.broadcaster.publish({
+            "type": "final_pack_updated", "run_id": run_id,
+            "partial": result.get("partial", False),
+            "blocks_done": result.get("blocks_done", False),
+            "snapshot_version": int(run_row.snapshot_version or 0),
+        })
+        st.broadcaster.publish({
+            "type": "run_status", "run_id": run_id,
+            "status": run_row.status, "publishable": run_row.publishable,
+            "publish_state": run_row.publish_state,
+            "snapshot_version": int(run_row.snapshot_version or 0),
+        })
     return result
 
 
