@@ -4,7 +4,7 @@
 langgraph>=1.0                     # StateGraph, get_stream_writer, tools_condition, ToolNode
 langgraph-checkpoint-sqlite>=2.0   # SqliteSaver (매뉴얼 중단 재개)
 langchain>=1.0                     # tools_condition, BaseTool, init_chat_model
-langchain-openai>=0.3              # ChatOpenAI (MiniMax OpenAI 호환 연결)
+langchain-openai>=1.3.3              # ChatOpenAI (MiniMax OpenAI 호환 연결)
 langchain-anthropic>=0.3           # (옵션) 공급자 되돌림용
 langchain-mcp-adapters>=0.1        # MultiServerMCPClient, load_mcp_tools
 mcp>=1.0                           # MCP 프로토콜 클라이언트 (SSE/streamable-http)
