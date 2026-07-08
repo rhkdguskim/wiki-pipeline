@@ -9,7 +9,7 @@ langchain-anthropic>=0.3           # (옵션) 공급자 되돌림용
 langchain-mcp-adapters>=0.1        # MultiServerMCPClient, load_mcp_tools
 mcp>=1.0                           # MCP 프로토콜 클라이언트 (SSE/streamable-http)
 httpx>=0.27                        # GitLab REST (compare / raw)
-pydantic-settings>=2.0             # .env -> 타입있는 Settings
+pydantic-settings>=2.14.2             # .env -> 타입있는 Settings
 python-dotenv>=1.0                 # .env 로드
 tenacity>=8.0                      # 재시도 (retry.py)
 
