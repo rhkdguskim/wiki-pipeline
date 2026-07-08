@@ -74,3 +74,21 @@ class Notifier:
                   f"대시보드에서 브랜치를 다시 지정하면 재활성화됩니다."),
             to=[self.settings.admin_email],
         )
+
+    def token_rotation_warning(self, *, stale_instance_ids: list[str],
+                                threshold_days: int) -> None:
+        """SCM 토큰 순환 경고 전용 — 예전에는 run_failed를 끌어다 써서
+        subject가 "실행 실패"로 잘못 표시되는 버그가 있었다 (scheduler.py).
+        토큰 순환은 admin-only — 담당자 모르는 시스템 이벤트.
+        """
+        if not stale_instance_ids:
+            return
+        preview = ", ".join(stale_instance_ids[:5])
+        more = f" (+{len(stale_instance_ids) - 5}건)" if len(stale_instance_ids) > 5 else ""
+        self.send(
+            subject=f"[wiki-pipeline] SCM 토큰 순환 경고 — {len(stale_instance_ids)}개 인스턴스",
+            body=(f"토큰 순환 기준일({threshold_days}일)을 넘긴 SCM 인스턴스:\n"
+                  f"  {preview}{more}\n\n"
+                  f"대시보드에서 토큰을 갱신하세요 (decision-cloud-scm-token-policy)."),
+            to=[self.settings.admin_email],
+        )

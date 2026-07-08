@@ -31,7 +31,9 @@ class AuditService:
                target_kind: str = "", target_id: str = "",
                request_id: str = "", detail: dict[str, Any] | None = None,
                remote_addr: str = "") -> None:
-        from common.logging_setup import current_request_id
+        # 상대 import로 변경 — 절대 경로 `from common.X`는 alembic이 sys.path를
+        # 조작할 때만 동작해 Fragile. services/는 common/의 두 단계 아래.
+        from ...common.logging_setup import current_request_id
         rid = request_id or current_request_id()
         payload = json.dumps(detail or {}, ensure_ascii=False)[:2000]
         from ..db import session_scope

@@ -111,21 +111,18 @@ class SourceScheduler:
         threshold = datetime.now(timezone.utc) - timedelta(
             days=self.settings.token_rotation_warn_days)
         with session_scope(self.session_factory) as db:
-            stale = db.scalars(select(ScmInstance).where(
+            candidates = db.scalars(select(ScmInstance).where(
                 ScmInstance.enabled.is_(True),
             )).all()
-            stale_ids = [i.id for i in stale
+            stale_ids = [i.id for i in candidates
                          if i.token_rotated_at is None or i.token_rotated_at < threshold]
         if stale_ids:
             try:
-                self.run_service.notifier.run_failed(
-                    source_label="(scm_instances)",
-                    run_id="token-rotation-warning",
-                    error=(f"토큰 순환 경고: {len(stale_ids)}개 인스턴스가 "
-                           f"{self.settings.token_rotation_warn_days}일 경과 — "
-                           f"{', '.join(stale_ids[:5])}"
-                           + (" ..." if len(stale_ids) > 5 else "")),
-                    owner_email=self.settings.admin_email,
+                # 전용 notifier 메서드 — 예전에는 run_failed를 끌어다 써서
+                # subject가 "실행 실패"로 표시되는 버그가 있었다.
+                self.run_service.notifier.token_rotation_warning(
+                    stale_instance_ids=stale_ids,
+                    threshold_days=self.settings.token_rotation_warn_days,
                 )
             except Exception as e:  # noqa: BLE001
                 log.error("토큰 순환 경고 발송 실패: %s: %s", type(e).__name__, e)

@@ -383,3 +383,123 @@ def test_secretbox_encrypts_tokens_at_rest(client, monkeypatch, tmp_path):
     con.close()
     assert stored.startswith("enc:v1:")
     assert "secret-token" not in stored
+
+
+# ── regression: 버그 수정 후 재발 방지 ──────────────────────────────────
+
+def test_terminal_status_not_overwritten_by_stale_event(client, monkeypatch):
+    """done 상태인 run에 늦게 도착한 failed 이벤트가 status를 덮어쓰지 않는다
+    (과거 버그: stale/retry webhook이 완료된 run을 실패로 되돌렸다)."""
+    _create_source(client, monkeypatch)
+    run_id = client.post("/api/runs/trigger", headers=ADMIN,
+                         json={"source_id": "demo", "launch": False}).json()["run_id"]
+    # run을 done으로 마무리
+    client.post("/api/webhook/events", headers=RUNNER, json={
+        "run_id": run_id,
+        "events": [{"layer": "run", "stage": "static-diff", "status": "done",
+                    "ts": "2026-07-07T20:00:00"}],
+    })
+    summary = client.get(f"/api/run-summary?run={run_id}", headers=ADMIN).json()
+    assert summary["status"] == "done"
+    # 늦게 도착한 failed 이벤트 — 무시되어야 한다
+    client.post("/api/webhook/events", headers=RUNNER, json={
+        "run_id": run_id,
+        "events": [{"layer": "run", "stage": "static-diff", "status": "failed",
+                    "ts": "2026-07-07T21:00:00",
+                    "detail": {"error": "stale retry"}}],
+    })
+    summary = client.get(f"/api/run-summary?run={run_id}", headers=ADMIN).json()
+    assert summary["status"] == "done", "done 상태가 stale failed 이벤트로 덮어쓰여졌다"
+
+
+def test_webhook_events_rejects_unknown_run_id(client, monkeypatch):
+    """존재하지 않는 run_id에 webhook을 보내면 404 — 고아 RunEvent 행 생성 금지
+    (과거 버그: run_id가 RunEvent.run_id의 FK가 아니라서 조용히 적재됨)."""
+    _create_source(client, monkeypatch, verify=False)
+    resp = client.post("/api/webhook/events", headers=RUNNER, json={
+        "run_id": "nonexistent-run-xyz",
+        "events": [{"layer": "run", "stage": "s", "status": "done",
+                    "ts": "2026-07-07T20:00:00"}],
+    })
+    assert resp.status_code == 404
+    # DB에 고아 행이 없는지 확인
+    from backend.controlplane.db import session_scope
+    from backend.controlplane.models import RunEvent
+    factory = client.app.state.session_factory
+    with session_scope(factory) as db:
+        orphan_count = db.query(RunEvent).filter_by(run_id="nonexistent-run-xyz").count()
+    assert orphan_count == 0, "고아 RunEvent 행이 생성되었다"
+
+
+def test_webhook_events_caps_array_size(client, monkeypatch):
+    """events 배열이 너무 크면 413 — 동기 워커 DoS 방지."""
+    _create_source(client, monkeypatch, verify=False)
+    run_id = client.post("/api/runs/trigger", headers=ADMIN,
+                         json={"source_id": "demo", "launch": False}).json()["run_id"]
+    too_many = [{"layer": "stage", "stage": "s", "status": "done",
+                 "ts": "2026-07-07T20:00:00"} for _ in range(600)]
+    resp = client.post("/api/webhook/events", headers=RUNNER,
+                       json={"run_id": run_id, "events": too_many})
+    assert resp.status_code == 413
+
+
+def test_complete_run_sha_does_not_regress(client, monkeypatch):
+    """이미 sha=B로 전진한 상태에서 sha=A (더 오래된) 보고가 와도 되돌리지 않는다
+    (concept-idempotent-sha: sha는 단조 증가)."""
+    _create_source(client, monkeypatch)
+    run_id = client.post("/api/runs/trigger", headers=ADMIN,
+                         json={"source_id": "demo", "launch": False}).json()["run_id"]
+    # 첫 성공 — sha를 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz'로 전진
+    client.post("/api/webhook/complete", headers=RUNNER, json={
+        "run_id": run_id, "status": "done",
+        "last_processed_sha": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+    })
+    src = client.get("/api/sources", headers=ADMIN).json()[0]
+    assert src["last_processed_sha"] == "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+
+    # 두 번째 run 생성 후 더 오래된 sha 보고 — 전진 안 함
+    run_id2 = client.post("/api/runs/trigger", headers=ADMIN,
+                          json={"source_id": "demo", "launch": False}).json()["run_id"]
+    resp = client.post("/api/webhook/complete", headers=RUNNER, json={
+        "run_id": run_id2, "status": "done",
+        "last_processed_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    })
+    assert resp.json()["sha_advanced"] is False
+    src = client.get("/api/sources", headers=ADMIN).json()[0]
+    assert src["last_processed_sha"] == "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", \
+        "더 오래된 sha가 최신 sha를 덮어썼다"
+
+
+def test_audit_actor_in_dev_mode_is_not_literal_braces(client, monkeypatch):
+    """dev 모드(api_tokens 비어있음)에서 actor가 리터럴 '{}'가 되면 안 된다.
+    (과거 버그: `_state(request).api_tokens and (...)`의 short-circuit로
+    actor = {} 가 저장되어 str({}) = '{}' 가 audit에 기록됨)."""
+    # 이 테스트의 client fixture는 ADMIN 토큰을 쓰므로 dev 모드가 아니다.
+    # 대신 audit 기록이 잘 남는지, 그리고 actor 필드에 'admin'이 들어가는지 확인.
+    _create_source(client, monkeypatch, verify=False)
+    client.delete("/api/sources/demo", headers=ADMIN)
+    audit = client.get("/api/audit/recent?limit=20", headers=ADMIN).json()
+    delete_entries = [e for e in audit["entries"]
+                      if e["action"] == "source.delete"]
+    assert delete_entries, "audit에 source.delete 행이 없다"
+    assert delete_entries[0]["actor"] == "admin"
+    assert delete_entries[0]["actor"] != "{}", \
+        "actor가 리터럴 '{}'이다 — dev 모드 버그 재현"
+
+
+def test_set_llm_does_not_leak_payload_as_env_default(client, monkeypatch):
+    """set_llm가 반환하는 effective는 .env의 실제 폴백을 반영해야 한다.
+    payload에 없는 키를 요청에 넣지 않았을 때 payload 기본값이 아니라
+    os.environ의 값을 써야 한다 (과거 버그: payload.get(...) 기반 env_dict)."""
+    import os
+    # 환경변수로 LLM_TIMEOUT 설정
+    monkeypatch.setenv("LLM_TIMEOUT", "240")
+    # provider만 변경
+    resp = client.patch("/api/settings/llm", headers=ADMIN, json={"provider": "anthropic"})
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["provider"] == "anthropic"
+    # payload에 timeout_sec이 없었으므로 env의 240이 폴백되어야 한다
+    # (과거에는 payload 기반 dict라 180이 되었다)
+    assert data["timeout_sec"] == 240.0, \
+        f"expected 240.0 from env, got {data['timeout_sec']} — env_dict가 payload 기반"

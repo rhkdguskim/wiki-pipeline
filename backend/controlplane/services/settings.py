@@ -144,18 +144,24 @@ class SettingsService:
                 if v is None or v == "":
                     self.delete(db, db_key)
                 else:
-                    self.set(db, db_key, str(caster(v)), actor=actor)
-        # env dict 를 load_cp_settings() 와 같은 형태로 빌드 (실제 환경값 사용).
-        from ..settings import load_cp_settings
+                    # int/float 변환 에러를 잡아 명확한 400 사인.
+                    # get_llm_effective와 동일한 에러 처리 규칙 적용.
+                    try:
+                        self.set(db, db_key, str(caster(v)), actor=actor)
+                    except (TypeError, ValueError) as e:
+                        raise ValueError(f"invalid {env_key}={v!r}: {e}") from e
+        # 실제 환경변수로 env_dict를 빌드 — payload 기반이면 .env 폴백이 틀린다.
+        # 사용자가 UI에서 max_tokens만 바꿔도 timeout 등은 .env 값이 그대로여야 함.
+        import os
         env_dict = {
-            "LLM_PROVIDER": payload.get("provider", "") or "openai-compatible",
-            "LLM_BASE_URL": payload.get("base_url", "") or "",
-            "LLM_API_KEY": payload.get("api_key", "") or "",
-            "LLM_MODEL": payload.get("model", "") or "",
-            "LLM_MAX_TOKENS": str(payload.get("max_tokens", 65536)),
-            "LLM_TEMPERATURE": str(payload.get("temperature", 0.2)),
-            "LLM_TIMEOUT": str(payload.get("timeout_sec", 180)),
-            "LLM_RETRY_ATTEMPTS": str(payload.get("retry_attempts", 4)),
+            "LLM_PROVIDER": os.getenv("LLM_PROVIDER", "openai-compatible"),
+            "LLM_BASE_URL": os.getenv("LLM_BASE_URL", ""),
+            "LLM_API_KEY": os.getenv("LLM_API_KEY", ""),
+            "LLM_MODEL": os.getenv("LLM_MODEL", ""),
+            "LLM_MAX_TOKENS": os.getenv("LLM_MAX_TOKENS", "65536"),
+            "LLM_TEMPERATURE": os.getenv("LLM_TEMPERATURE", "0.2"),
+            "LLM_TIMEOUT": os.getenv("LLM_TIMEOUT", "180"),
+            "LLM_RETRY_ATTEMPTS": os.getenv("LLM_RETRY_ATTEMPTS", "4"),
         }
         return self.get_llm_effective(db, env_dict)
 

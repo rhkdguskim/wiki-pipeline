@@ -7,6 +7,7 @@ JSONL 파일 폴백으로 서빙한다. 쓰기·webhook은 자체 토큰 인증 
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import secrets
 from datetime import datetime, timezone
@@ -14,10 +15,14 @@ from typing import Any
 
 from fastapi import (APIRouter, Body, Depends, HTTPException, Query, Request,
                      WebSocket, WebSocketDisconnect)
+from sqlalchemy import select
+from sqlalchemy.orm import joinedload, selectinload
 
 from ..common.docshub import build_mr_plan, submit_change_request
+from ..common.logging_setup import current_request_id
 from . import projection
-from .models import DocTarget, ScmInstance, Source, SourceBranch, SourceReleaseTag, SourceSchedule
+from .models import (DocTarget, RunEvent, ScmInstance, Source, SourceBranch,
+                     SourceReleaseTag, SourceSchedule)
 from .schedule import normalize_schedule_payload
 from .schemas import (
     AuditRecentResponse,
@@ -28,7 +33,21 @@ from .schemas import (
 )
 from .timeutil import isoformat_z
 
+log = logging.getLogger("controlplane.api")
+
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+# webhook 1회당 최대 이벤트 수 — 동기 워커 블로킹 방지 (러너는 청크 분할).
+_WEBHOOK_EVENTS_MAX = 500
+
+# 러너 subprocess에 전달할 환경변수 화이트리스트 — 부모 env 전체 상속 금지
+# (CONTROL_SECRET_KEY 등 민감 정보 누출 방지).
+_RUNNER_ENV_ALLOWLIST = (
+    "PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "TEMP", "TMP",
+    "SYSTEMROOT", "PYTHONPATH", "PYTHONHOME",
+    "LLM_PROVIDER", "LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL",
+    "LLM_MAX_TOKENS", "LLM_TEMPERATURE", "LLM_TIMEOUT", "LLM_RETRY_ATTEMPTS",
+    "OUT_DIR", "LOG_LEVEL", "LOG_FORMAT",
+)
 
 router = APIRouter()
 
@@ -87,30 +106,49 @@ def _check_run_id(run: str) -> str:
 
 # ── audit (ENT-F) ──────────────────────────────────────────────
 
+def _resolve_actor(request: Request) -> str:
+    """audit용 actor 문자열 — 인증 토큰 이름, 또는 dev 모드면 "(dev)".
+
+    예전 코드는 api_tokens가 비어있을 때 (dev 모드) `actor = {}` 가 되어
+    str({}) = "{}" 가 audit에 저장되는 버그가 있었다. 명시적으로 처리한다.
+    """
+    tokens = _state(request).api_tokens
+    if not tokens:
+        return "(dev)"
+    presented = _extract_token(request)
+    if not presented:
+        # 토큰이 설정되어 있지만 이 요청이 require_api_token을 거치지 않은 경우
+        # (예: 러너 전용 엔드포인트) — 첫 토큰 이름을 폴백으로.
+        return next(iter(tokens.values()))
+    for tok, name in tokens.items():
+        if secrets.compare_digest(presented, tok):
+            return name
+    return "(anon)"
+
+
 def _audit(request: Request, *, action: str, target_kind: str = "",
            target_id: str = "", detail: dict | None = None) -> None:
-    """관리 mutation 엔드포인트가 끝날 때 호출. 실패는 무시 (감사가 본 요청을 막으면 안 됨)."""
+    """관리 mutation 엔드포인트가 끝날 때 호출. 실패는 무시 (감사가 본 요청을 막으면 안 됨).
+
+    단, 실패를 조용히 삼키지 않고 warning 로그로 남긴다 — 예전 `except: pass`는
+    audit 장애를 완전히 숨겨 컴플라이언스 추적에 구멍을 만들었다.
+    """
     try:
         audit = getattr(request.app.state, "audit_service", None)
         if audit is None:
             return
-        actor = _state(request).api_tokens and (
-            list(_state(request).api_tokens.values())[0]  # fallback for dev mode
-            if not _extract_token(request) else
-            next((name for tok, name in _state(request).api_tokens.items()
-                  if secrets.compare_digest(_extract_token(request), tok)), "(anon)")
-        )
         audit.record(
-            actor=str(actor)[:120],
+            actor=_resolve_actor(request)[:120],
             action=action[:80],
             target_kind=target_kind[:40],
             target_id=str(target_id)[:200],
-            request_id=_state(request).__dict__.get("current_request_id", ""),
+            request_id=current_request_id(),
             detail=detail or {},
             remote_addr=(request.client.host if request.client else ""),
         )
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001
+        log.warning("audit 기록 실패 action=%s target=%s: %s: %s",
+                    action, target_id, type(e).__name__, e)
 
 
 # ── 메타 ─────────────────────────────────────────────────────
@@ -384,8 +422,9 @@ def run_summary(request: Request, db=Depends(_db), run: str = Query("")) -> dict
     run = _check_run_id(run)
     if st.run_service.has_db_events(db, run):
         events = st.run_service.all_db_events(db, run)
-        row = next((r for r in st.run_service.list_runs(db, limit=1000)
-                    if r["run_id"] == run), None)
+        # 직접 PK 조회 — list_runs(1000)을 편하며 찾던 O(N) 스캔은
+        # run이 1000건보다 오래되면 빈 source_id를 내는 버그를 가졌다.
+        row = st.run_service.get_run_view(db, run)
         if row is None:
             return projection.summarize_events(
                 events, run_id=run, source_id="")
@@ -432,14 +471,68 @@ def read_events(request: Request, db=Depends(_db),
 @router.get("/api/overview", dependencies=[Depends(require_api_token)],
             response_model=OverviewResponse)
 def overview(request: Request, db=Depends(_db)) -> dict:
+    """run 목록 + 최근 20건의 요약을 단일 응답으로.
+
+    성능: 예전에는 run마다 run_summary를 호출해 (각각 list_runs(1000) +
+    has_db_events + all_db_events) O(N×M) 쿼리를 발생시켰다. 이제 단일
+    IN 쿼리로 top 20 run의 이벤트를 한 번에 가져와 projection으로 합성한다.
+    DB에 이벤트가 없는 레거시 file-only run만 per-call 폴백.
+    """
+    import json as _json
+
     st = _state(request)
     runs = list_runs(request, db)
+    top = runs[:20]
+    if not top:
+        return {"totals": {
+            "runs": 0, "running": 0, "failed": 0, "done": 0,
+            "tokens": 0, "tool_calls": 0, "errors": 0,
+        }, "recent": []}
+
+    run_ids = [r["run_id"] for r in top]
+    # 단일 쿼리로 top N run의 이벤트를 모두 로드 — run_id IN (...) 한 번.
+    rows = db.scalars(
+        select(RunEvent).where(RunEvent.run_id.in_(run_ids))
+        .order_by(RunEvent.id)
+    ).all()
+    events_by_run: dict[str, list[dict]] = {rid: [] for rid in run_ids}
+    for ev in rows:
+        bucket = events_by_run.get(ev.run_id)
+        if bucket is not None:
+            try:
+                bucket.append(_json.loads(ev.payload))
+            except (ValueError, TypeError):
+                continue   # payload가 깨진 행은 스킵
+
     summaries = []
-    for r in runs[:20]:
-        try:
-            summaries.append(run_summary(request, db, run=r["run_id"]))
-        except HTTPException:
-            continue
+    for r in top:
+        rid = r["run_id"]
+        evs = events_by_run.get(rid)
+        if evs:
+            summaries.append(projection.summarize_events(
+                evs,
+                run_id=rid,
+                source_id=r.get("source_id", ""),
+                run_status_override=r.get("status", ""),
+                run_pipeline_id=r.get("pipeline_id", ""),
+                run_branch_role=r.get("branch_role", ""),
+                run_mode=r.get("mode", ""),
+                run_trigger=r.get("trigger", ""),
+                run_from_sha=r.get("from_sha", ""),
+                run_to_sha=r.get("to_sha", ""),
+                run_mr_url=r.get("mr_url", ""),
+                run_doc_count=int(r.get("doc_count") or 0),
+                run_error=r.get("error", ""),
+                run_started_at=r.get("created_at", ""),
+                run_updated_at=r.get("updated_at", ""),
+            ))
+        else:
+            # DB에 이벤트가 없는 file-only 레거시 run — per-call 폴백.
+            try:
+                summaries.append(run_summary(request, db, run=rid))
+            except HTTPException:
+                continue
+
     totals = {
         "runs": len(runs),
         "running": sum(1 for s in summaries if s["status"] == "running"),
@@ -495,7 +588,18 @@ def _validate_source_payload(payload: dict) -> dict:
 @router.get("/api/sources", dependencies=[Depends(require_api_token)])
 def list_sources(request: Request, db=Depends(_db)) -> list[dict]:
     st = _state(request)
-    sources = db.query(Source).order_by(Source.id).all()
+    # N+1 회피 — source_view가 instance/branches/schedules를 건마다 lazy-load 했다.
+    # selectinload로 한 번에 가져온다.
+    stmt = (
+        select(Source)
+        .options(
+            joinedload(Source.instance),
+            selectinload(Source.branches),
+            selectinload(Source.schedules),
+        )
+        .order_by(Source.id)
+    )
+    sources = db.scalars(stmt).unique().all()
     return [st.registration.source_view(db, s) for s in sources]
 
 
@@ -968,7 +1072,15 @@ def webhook_events(request: Request, db=Depends(_db), payload: dict = Body(...))
     events = payload.get("events") or []
     if not isinstance(events, list):
         raise HTTPException(400, "events는 배열이어야 합니다.")
-    count = st.run_service.ingest_events(db, run_id, events)
+    # 동기 DoS 방지 — 러너가 한 번에 너무 많은 이벤트를 몰아보내지 못하게.
+    # 러너는 청크 분할 전송으로 회피 가능.
+    if len(events) > _WEBHOOK_EVENTS_MAX:
+        raise HTTPException(
+            413, f"events 너무 많음 ({len(events)} > {_WEBHOOK_EVENTS_MAX}) — 분할 전송하세요")
+    try:
+        count = st.run_service.ingest_events(db, run_id, events)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
     return {"ok": True, "ingested": count}
 
 

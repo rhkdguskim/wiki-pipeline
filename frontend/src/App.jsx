@@ -136,7 +136,19 @@ export function App() {
 
   const toggleInstanceEnabled = async (inst) => {
     try {
-      await saveInstanceMutation.mutateAsync({form: {id: inst.id, enabled: !inst.enabled}, existing: true});
+      // PATCH 경로는 백엔드 upsert_source 가 kind/base_url 등을 요구하므로,
+      // 전체 폼을 보내되 enabled만 토글. 빠진 필드는 폼에서 기본값이 있어야 함.
+      await saveInstanceMutation.mutateAsync({
+        form: {
+          id: inst.id,
+          kind: inst.kind,
+          label: inst.label,
+          base_url: inst.base_url,
+          token_header: inst.token_header,
+          enabled: !inst.enabled,
+        },
+        existing: true,
+      });
       pushToast(inst.enabled ? `${inst.label || inst.id} 비활성화됨` : `${inst.label || inst.id} 활성화됨`, 'success');
     } catch (e) {
       pushToast(e.message, 'error');
@@ -145,7 +157,30 @@ export function App() {
 
   const toggleSourceEnabled = async (source) => {
     try {
-      await saveSourceMutation.mutateAsync({form: {id: source.id, enabled: !source.enabled}, existing: true});
+      // 백엔드 upsert_source 는 repo(project_id)를 필수로 받는다 — 부분 PATCH가 아님.
+      // 따라서 enabled 토글 시에도 기존 source 의 전체 필드를 다시 보낸다.
+      // instance_id 로 빈 값을 주면 upsert 가 새 인스턴스를 만들어버리므로 기존 값을 유지.
+      await saveSourceMutation.mutateAsync({
+        form: {
+          id: source.id,
+          label: source.label,
+          kind: source.kind,
+          url: source.url,
+          instance_id: source.instance_id,
+          project_id: source.project_id,
+          repo: source.project_id,   // 백엔드 호환 필드
+          doc_dir: source.doc_dir,
+          themes: source.themes,
+          owner_email: source.owner_email,
+          dev_branch: source.dev_branch,
+          release_branch: source.release_branch,
+          token_header: 'PRIVATE-TOKEN',
+          schedule_cron: source.schedule_cron,
+          enabled: !source.enabled,
+          verify: false,
+        },
+        existing: true,
+      });
       pushToast(source.enabled ? `${source.label} 비활성화됨 (소프트 삭제)` : `${source.label} 활성화됨`, 'success');
     } catch (e) {
       pushToast(e.message, 'error');

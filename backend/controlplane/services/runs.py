@@ -25,8 +25,6 @@ from .notifier import Notifier
 
 log = logging.getLogger("controlplane.runs")
 
-log = logging.getLogger("controlplane.runs")
-
 
 class RunService:
     def __init__(self, settings: ControlPlaneSettings, notifier: Notifier,
@@ -61,13 +59,21 @@ class RunService:
 
         Control Plane과 같은 호스트에서 subprocess로 실행하는 것이 v1 —
         docs-hub CI 러너로 옮길 때는 이 지점이 CI 트리거 API 호출로 바뀐다.
+
+        env 화이트리스트: 부모 프로세스의 모든 환경변수를 상속하면 러너가
+        CONTROL_SECRET_KEY, CONTROL_DB_URL, SMTP 자격증명 등까지 받는다.
+        러너가 탈취되면 전 시크릿이 같이 노출되므로, 러너가 실행에 필요한
+        최소한의 변수만 전달한다 (api.py의 _RUNNER_ENV_ALLOWLIST).
         """
+        from ..api import _RUNNER_ENV_ALLOWLIST
         api_url = f"http://{self.settings.control_host}:{self.settings.control_port}"
         env = {
-            **os.environ,
-            "CONTROL_API_URL": api_url,
-            "CONTROL_RUNNER_TOKEN": self.settings.control_runner_token,
+            k: os.environ[k]
+            for k in _RUNNER_ENV_ALLOWLIST
+            if k in os.environ
         }
+        env["CONTROL_API_URL"] = api_url
+        env["CONTROL_RUNNER_TOKEN"] = self.settings.control_runner_token
         cmd = [sys.executable, "-m", "backend.runner.job",
                "--run-id", run.id, "--source", run.source_id,
                "--mode", run.mode, "--branch-role", run.branch_role]
@@ -108,6 +114,10 @@ class RunService:
 
     def ingest_events(self, db: Session, run_id: str, events: list[dict]) -> int:
         run = db.get(Run, run_id)
+        if run is None:
+            # webhook_complete와 동일하게 — 알 수 없는 run_id는 거부.
+            # 없으면 RunEvent 고아 행이 쌓이고 /api/events?run=<id>가 더러워진다.
+            raise ValueError(f"알 수 없는 run: {run_id}")
         count = 0
         for e in events:
             if not isinstance(e, dict):
@@ -123,12 +133,16 @@ class RunService:
             count += 1
             if run is not None and e.get("layer") == "run":
                 status = str(e.get("status") or "")
-                if status == "running" and run.status == "pending":
+                # 종료 상태 보호: done/failed는 다른 webhook 이벤트로 덮어쓰지 않는다
+                # (늦게 도착한stale/retry 이벤트가 done을 failed로 되돌리는 버그 방지).
+                if run.status in ("done", "failed"):
+                    pass   # 이미 종료 — status 업데이트 무시
+                elif status == "running":
                     run.status = "running"
                 elif status in ("done", "failed"):
                     run.status = status
                 detail = e.get("detail") or {}
-                if status == "failed" and detail.get("error"):
+                if status == "failed" and detail.get("error") and run.status == "failed":
                     run.error = str(detail["error"])[:2000]
             if run is not None and (e.get("detail") or {}).get("kind") == "usage":
                 detail = e["detail"]
@@ -184,8 +198,13 @@ class RunService:
                 SourceBranch.source_id == source.id,
                 SourceBranch.role == (run.branch_role or "dev"))).first()
             if row is not None:
-                row.last_processed_sha = str(report["last_processed_sha"])
-                advanced = True
+                new_sha = str(report["last_processed_sha"])
+                # sha 되돌림 방지 — 동시 호출/재시도가 더 오래된 sha로 덮어쓰는
+                # 레이스 회피 (concept-idempotent-sha). 빈 포인터는 무조건 전진.
+                current = row.last_processed_sha or ""
+                if not current or new_sha >= current:
+                    row.last_processed_sha = new_sha
+                    advanced = True
 
         if status == "failed" and source is not None:
             error_kind = str(report.get("error_kind") or "")
@@ -222,29 +241,55 @@ class RunService:
     # ── 보존 정책 — 오래된 이벤트 정리 (이력 runs/보고는 영구 보존) ──
     def prune_events(self, db: Session, *, older_than_days: int) -> int:
         """run_events만 정리한다. runs·완료 보고(sha·MR URL)는 감사용으로 영구 보존
-        (decision-db-source-of-truth: 비활성화 후에도 삭제 안 함)."""
+        (decision-db-source-of-truth: 비활성화 후에도 삭제 안 함).
+
+        SQL WHERE로 후보 run_id를 한 번에 뽑는다 — 예전 Python 사이드 필터는
+        done/failed run 전체를 메모리에 올려 100k+ run에서 폭발했다.
+        """
         from datetime import datetime, timedelta, timezone
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
-        # SQLite 가 naive datetime 을 돌려주는 경우 대비 — Run.updated_at 을 UTC 로
-        # 정규화한 컬럼을 비교에 사용. SQLAlchemy 의 func.timezone() 으로 비교가
-        # 가능하지만 portable 하지 않으므로 Python 측 필터.
-        all_done_failed = db.scalars(
-            select(Run).where(Run.status.in_(["done", "failed"]))).all()
-        old_run_ids = [r.id for r in all_done_failed
-                       if as_utc(r.updated_at) and as_utc(r.updated_at) < cutoff]
-        if not old_run_ids:
-            return 0
-        from sqlalchemy import delete
-        result = db.execute(delete(RunEvent).where(RunEvent.run_id.in_(old_run_ids)))
+        # SQLAlchemy의 func.timezone()로 portable하게 비교할 수 있으나, SQLite가
+        # naive를 돌려주는 경로가 있으므로, 컬럼 값을 as_utc()로 정규화할 수 없다.
+        # 대신 string 비교가 아닌 datetime 비교를 쓴다 — SQLite는 tz-aware 비교시
+        # 내부적으로 문자열로 저장하므로 cutoff ISO 문자열과 사전식 비교가 된다.
+        # PostgreSQL은 TIMESTAMP WITH TIME ZONE 비교로 안전.
+        from sqlalchemy import select, delete, func
+        # as_utc()는 Python 함수라 DB 컬럼에 못 쓴다. 대신 created_at의 타입이
+        # DateTime(timezone=True)이면 DB가 알아서 비교한다. 단, SQLite는 naive로
+        # 저장된 과거 레코드가 있을 수 있어 — cutoff와 direct 비교시 빠지는 레코드가
+        # 생길 수 있다. 운영 모드(PostgreSQL)에서는 정확히 동작한다.
+        subq = select(Run.id).where(
+            Run.status.in_(["done", "failed"]),
+            Run.updated_at < cutoff,
+        )
+        result = db.execute(delete(RunEvent).where(RunEvent.run_id.in_(subq)))
         db.flush()
         deleted = int(result.rowcount or 0)
         if deleted:
-            log.info("이벤트 보존 정책: %d일 경과 run %d건의 이벤트 %d행 정리",
-                     older_than_days, len(old_run_ids), deleted)
+            log.info("이벤트 보존 정책: %d일 경과 run들의 이벤트 %d행 정리",
+                     older_than_days, deleted)
         return deleted
 
     # ── 조회 ────────────────────────────────────────────────
+    def get_run_view(self, db: Session, run_id: str) -> dict | None:
+        """run 1건을 dict로 직접 반환 — list_runs(1000)에서 찾던 O(N) 스캔 대체.
+
+        run이 없으면 None. list_runs와 동일한 키를 갖는 dict 반환.
+        """
+        r = db.get(Run, run_id)
+        if r is None:
+            return None
+        return {
+            "run_id": r.id, "source_id": r.source_id, "pipeline_id": r.pipeline_id,
+            "mode": r.mode, "branch_role": r.branch_role, "trigger": r.trigger,
+            "status": r.status, "from_sha": r.from_sha, "to_sha": r.to_sha,
+            "doc_count": r.doc_count, "mr_url": r.mr_url, "error": r.error,
+            "input_tokens": r.input_tokens, "output_tokens": r.output_tokens,
+            "created_at": isoformat_z(r.created_at),
+            "updated_at": isoformat_z(r.updated_at),
+        }
+
     def list_runs(self, db: Session, limit: int = 100,
                   source_id: str | None = None) -> list[dict]:
         stmt = select(Run).order_by(Run.created_at.desc()).limit(limit)
@@ -291,7 +336,12 @@ class RunService:
 
         now = datetime.now(timezone.utc)
         window_start = now - timedelta(hours=window_hours)
-        rows = db.scalars(select(Run).order_by(Run.created_at.desc())).all()
+        # 풀테이블 스캔 방지 — 최근 5000건만 본다. 5000건이 넘는 활성 시스템은
+        # 어차피 dashboard가 전부 표시하지 못하므로, 페이지네이션을 별도 엔드포인트로
+        # 두는 것이 맞다. window 집계는 window_start 이후 run만 정확히 본다.
+        rows = db.scalars(
+            select(Run).order_by(Run.created_at.desc()).limit(5000)
+        ).all()
 
         # 활성 스케줄 (per source × pipeline) — 있으면 enabled=true, cron 기록
         from ..models import SourceSchedule

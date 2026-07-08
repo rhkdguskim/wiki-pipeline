@@ -1,5 +1,4 @@
 import {useEffect, useRef, useState} from 'react';
-import {useQueryClient} from '@tanstack/react-query';
 import {getEvents, getRunSummary} from '../api/client.js';
 import {emptyState, ingest, stateFromRunSummary} from '../lib/ingest.js';
 import {onLiveMessage} from '../lib/liveBus.js';
@@ -14,7 +13,6 @@ const STALL_TICK_MS = 5000;
 // WS가 끊기면(fallback) offset 프로토콜 폴링으로 되돌아간다.
 // run-summary는 run_status WS 메시지가 도착하면 useLiveSocket이 invalidate → 자동 refetch.
 export function useRunStream(runId) {
-  const qc = useQueryClient();
   const wsStatus = useLiveSocketStore(s => s.status);
   const wsConnected = wsStatus === 'connected';
 
@@ -22,7 +20,15 @@ export function useRunStream(runId) {
   const [lastAge, setLastAge] = useState(0);
   const [S, setS] = useState(emptyState);
   const [runSummary, setRunSummary] = useState(null);
+
+  // 동시성 보호 — 폴링 중인 async chain이 완료되기 전 다음 poll이 들어오는 것 방지.
+  // deps 최소화를 위해 S/offset/lastAge는 ref로 읽고 effect는 runId/wsConnected에만 의존.
   const pollingRef = useRef(false);
+  const forcePollRef = useRef(false);
+  const stateRef = useRef(S);        // 폴백 폴링이 읽는 최신 S
+  const offsetRef = useRef(offset);  // 폴백 폴링이 읽는 최신 offset
+  stateRef.current = S;
+  offsetRef.current = offset;
 
   // runId 교체 시 상태 초기화
   useEffect(() => {
@@ -30,6 +36,8 @@ export function useRunStream(runId) {
     setLastAge(0);
     setS(emptyState());
     setRunSummary(null);
+    offsetRef.current = 0;
+    stateRef.current = emptyState();
   }, [runId]);
 
   // run-summary 폴링 — WS 연결 시 30s, fallback 시 10s.
@@ -60,12 +68,13 @@ export function useRunStream(runId) {
   }, [runId, wsConnected]);
 
   // WS 이벤트 구독 — 선택된 runId와 일치하는 events 메시지만 ingest에 반영.
-  // overflow 메시지도 받아서, 즉시 폴링 1회 트리거.
+  // overflow 메시지도 받아서, 즉시 폴백 폴링 1회 트리거.
   useEffect(() => {
     if (!runId) return;
     const unsubscribe = onLiveMessage((msg) => {
       if (msg.type === 'overflow') {
-        // 강제 폴백 폴링 1회 — 다음 effect에서 처리
+        // 강제 폴백 폴링 1회 — 폴링 effect가 다음 tick에 잡아서 실행.
+        // WS가 연결돼 있어도 poll()을 한 번 돌려 누락된 이벤트를 채운다.
         forcePollRef.current = true;
         return;
       }
@@ -80,76 +89,77 @@ export function useRunStream(runId) {
     return unsubscribe;
   }, [runId]);
 
-  // lastAge 단일 ticker — WS 모드에서도 주기 갱신 (stall 감지용).
-  // 의존성을 runId·wsConnected·S.lastTs로 잡아도, 내부는 setInterval 1개만.
+  // lastAge 단일 ticker — 의존성은 runId만. S.lastTs는 ref로 읽는다 (effect 재실행 회피).
   useEffect(() => {
     if (!runId) return;
     const tick = () => {
-      setLastAge(S.lastTs ? Math.floor((Date.now() - S.lastTs) / 1000) : 0);
+      const lastTs = stateRef.current.lastTs;
+      setLastAge(lastTs ? Math.floor((Date.now() - lastTs) / 1000) : 0);
     };
     tick();
     const id = setInterval(tick, STALL_TICK_MS);
     return () => clearInterval(id);
-  }, [runId, S.lastTs]);
+  }, [runId]);
 
-  // 폴백 폴링 — WS 미연결 OR overflow 강제 1회. forcePollRef로 트리거.
-  const forcePollRef = useRef(false);
+  // 폴백 폴링 — WS 미연결일 때 주기 폴링, OR forcePollRef 세팅 시 1회 즉시 폴링.
+  // 핵심: 의존성은 [runId, wsConnected]만. S/offset은 ref로 읽어 매 이벤트마다 effect가
+  // 재실행되는 churn을 막는다 (과거 버그: S가 deps에 있어 매 이벤트마다 setInterval이
+  // 재생성 + poll()이 매번 호출 + pollingRef race).
   useEffect(() => {
     if (!runId) return;
+
     async function poll() {
       if (pollingRef.current) return;
       pollingRef.current = true;
       try {
-        let nextOffset = offset;
+        let nextOffset = offsetRef.current;
         let nextAge = lastAge;
         let changed = false;
-        let nextState = S;
+        let nextState = stateRef.current;
         for (let i = 0; i < 50; i++) {
           const data = await getEvents(runId, nextOffset);
-          if (data.error) break;
           nextOffset = data.offset;
           nextAge = data.age_sec;
           for (const e of data.events) nextState = ingest(nextState, e);
-          changed ||= data.events.length > 0;
-          if (data.offset >= data.size) break;
+          changed = data.events.length > 0 || changed;
+          if (!data.events.length || data.offset >= data.size) break;
         }
-        setOffset(nextOffset);
-        setLastAge(nextAge);
-        if (changed) setS(nextState);
+        if (changed) {
+          // ref를 먼저 갱신 — 같은 tick에 다시 poll해도 최신 상태에서 이어짐.
+          stateRef.current = nextState;
+          offsetRef.current = nextOffset;
+          setS(nextState);
+          setOffset(nextOffset);
+        }
+        if (Number.isFinite(nextAge)) setLastAge(nextAge);
       } catch {
-        // next poll retries
+        // 다음 tick이 재시도
       } finally {
         pollingRef.current = false;
       }
     }
-    // WS 미연결이면 주기 폴링. 강제 트리거(fallback overflow)면 1회 즉시 실행.
-    poll();
+
+    // 강제 폴백(overflow) 시 즉시 1회 실행.
     if (forcePollRef.current) {
       forcePollRef.current = false;
+      poll();
     }
-    let id;
-    if (!wsConnected) {
-      id = setInterval(poll, POLL_MS);
-    }
-    return () => { if (id) clearInterval(id); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runId, offset, lastAge, S, wsConnected]);
 
-  // runSummary invalidate 대응 — 외부(useLiveSocket)에서 같은 키를 invalidate하면
-  // 위 폴링 effect와 별개로 getRunSummary가 즉시 호출되게 queryClient 캐시를 우회한다.
-  // (여기서는 useQuery를 안 쓰므로, 수동 fetch를 트리거할 필요는 없다 — run_status 도착 시
-  // useLiveSocket이 invalidateQueries만 부르고, 실제 refetch는 위 run-summary effect의
-  // setInterval이 담당한다. 즉시 반영하려면 직접 fetch를 부르는 게 낫다.)
-  useEffect(() => {
-    if (!runId) return;
-    const unsubscribe = qc.getQueryCache().subscribe((event) => {
-      if (event.type !== 'updated') return;
-      const q = event.query;
-      if (q.queryKey[0] !== 'runSummary' || q.queryKey[1] !== runId) return;
-      // run_summary를 useQuery 기반으로 안 쓰므로 트리거 무의미. 안전망으로만.
-    });
-    return unsubscribe;
-  }, [qc, runId]);
+    // 주기 인터벌 — WS 미연결이면 항상 poll, 연결 중이면 forcePollRef 감지만.
+    const id = setInterval(() => {
+      if (wsConnected) {
+        if (forcePollRef.current) {
+          forcePollRef.current = false;
+          poll();
+        }
+      } else {
+        // WS 끊김 — 매 tick마다 폴링 (overflow 강제도 같이 흡수).
+        if (forcePollRef.current) forcePollRef.current = false;
+        poll();
+      }
+    }, POLL_MS);
+    return () => clearInterval(id);
+  }, [runId, wsConnected]);
 
   return {S, lastAge, runSummary};
 }
