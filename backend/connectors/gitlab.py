@@ -18,6 +18,7 @@ from .base import (
     ScmError,
     ScmNotFoundError,
     ScmRateLimitError,
+    TagRef,
 )
 
 
@@ -154,6 +155,37 @@ class GitLabConnector(ScmConnector):
                 break
             page = int(next_page)
         return [b for b in out if b]
+
+    def list_tags(self) -> list[TagRef]:
+        """GitLab 태그 목록 (최신순) — GET /projects/:id/repository/tags.
+
+        GitLab 은 `last_committed_date` desc 정렬을 지원한다. annotated tag 의
+        `commit.id` 를 쓴다 (태그 객체 sha 가 아닌 가리키는 커밋).
+        """
+        out: list[TagRef] = []
+        page = 1
+        while page <= 5:  # 폴링 비용 한정 — 500개(5×100) 까지
+            resp = self._get(f"{self._proj}/repository/tags",
+                             params={"per_page": 100, "page": page,
+                                     "order_by": "version", "sort": "desc"})
+            batch = resp.json()
+            if not batch:
+                break
+            for t in batch:
+                commit = t.get("commit") or {}
+                out.append(TagRef(
+                    name=str(t.get("name", "")),
+                    sha=str(commit.get("id", "")),
+                    target_branch=str(t.get("target", "")),
+                    raw=t,
+                ))
+            if len(batch) < 100:
+                break
+            next_page = resp.headers.get("x-next-page", "")
+            if not next_page:
+                break
+            page = int(next_page)
+        return [t for t in out if t.name]
 
     def project_info(self) -> ProjectInfo:
         data = self._get(self._proj).json()

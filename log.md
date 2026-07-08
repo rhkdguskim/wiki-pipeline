@@ -494,3 +494,14 @@
 - 갱신(overview): SCM 커넥터가 MVP에서 다중 인스턴스+GitHub까지 붙음 명시(도입부·공유 뼈대 SCM 항목) · Phase 2 인프라에 FastAPI/PostgreSQL 스택 결정 추가 · MVP 절단선 SCM 부분 번복 반영 · 미해결 질문에 클라우드 SCM 네트워크(⛔)·토큰 정책 2건 추가
 - 갱신(허브 index): summary 18→19 · decision 51→54(superseded 10 불변) · question 32→34(answered 23 불변 · blocking 신규 1) · 총 113→119 · raw 22→23
 - 결정 처리: SCM 범위는 사용자 지시대로 **전체 supersede가 아니라 부분 번복** — decision-mvp-scope는 status active 유지, GitHub 관련 항목만 신규 decision-scm-multi-instance-github-mvp로 대체하고 상호 링크. superseded 카운트 증가 없음(10 불변). 기존 decision-scm-connector-abstraction이 이미 GitLab·GitHub 2커넥터를 동등 1급으로 설계해 두었으므로 새 결정은 "구현 MVP 승격 + 다중 인스턴스 확장"으로 좁혀 창작 없이 정합.
+
+## [2026-07-08] ingest | 백엔드 엔터프라이즈화 일괄 완료
+- raw: [[2026-07-08-backend-enterprise-batch]]
+- 생성: summary-backend-enterprise-batch, decision-* 갱신 없음(기존 결정 활용)
+- 코드 변경(요약): A/B/C/D/E/F/G 트랙 + ENT-A~L 일괄 실행 — Alembic(2 migration)·JSON logging·Prometheus /metrics·deep health·per-token rate limit·audit log·token rotation·Dockerfile·backup script·OpenAPI schemas·dependabot·CI Windows·graceful shutdown
+- 신규 페이지: 0 (모든 변경이 기존 결정/구조 보완)
+- 갱신: controlplane/app.py (미들웨어·헬스·메트릭 통합), controlplane/api.py (5 핵심 엔드포인트에 response_model), controlplane/models.py (ScmInstanceTokenRotation, AuditLog, token_rotated_at), controlplane/services/{registration,scheduler,runs,tag_poller,audit}.py, controlplane/{health,middleware,ratelimit,observability,schemas,timeutil}.py, common/logging_setup.py, runner/job.py, manual_pipeline/runner.py, connectors/{base,gitlab,github}.py, backend/Dockerfile, backend/.dockerignore, backend/scripts/backup.py, backend/requirements*.txt, .github/{workflows/ci.yml,dependabot.yml}, frontend/src/{api/client.js,hooks/queries.js,hooks/useLiveSocket.js,store/ui.js}
+- 갱신(인덱스): summary-index (summary-backend-enterprise-batch 등재), index.md (카운트 갱신)
+- alembic 검증: `upgrade head` 0001_baseline + 0002_audit_and_token_rotation 적용 성공
+- 테스트: 82 passed (75 unit/integration + 7 E2E)
+- 미해결 (open): question-cloud-scm-network ⛔ (여전히 게이트), question-cloud-scm-token-policy, question-batch-observability (daily digest 잔량), question-cost-estimation

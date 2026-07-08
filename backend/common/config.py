@@ -119,6 +119,10 @@ class Settings(BaseSettings):
     # ── 관측·출력 ──
     out_dir: str = "./out"
     log_level: str = "INFO"
+    # json|text — 운영은 json(수집 친화), 개발은 text.
+    # controlplane.settings.ControlPlaneSettings 가 같은 키를 더 구체적으로
+    # 갖지만, setup_logging() 은 여기서 cached_settings() 를 거치므로 양쪽 다 OK.
+    log_format: str = "text"
 
     # ── 재시도·동시성·한도 (운영 튜닝 — 코드 하드코딩 금지) ──
     scm_retry_attempts: int = 3          # SCM API 일시 오류 재시도

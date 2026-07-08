@@ -46,7 +46,11 @@ def decide_mode(mode: str, branch: dict) -> str:
 
 def projection_summary(summary: dict, settings: Settings, *, run_id: str,
                        source_id: str, pipeline_id: str = "static") -> dict:
-    """파이프라인 반환 summary -> build_mr_plan 입력(생성 산출물 목록)으로 변환."""
+    """파이프라인 반환 summary -> build_mr_plan 입력(생성 산출물 목록)으로 변환.
+
+    정적·매뉴얼 양쪽 summary 모두 `themes` 키에 `{theme: {"file": path, ...}}`를
+    담는다 — 이 함수는 그 file 경로를 out_path 기준 상대경로로 정규화한다.
+    """
     docs = summary.get("themes") or summary.get("docs") or {}
     generated = []
     for theme, info in docs.items():
@@ -109,34 +113,37 @@ def classify_error(exc: BaseException) -> str:
 
 
 def execute(run_id: str, mode: str, cp: ControlPlaneClient) -> dict:
-    """run 1건 실행 + 완료 보고. 반환값은 보고 결과 (테스트 관측용)."""
+    """run 1건 실행 + 완료 보고. 반환값은 보고 결과 (테스트 관측용).
+
+    pipeline_id 에 따라 정적(static)·매뉴얼(manual) 파이프라인으로 분기한다
+    (decision-mvp-scope: MVP = 정적 + 매뉴얼 둘 다).
+    """
     ctx = cp.runner_context(run_id)
     base = load_settings()
     settings = build_run_settings(base, ctx)
     branch = ctx["branch"]
-    effective = decide_mode(mode or ctx["run"].get("mode") or "auto", branch)
+    pipeline_id = (ctx["run"].get("pipeline_id") or "static").lower()
+    effective = mode or ctx["run"].get("mode") or "auto"
 
     sink = WebhookEventSink(cp, run_id)
     Observer.register_global_sink(sink)
     report: dict = {"status": "failed", "error": "", "error_kind": ""}
     try:
-        from ..static_pipeline.init_runner import run_init
-        from ..static_pipeline.runner import run_static
-
-        if effective == "init":
-            summary = run_init(settings, ref=branch.get("branch") or None,
-                               themes=settings.theme_list or None, run_id=run_id)
+        if pipeline_id == "manual":
+            summary = _run_manual_pipeline(settings, run_id=run_id)
         else:
-            summary = run_static(settings, branch["last_processed_sha"],
-                                 branch.get("branch") or None,
-                                 themes=settings.theme_list or None, run_id=run_id)
+            effective = decide_mode(effective, branch)
+            summary = _run_static_pipeline(settings, effective, branch, run_id=run_id)
 
         submission = submit_to_targets(summary, settings, ctx)
+        last_sha = summary.get("last_processed_sha", "")
+        # 매뉴얼 파이프라인은 sha 포인터를 쓰지 않는다 (버전 포인터 별도 — PoC).
+        # complete_run 은 last_processed_sha 가 비면 sha 를 전진시키지 않는다.
         report = {
             "status": "done",
             "from_sha": branch.get("last_processed_sha", ""),
-            "to_sha": summary.get("last_processed_sha", ""),
-            "last_processed_sha": summary.get("last_processed_sha", ""),
+            "to_sha": last_sha,
+            "last_processed_sha": last_sha,
             "doc_count": submission["doc_count"],
             "mr_url": submission["mr_url"],
         }
@@ -147,6 +154,39 @@ def execute(run_id: str, mode: str, cp: ControlPlaneClient) -> dict:
         Observer.clear_global_sinks()
         sink.close()
     return cp.complete(run_id, report)
+
+
+def _run_static_pipeline(settings: Settings, effective_mode: str,
+                         branch: dict, *, run_id: str) -> dict:
+    """정적 파이프라인 — init(전량) 또는 diff(증분)."""
+    from ..static_pipeline.init_runner import run_init
+    from ..static_pipeline.runner import run_static
+
+    if effective_mode == "init":
+        return run_init(settings, ref=branch.get("branch") or None,
+                        themes=settings.theme_list or None, run_id=run_id)
+    return run_static(settings, branch["last_processed_sha"],
+                       branch.get("branch") or None,
+                       themes=settings.theme_list or None, run_id=run_id)
+
+
+def _run_manual_pipeline(settings: Settings, *, run_id: str) -> dict:
+    """매뉴얼 파이프라인 — MCP 관측 → 하이브리드 순회 → 매뉴얼 생성.
+
+    v1 제한: MCP 엔드포인트·시나리오·테마는 글로벌 .env 기반. 소스별 MCP 호스트
+    (decision-app-host-connection 의 per-source IP/port)·시나리오는 후속 과제.
+    """
+    from ..manual_pipeline.runner import run_manual
+
+    if not settings.mcp_endpoint_url:
+        raise ValueError(
+            "MCP_ENDPOINT_URL 이 없습니다 — 매뉴얼 파이프라인 실행 불가. "
+            "소스가 매뉴얼 대상이면 Control Plane/.env 에 MCP 엔드포인트를 설정하세요."
+        )
+    return run_manual(
+        settings, run_id=run_id,
+        themes=settings.manual_theme_list or None,
+    )
 
 
 def main() -> int:

@@ -12,6 +12,7 @@ import os
 import subprocess
 import sys
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -19,7 +20,10 @@ from sqlalchemy.orm import Session
 
 from ..models import Run, RunEvent, RunModelUsage, Source, SourceBranch
 from ..settings import ControlPlaneSettings
+from ..timeutil import as_utc, isoformat_z
 from .notifier import Notifier
+
+log = logging.getLogger("controlplane.runs")
 
 log = logging.getLogger("controlplane.runs")
 
@@ -222,9 +226,13 @@ class RunService:
         from datetime import datetime, timedelta, timezone
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
-        old_run_ids = [r.id for r in db.scalars(
-            select(Run).where(Run.updated_at < cutoff,
-                              Run.status.in_(["done", "failed"]))).all()]
+        # SQLite 가 naive datetime 을 돌려주는 경우 대비 — Run.updated_at 을 UTC 로
+        # 정규화한 컬럼을 비교에 사용. SQLAlchemy 의 func.timezone() 으로 비교가
+        # 가능하지만 portable 하지 않으므로 Python 측 필터.
+        all_done_failed = db.scalars(
+            select(Run).where(Run.status.in_(["done", "failed"]))).all()
+        old_run_ids = [r.id for r in all_done_failed
+                       if as_utc(r.updated_at) and as_utc(r.updated_at) < cutoff]
         if not old_run_ids:
             return 0
         from sqlalchemy import delete
@@ -249,8 +257,8 @@ class RunService:
             "status": r.status, "from_sha": r.from_sha, "to_sha": r.to_sha,
             "doc_count": r.doc_count, "mr_url": r.mr_url, "error": r.error,
             "input_tokens": r.input_tokens, "output_tokens": r.output_tokens,
-            "created_at": r.created_at.isoformat() if r.created_at else "",
-            "updated_at": r.updated_at.isoformat() if r.updated_at else "",
+            "created_at": isoformat_z(r.created_at),
+            "updated_at": isoformat_z(r.updated_at),
         } for r in rows]
 
     def list_model_usage(self, db: Session, limit: int = 1000) -> list[dict]:
@@ -266,5 +274,96 @@ class RunService:
             "input_tokens": r.input_tokens,
             "output_tokens": r.output_tokens,
             "calls": r.calls,
-            "updated_at": r.updated_at.isoformat() if r.updated_at else "",
+            "updated_at": isoformat_z(r.updated_at),
         } for r in rows]
+
+    # ── 파이프라인 상태 집계 (Track F) ──────────────────────────
+    def pipeline_status(self, db: Session, window_hours: int = 24) -> list[dict]:
+        """각 (source × pipeline_id) 쌍의 최근 상태 + window 집계를 반환한다.
+
+        프런트 MonitorDashboard 가 useDbRunsQuery + 수동 집계하던 것을 서버가
+        단일 호출로 제공한다. 각 항목:
+        - last_run_id, last_status, last_run_at, last_error, last_mr_url, last_doc_count
+        - success_{w}h, failed_{w}h, running, total_tokens_{w}h, mean_duration_sec
+        - enabled_schedule, schedule_cron, next_scheduled_at (scheduler 가 채움)
+        """
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime.now(timezone.utc)
+        window_start = now - timedelta(hours=window_hours)
+        rows = db.scalars(select(Run).order_by(Run.created_at.desc())).all()
+
+        # 활성 스케줄 (per source × pipeline) — 있으면 enabled=true, cron 기록
+        from ..models import SourceSchedule
+        schedules = {}
+        for sched in db.scalars(select(SourceSchedule).where(SourceSchedule.enabled.is_(True))).all():
+            key = (sched.source_id, sched.pipeline_id)
+            schedules[key] = {
+                "schedule_id": sched.id,
+                "schedule_label": sched.label,
+                "schedule_cron": sched.cron,
+                "schedule_branch_role": sched.branch_role,
+            }
+
+        # group by (source_id, pipeline_id)
+        grouped: dict[tuple, dict] = {}
+        for r in rows:
+            key = (r.source_id or "", r.pipeline_id or "static")
+            bucket = grouped.setdefault(key, {
+                "source_id": key[0], "pipeline_id": key[1],
+                "last_run_id": "", "last_status": "", "last_run_at": "",
+                "last_error": "", "last_error_kind": "",
+                "last_mr_url": "", "last_doc_count": 0,
+                "last_branch_role": "", "last_trigger": "",
+                "success_window": 0, "failed_window": 0, "running": 0,
+                "total_tokens_window": 0, "mean_duration_sec": None,
+                "_done_durations": [],
+            })
+            # 첫 번째(가장 최근) row 로 last_* 채운다 — rows 가 desc 정렬이라 그대로.
+            if not bucket["last_run_id"]:
+                bucket["last_run_id"] = r.id
+                bucket["last_status"] = r.status
+                bucket["last_run_at"] = isoformat_z(r.created_at)
+                bucket["last_error"] = r.error
+                bucket["last_mr_url"] = r.mr_url
+                bucket["last_doc_count"] = int(r.doc_count or 0)
+                bucket["last_branch_role"] = r.branch_role
+                bucket["last_trigger"] = r.trigger
+                # error_kind 는 complete_run 시점에 분류되지 row 에 저장 안 됨 —
+                # error 문자열에서 heuristically 복원 (ScmNotFoundError/ScmAuthError ...)
+                err = (r.error or "").lower()
+                if "notfound" in err or "404" in err:
+                    bucket["last_error_kind"] = "not_found"
+                elif "ratauth" in err.replace("_", "") or " 401" in err or "scmauth" in err:
+                    bucket["last_error_kind"] = "auth"
+                elif "rate" in err or "429" in err:
+                    bucket["last_error_kind"] = "rate_limited"
+            # window 내 집계 (생성시간 기준) — SQLite 가 naive datetime 을 돌려주는
+            # 경우 대비해 tz-aware UTC 로 정규화 후 비교.
+            created = as_utc(r.created_at)
+            if created and created >= window_start:
+                if r.status == "done":
+                    bucket["success_window"] += 1
+                    if r.updated_at and r.created_at:
+                        upd = as_utc(r.updated_at)
+                        bucket["_done_durations"].append(
+                            (upd - created).total_seconds())
+                elif r.status == "failed":
+                    bucket["failed_window"] += 1
+                elif r.status == "running":
+                    bucket["running"] += 1
+                bucket["total_tokens_window"] += (
+                    int(r.input_tokens or 0) + int(r.output_tokens or 0))
+
+        out: list[dict] = []
+        for (source_id, pipeline_id), bucket in grouped.items():
+            durations = bucket.pop("_done_durations", [])
+            bucket["mean_duration_sec"] = (
+                round(sum(durations) / len(durations), 1) if durations else None)
+            sched = schedules.get((source_id, pipeline_id), {})
+            bucket.update(sched)
+            bucket["enabled_schedule"] = bool(sched)
+            out.append(bucket)
+        # source_id, pipeline_id 순으로 정렬 — 프런트가 그룹핑하기 쉽게
+        out.sort(key=lambda x: (x["source_id"], x["pipeline_id"]))
+        return out

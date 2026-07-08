@@ -50,19 +50,28 @@ def _bridge_for(settings: Settings, log: ObservationLog,
 def run_manual(
     settings: Settings,
     *,
+    run_id: str | None = None,
     scenarios_file: str | None = None,
     themes: list[str] | None = None,
     explore_steps: int | None = None,
-    resume_run_id: str | None = None,
+    resume: bool = False,
     no_explore: bool = False,
 ) -> dict:
-    resume = bool(resume_run_id)
+    """매뉴얼 파이프라인 실행.
+
+    run_id:
+      - None → RunContext 가 새 run_id 를 발급 (로컬 CLI 신규 실행).
+      - 외부 주입(Control Plane) → 그 run_id 를 그대로 쓴다. 이때 resume=False 면
+        신규 run 으로 취급 (체크포인트 무시). resume=True 면 같은 run_id 의
+        체크포인트·관측 JSONL 을 이어간다 (CLI --resume 경로).
+    """
+    resume = bool(resume) and bool(run_id)
     if explore_steps:
         settings.manual_explore_steps = explore_steps
     themes = themes or settings.manual_theme_list or DEFAULT_THEMES
 
     with RunContext("manual", settings, run_stage="manual-run",
-                    run_id=resume_run_id) as ctx:
+                    run_id=run_id) as ctx:
         rev = ctx.rev
         out_dir = settings.out_path / "manual"
         out_dir.mkdir(parents=True, exist_ok=True)

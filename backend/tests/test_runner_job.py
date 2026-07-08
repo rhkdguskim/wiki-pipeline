@@ -183,3 +183,94 @@ def test_execute_no_targets_still_advances(monkeypatch, tmp_path):
     assert cp.completed["status"] == "done"
     assert cp.completed["mr_url"] == ""
     assert cp.completed["last_processed_sha"] == HEAD_SHA
+
+
+# ── manual pipeline dispatch (Track A-2) ─────────────────────────
+
+def _manual_context(*, last_processed_sha: str = "", targets: list | None = None) -> dict:
+    ctx = _context(last_processed_sha=last_processed_sha, targets=targets)
+    ctx["run"]["run_id"] = "manual-demo-abcdef01"
+    ctx["run"]["pipeline_id"] = "manual"
+    ctx["run"]["branch_role"] = "release"
+    return ctx
+
+
+def _patch_manual(monkeypatch, tmp_path, *, calls: dict | None = None,
+                  fail: bool = False):
+    """LLM 없이 도는 가짜 run_manual — themes 1건 생성, run_id 그대로 echo."""
+    from backend.manual_pipeline.runner import run_manual as real_run_manual
+    import backend.runner.job as job_mod
+
+    def fake_run_manual(settings, *, run_id=None, scenarios_file=None,
+                        themes=None, explore_steps=None, resume=False,
+                        no_explore=False):
+        if calls is not None:
+            calls["run_id"] = run_id
+            calls["themes_param"] = themes
+        if fail:
+            raise RuntimeError("manual pipeline simulated failure")
+        # 매뉴얼 summary 는 out_dir/manual 하위에 저장. CP 의 out_path 와 일치시키자.
+        manual_dir = settings.out_path / "manual"
+        manual_dir.mkdir(parents=True, exist_ok=True)
+        doc = manual_dir / "user-manual.md"
+        doc.write_text("# user manual\n", encoding="utf-8")
+        return {"run_id": run_id, "themes": {"user-manual": {"file": str(doc)}},
+                "observations": 5, "warned": []}
+
+    # manual_pipeline.runner 모듈의 run_manual 만 갈아끼우면 job 모듈이 직접
+    # import 하는 run_manual 참조도 같이 바뀌는지 검증하기 위해 job 모듈에서도
+    # 갈아끼운다 (job 모듈은 import 시점에 from ..manual_pipeline.runner 로 가져옴).
+    monkeypatch.setattr("backend.manual_pipeline.runner.run_manual", fake_run_manual)
+    monkeypatch.setattr("backend.runner.job._run_manual_pipeline",
+                        lambda settings, *, run_id: fake_run_manual(settings, run_id=run_id))
+    monkeypatch.setattr(job, "load_settings",
+                        lambda: Settings(_env_file=None, out_dir=str(tmp_path),
+                                         mcp_endpoint_url="http://mcp.local:9100"))
+
+
+def test_manual_dispatch_runs_manual_pipeline(monkeypatch, tmp_path, fake_submit_connector):
+    """pipeline_id='manual' → run_manual 호출, CP run_id 그대로 전달."""
+    calls: dict = {}
+    _patch_manual(monkeypatch, tmp_path, calls=calls)
+    cp = FakeControlPlane(_manual_context())
+    client = ControlPlaneClient("http://cp.local", "rtok", transport=cp.transport)
+    job.execute("manual-demo-abcdef01", "auto", client)
+    client.close()
+
+    assert calls["run_id"] == "manual-demo-abcdef01"
+    assert cp.completed["status"] == "done"
+    # 매뉴얼 파이프라인은 sha 포인터를 쓰지 않는다 (버전 포인터 별도 — PoC).
+    assert cp.completed.get("last_processed_sha") in ("", None)
+    # user-manual.md 가 매뉴얼 theme 으로 잡혀 MR 제출 대상이 됐는지
+    assert cp.completed["doc_count"] >= 1
+    assert "merge_requests" in cp.completed["mr_url"]
+
+
+def test_manual_dispatch_fails_without_mcp_endpoint(monkeypatch, tmp_path):
+    """MCP_ENDPOINT_URL 없으면 매뉴얼 실행은 명시적 ValueError."""
+    from backend.manual_pipeline.runner import run_manual as real_run_manual
+    import backend.runner.job as job_mod
+    monkeypatch.setattr(job, "load_settings",
+                        lambda: Settings(_env_file=None, out_dir=str(tmp_path),
+                                         mcp_endpoint_url=""))
+    cp = FakeControlPlane(_manual_context())
+    client = ControlPlaneClient("http://cp.local", "rtok", transport=cp.transport)
+    job.execute("manual-demo-abcdef01", "auto", client)
+    client.close()
+
+    assert cp.completed["status"] == "failed"
+    assert "MCP_ENDPOINT_URL" in cp.completed["error"]
+
+
+def test_static_dispatch_unchanged_when_pipeline_static(monkeypatch, tmp_path, fake_submit_connector):
+    """pipeline_id='static' (기본) → run_static 경로 그대로 (회귀 방지)."""
+    calls: dict = {}
+    _patch_pipeline(monkeypatch, tmp_path, calls=calls)
+    cp = FakeControlPlane(_context(last_processed_sha=OLD_SHA))  # pipeline_id=static
+    client = ControlPlaneClient("http://cp.local", "rtok", transport=cp.transport)
+    job.execute("static-demo-12345678", "auto", client)
+    client.close()
+
+    assert calls["mode"] == "diff"  # 정적 경로가 그대로 호출됐다
+    assert cp.completed["status"] == "done"
+    assert cp.completed["last_processed_sha"] == HEAD_SHA  # sha 전진도 정상

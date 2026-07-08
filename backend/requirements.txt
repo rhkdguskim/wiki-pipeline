@@ -20,3 +20,9 @@ sqlalchemy>=2.0                    # DB source of truth (decision-db-source-of-t
 # psycopg[binary]>=3.2             # PostgreSQL 드라이버 (운영 — CONTROL_DB_URL=postgresql+psycopg://...)
 apscheduler>=3.10                  # 과제별 cron (decision-schedule-per-source)
 cryptography>=43                   # 시크릿 at-rest 암호화 (SecretBox)
+
+# ── Enterprise observability / governance ──
+alembic>=1.13                      # 스키마 마이그레이션 (create_all 대체)
+prometheus-client>=0.21            # /metrics 엔드포인트 (Prometheus exporter)
+python-json-logger>=2.0            # JSON 구조화 로그 (집계 친화)
+slowapi>=0.1.9                     # API rate limit (per-token + per-IP)

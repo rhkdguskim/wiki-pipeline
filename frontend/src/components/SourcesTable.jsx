@@ -1,13 +1,13 @@
-import {Pencil, Play, ShieldCheck} from 'lucide-react';
+import {ExternalLink, Play, ShieldCheck} from 'lucide-react';
 import {formatSchedule} from '../lib/schedule.js';
 
-export function SourcesTable({sources, onOpenDetail, onVerify, onTrigger, onEdit, onToggleEnabled}) {
+export function SourcesTable({sources, onOpenDetail, onVerify, onTrigger, onToggleEnabled}) {
   return <div className="tableScroll">
     <table>
       <thead>
         <tr>
           <th>이름</th><th>종류</th><th>repo</th><th>dev</th><th>release</th>
-          <th>last sha</th><th>스케줄</th><th>상태</th><th></th>
+          <th>last sha</th><th>스케줄</th><th>상태</th><th>작업</th>
         </tr>
       </thead>
       <tbody>
@@ -25,9 +25,9 @@ export function SourcesTable({sources, onOpenDetail, onVerify, onTrigger, onEdit
           </td>
           <td onClick={e => e.stopPropagation()}>
             <div className="panelActions">
-              <button type="button" className="iconTextBtn" onClick={() => onVerify(s.id)} title="토큰·접근 검증"><ShieldCheck size={14} /></button>
-              <button type="button" className="iconTextBtn" disabled={!s.enabled} onClick={() => onTrigger(s.id)} title={s.enabled ? '지금 실행' : s.disabled_reason || '비활성 소스'}><Play size={14} /></button>
-              <button type="button" className="iconTextBtn" onClick={() => onEdit(s)} title="수정"><Pencil size={14} /></button>
+              <button type="button" className="iconTextBtn" onClick={() => onOpenDetail(s.id)} title="상세 보기"><ExternalLink size={14} />상세</button>
+              <button type="button" className="iconTextBtn" onClick={() => onVerify(s.id)} title="토큰·접근 검증"><ShieldCheck size={14} />검증</button>
+              <button type="button" className="iconTextBtn" disabled={!s.enabled} onClick={() => onTrigger(s.id)} title={s.enabled ? '지금 실행' : s.disabled_reason || '비활성 소스'}><Play size={14} />실행</button>
               <button type="button" className="iconTextBtn" onClick={() => onToggleEnabled(s)} title={s.enabled ? '비활성화 (소프트 삭제)' : '활성화'}>
                 {s.enabled ? '비활성화' : '활성화'}
               </button>

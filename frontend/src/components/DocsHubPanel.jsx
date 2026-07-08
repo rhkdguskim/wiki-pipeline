@@ -1,14 +1,17 @@
 import {Save} from 'lucide-react';
 import {defaultDocTarget, fieldValue} from '../lib/defaults.js';
 
-export function DocsHubPanel({target, onChange, onSave, busy, message}) {
+export function DocsHubPanel({target, onChange, onSave, busy, message, embedded}) {
   const form = target || defaultDocTarget;
   const set = (key, value) => onChange({...form, [key]: value});
-  return <form className="editor docsTarget" onSubmit={ev => { ev.preventDefault(); onSave(); }}>
-    <div className="editorHead">
+  return <form className={embedded ? 'docsHubEmbedded' : 'editor docsTarget'} onSubmit={ev => { ev.preventDefault(); onSave(); }}>
+    {!embedded && <div className="editorHead">
       <div><h2>문서 허브 대상</h2><p>생성 산출물 MR 대상: product-common</p></div>
       <button className="primaryBtn" disabled={busy}><Save size={15} />저장</button>
-    </div>
+    </div>}
+    {embedded && <div className="panelActions" style={{justifyContent: 'flex-end', marginBottom: 10}}>
+      <button className="primaryBtn" disabled={busy}><Save size={15} />저장</button>
+    </div>}
     <div className="formGrid">
       <label>식별자(ID)<input value={fieldValue(form, 'id') || 'product-common'} onChange={e => set('id', e.target.value)} /></label>
       <label>이름<input value={fieldValue(form, 'label') || 'product-common'} onChange={e => set('label', e.target.value)} /></label>

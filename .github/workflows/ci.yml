@@ -4,9 +4,18 @@ on:
   push:
     branches: [main]
   pull_request:
+  # 수동 트리거 (의존성 업데이트 / 릴리스 검증)
+  workflow_dispatch:
+
+# 기본 cancel: 같은 PR 의 오래된 실행은 자동 취소.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  backend:
+  # ── Linux (Ubuntu) — 빠른 기본 검증 ───────────────────────────────
+  backend-linux:
+    name: backend (ubuntu-latest)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,20 +28,44 @@ jobs:
           pip install -r backend/requirements.txt -r backend/requirements-dev.txt
       - name: Compile check
         run: python -m compileall -q backend
+      - name: Alembic upgrade (offline)
+        # 오프라인 모드에서 migration chain 검증 — 실제 DB 없이 SQL 생성.
+        run: |
+          cd backend && alembic -c controlplane/migrations/alembic.ini upgrade head --sql
       - name: Tests
         run: python -m pytest backend/tests/ -q
-
-  frontend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - name: Install and build
+      - name: Frontend build smoke
         working-directory: frontend
         run: |
           npm ci
           npm run build
+
+  # ── Windows (Track C-5) — 프로덕션 Data Plane 타깃 ───────────────
+  # 1) 자기 호환성: SQLite + Windows 라인 엔딩에서 컴파일/테스트 통과
+  # 2) 운영 경고: Windows 러너에서 subprocess.Popen 동작은 Linux 와 다르므로 별도 확인
+  backend-windows:
+    name: backend (windows-latest)
+    runs-on: windows-latest
+    # PR 시에는 Windows 매트릭스 skip — 비용 절감. main 머지/nightly 에서만 실행.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+        shell: pwsh
+      - name: Compile check
+        run: python -m compileall -q backend
+        shell: pwsh
+      - name: Tests (Windows path)
+        # Windows runner 는 ps1 환경이라 한글 로그/이모지 출력이 깨질 수 있다.
+        # PYTHONIOENCODING=utf-8 + PYTHONUTF8=1 로 강제.
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: 1
+        run: python -m pytest backend/tests/ -q --tb=short
+        shell: pwsh

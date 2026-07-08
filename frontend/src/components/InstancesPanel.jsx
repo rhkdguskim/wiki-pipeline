@@ -1,13 +1,13 @@
 import {Plus, Save} from 'lucide-react';
 import {blankInstance, fieldValue} from '../lib/defaults.js';
 
-export function InstancesPanel({instances, form, onChange, onSave, onToggleEnabled, busy, message}) {
+export function InstancesPanel({instances, form, onChange, onSave, onToggleEnabled, busy, message, embedded}) {
   const set = (key, value) => onChange({...form, [key]: value});
   const isGithub = (form.kind || 'gitlab') === 'github';
-  return <div className="editor instances">
-    <div className="editorHead">
+  return <div className={embedded ? 'instancesEmbedded' : 'editor instances'}>
+    {!embedded && <div className="editorHead">
       <div><h2>SCM 인스턴스</h2><p>사내 GitLab · gitlab.com · github.com — 인스턴스 단위 공용 토큰</p></div>
-    </div>
+    </div>}
     <div className="tableScroll">
       <table>
         <thead><tr><th>이름</th><th>종류</th><th>base_url</th><th>토큰</th><th>상태</th><th></th></tr></thead>

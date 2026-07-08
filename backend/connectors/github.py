@@ -21,6 +21,7 @@ from .base import (
     ScmError,
     ScmNotFoundError,
     ScmRateLimitError,
+    TagRef,
 )
 
 _API_VERSION = "2022-11-28"
@@ -177,6 +178,33 @@ class GitHubConnector(ScmConnector):
                 break
             page += 1
         return [b for b in out if b]
+
+    def list_tags(self) -> list[TagRef]:
+        """GitHub 태그 목록 — GET /repos/:owner/:repo/tags.
+
+        GitHub API는 태그를 semver가 아닌 이름 asc/desc 정렬만 지원한다. 최신순(커밋
+        시간 기준)이 필요하면 호출측에서 정렬한다. 폴링 비용 한정 — 5페이지(250개)까지.
+        annotated tag 도 `commit.sha` 가 가리키는 커밋을 반환한다 (tag 객체 sha 아님).
+        """
+        out: list[TagRef] = []
+        page = 1
+        while page <= 5:
+            batch = self._get(f"{self._repo}/tags",
+                              params={"per_page": 100, "page": page}).json()
+            if not batch:
+                break
+            for t in batch:
+                commit = t.get("commit") or {}
+                out.append(TagRef(
+                    name=str(t.get("name", "")),
+                    sha=str(commit.get("sha", "")),
+                    target_branch="",
+                    raw=t,
+                ))
+            if len(batch) < 100:
+                break
+            page += 1
+        return [t for t in out if t.name]
 
     def project_info(self) -> ProjectInfo:
         data = self._get(self._repo).json()

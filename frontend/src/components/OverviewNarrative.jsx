@@ -1,6 +1,10 @@
-import {AlertTriangle, CheckCircle2, FileText, GitPullRequest, Radio, XCircle} from 'lucide-react';
+import {useState, Suspense, lazy} from 'react';
+import {AlertTriangle, CheckCircle2, Eye, FileText, GitPullRequest, Radio, XCircle} from 'lucide-react';
 import {narrateStage} from '../lib/stageNarrative.js';
 import {fmtDur, fmtNum} from '../lib/format.js';
+
+// mermaid + react-markdown은 무거우므로 DocViewer는 첫 클릭 시 지연 로드.
+const DocViewer = lazy(() => import('./DocViewer.jsx').then(m => ({default: m.DocViewer})));
 
 function currentSentence({state, S, runSummary, activeRun}) {
   if (state === 'done') {
@@ -34,7 +38,8 @@ function progressInfo({stages, S, runSummary}) {
   return {total, done, pct, unitLabel};
 }
 
-export function OverviewNarrative({S, live, state, stages, activeRun, runSummary, mrPlan, mrBusy, mrMessage, onSubmitMr, onOpenTrace}) {
+export function OverviewNarrative({S, live, state, stages, activeRun, runSummary, mrPlan, mrBusy, mrMessage, onSubmitMr, onOpenTrace, runId}) {
+  const [docViewer, setDocViewer] = useState(null);  // {path} | null
   const sentence = currentSentence({state, S, runSummary, activeRun});
   const {total, done, pct, unitLabel} = progressInfo({stages, S, runSummary});
   const elapsedMs = S.firstTs ? (live ? Date.now() : S.lastTs) - S.firstTs : 0;
@@ -73,13 +78,17 @@ export function OverviewNarrative({S, live, state, stages, activeRun, runSummary
     </section>
 
     <section className="panel">
-      <div className="panelHead"><h2><FileText size={14} />만들어진 문서</h2></div>
+      <div className="panelHead"><h2><FileText size={14} />만들어진 문서</h2><span className="coordTag">{generated.length} DOCS</span></div>
       {generated.length ? <ul className="docList">
-        {generated.map((g, i) => <li key={`${g.path}-${i}`}>
-          <FileText size={14} />
-          <span className="docName mono">{g.path}</span>
-          {g.warned ? <span className="pill stalled small">경고</span> : <span className="pill done small">통과</span>}
-        </li>)}
+        {generated.map((g, i) => {
+          const isMd = /\.(md|markdown)$/i.test(g.path || '');
+          return <li key={`${g.path}-${i}`} className={isMd ? 'docItem clickable' : ''} onClick={isMd ? () => setDocViewer({path: g.path}) : undefined} title={isMd ? '클릭하여 미리보기' : ''}>
+            <FileText size={14} />
+            <span className="docName mono">{g.path}</span>
+            {isMd && <Eye size={12} className="docViewHint" aria-hidden="true" />}
+            {g.warned ? <span className="pill stalled small">경고</span> : <span className="pill done small">통과</span>}
+          </li>;
+        })}
       </ul> : <div className="emptyPanel">아직 생성된 문서가 없어요</div>}
       {mrUrl && <a className="primaryBtn fullBtn" href={mrUrl} target="_blank" rel="noreferrer">
         <GitPullRequest size={15} />MR에서 검토하기 →
@@ -93,5 +102,11 @@ export function OverviewNarrative({S, live, state, stages, activeRun, runSummary
     <button type="button" className="narrativeFootnote" onClick={onOpenTrace}>
       <Radio size={12} />LLM 호출 {S.llmCalls}회 · 토큰 {fmtNum(S.inTok + S.outTok)}{topModel?.model ? ` · ${topModel.provider}/${topModel.model}` : ''}
     </button>
+
+    {docViewer && runId && (
+      <Suspense fallback={<div className="docViewerOverlay"><div className="docViewer"><div className="docViewerBody loading">로드 중…</div></div></div>}>
+        <DocViewer runId={runId} path={docViewer.path} onClose={() => setDocViewer(null)} />
+      </Suspense>
+    )}
   </div>;
 }

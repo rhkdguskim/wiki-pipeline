@@ -46,11 +46,51 @@ class ControlPlaneSettings(BaseSettings):
     default_schedule_cron: str = "0 20 * * mon-fri"
     scheduler_enabled: bool = True
 
+    # ── 매뉴얼 파이프라인 태그 폴링 (decision-release-tag-trigger) ──
+    # 비우면 폴링 안 함. 기본값: 30분마다. prod 부하가 크면 늘릴 것.
+    manual_tag_poll_cron: str = ""
+    manual_tag_poll_enabled: bool = False
+
+    # ── CORS 허용 origin (decision-server-vm-self-token · 프런트 대시보드) ──
+    # 쉼표 구분. 비워도(*로 기본 동작) 개발은 가능하나 prod 에서는 명시 권장.
+    control_cors_origins: str = ""
+
+    # ── WS 이벤트 필터 (Track E) ──
+    # true: WS 기본이 모든 이벤트 수신(thinking 포함, 과거 동작).
+    # false(권장): WS 기본이 agent_step.thinking 드랍 — 모니터링 노이즈 감소.
+    # 클라이언트가 ?verbose=1|0 으로 명시하면 설정보다 우선.
+    control_ws_default_verbose: bool = False
+
+    # ── 토큰 순환 경고 (question-cloud-scm-token-policy) ──
+    # scm_instances.token_rotated_at 기준 N일 임박 시 admin 이메일. 0=비활성.
+    token_rotation_warn_days: int = 0
+
+    # ── daily digest (question-batch-observability 잔량) ──
+    # 비우면 발송 안 함. 매일 08:00에 전일 run 요약을 admin·owner 에게 발송.
+    daily_digest_cron: str = ""
+    daily_digest_enabled: bool = False
+
     # ── 이벤트 보존 정책 — 완료 run의 상세 이벤트를 N일 후 정리 (0=무제한) ──
     event_retention_days: int = 30
 
     # ── 산출물 루트 (레거시 JSONL run 조회용 — common.Settings.out_dir과 동일 규칙) ──
     out_dir: str = "./out"
+
+    # ── 운영 ──
+    # LOG_LEVEL — uvicorn.access / uvicorn.error / app 로거 공통 레벨.
+    # common.config.Settings.log_level 와 의미가 같지만 ControlPlane 에서도
+    # 직접 읽기 때문에 중복 정의.
+    log_level: str = "INFO"
+    # LOG_FORMAT=json|text — 운영에선 json 으로 (수집 친화). 개발은 text.
+    log_format: str = "text"
+    # GRACEFUL_SHUTDOWN_TIMEOUT_SEC — uvicorn 종료 시 inflight 요청·runner 종료 대기
+    graceful_shutdown_timeout_sec: float = 30.0
+    # RATE_LIMIT_PER_MIN — API 토큰 분당 요청 한도 (0=비활성).
+    rate_limit_per_min: int = 600
+    # AUDIT_LOG_RETENTION_DAYS — audit_logs 테이블 보존 (0=영구)
+    audit_log_retention_days: int = 365
+    # DEEP_HEALTHCHECK_TIMEOUT_SEC — /health/ready 의 서브 체크 타임아웃
+    deep_healthcheck_timeout_sec: float = 3.0
 
     @property
     def out_path(self) -> Path:

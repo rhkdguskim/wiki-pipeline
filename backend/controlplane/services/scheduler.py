@@ -16,6 +16,7 @@ from ..db import session_scope
 from ..models import Run, Source, SourceSchedule
 from ..schedule import describe_cron, next_fire, parse_cron, validate_cron
 from ..settings import ControlPlaneSettings
+from ..timeutil import isoformat_z
 from .runs import RunService
 
 log = logging.getLogger("controlplane.scheduler")
@@ -23,10 +24,12 @@ log = logging.getLogger("controlplane.scheduler")
 
 class SourceScheduler:
     def __init__(self, settings: ControlPlaneSettings,
-                 session_factory: sessionmaker, run_service: RunService):
+                 session_factory: sessionmaker, run_service: RunService,
+                 tag_poller=None):
         self.settings = settings
         self.session_factory = session_factory
         self.run_service = run_service
+        self.tag_poller = tag_poller  # 매뉴얼 파이프라인 태그 폴링 (optional — 단위테스트 편의)
         self._scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 
     def start(self) -> None:
@@ -51,6 +54,29 @@ class SourceScheduler:
                 id="maintenance-prune-events", replace_existing=True,
                 misfire_grace_time=3600, coalesce=True,
             )
+        # Track B-1: 토큰 순환 경고 (매일 08:00). N일 경과한 토큰 → admin 알림.
+        if self.settings.token_rotation_warn_days > 0:
+            self._scheduler.add_job(
+                self._warn_stale_tokens, CronTrigger.from_crontab("0 8 * * *", timezone="Asia/Seoul"),
+                id="maintenance-warn-stale-tokens", replace_existing=True,
+                misfire_grace_time=3600, coalesce=True,
+            )
+        # 매뉴얼 파이프라인 릴리스 태그 폴링 (decision-release-tag-trigger)
+        if self.tag_poller is not None and self.settings.manual_tag_poll_enabled:
+            cron = (self.settings.manual_tag_poll_cron.strip()
+                    or "*/30 * * * *")  # 기본 30분
+            try:
+                trigger = CronTrigger.from_crontab(validate_cron(cron),
+                                                   timezone="Asia/Seoul")
+            except ValueError as e:
+                log.error("태그 폴링 cron 파싱 실패(%r): %s — 잡 미등록", cron, e)
+            else:
+                self._scheduler.add_job(
+                    self._poll_release_tags, trigger,
+                    id="manual-tag-poll", replace_existing=True,
+                    misfire_grace_time=3600, coalesce=True,
+                )
+                log.info("태그 폴링 잡 등록 (cron=%s)", cron)
         with session_scope(self.session_factory) as db:
             sources = db.scalars(select(Source).where(Source.enabled.is_(True))).all()
             for source in sources:
@@ -61,6 +87,48 @@ class SourceScheduler:
                 else:
                     self._add_legacy_source_job(source)
         log.info("스케줄 잡 %d개 등록", len(self._scheduler.get_jobs()))
+
+    def _poll_release_tags(self) -> None:
+        """매뉴얼 파이프라인 태그 폴링 잡 — 새 태그 발견 시 run 생성."""
+        if self.tag_poller is None:
+            return
+        try:
+            count = self.tag_poller.poll_once()
+            if count:
+                log.info("태그 폴링: 매뉴얼 run %d건 트리거", count)
+        except Exception as e:  # noqa: BLE001 — 폴링 실패가 스케줄러를 죽이면 안 된다
+            log.error("태그 폴링 실패: %s: %s", type(e).__name__, e)
+
+    def _warn_stale_tokens(self) -> None:
+        """token_rotation_warn_days 보다 오래된 토큰 경고 (Track B-1).
+
+        scm_instances 중 token_rotated_at 이 임계값 이전이거나 NULL 이면
+        admin 이메일. NOTIFIER 가 log 모드면 stdout 만, smtp 면 실제 발송.
+        """
+        from datetime import datetime, timedelta, timezone
+        from sqlalchemy import select
+        from ..models import ScmInstance
+        threshold = datetime.now(timezone.utc) - timedelta(
+            days=self.settings.token_rotation_warn_days)
+        with session_scope(self.session_factory) as db:
+            stale = db.scalars(select(ScmInstance).where(
+                ScmInstance.enabled.is_(True),
+            )).all()
+            stale_ids = [i.id for i in stale
+                         if i.token_rotated_at is None or i.token_rotated_at < threshold]
+        if stale_ids:
+            try:
+                self.run_service.notifier.run_failed(
+                    source_label="(scm_instances)",
+                    run_id="token-rotation-warning",
+                    error=(f"토큰 순환 경고: {len(stale_ids)}개 인스턴스가 "
+                           f"{self.settings.token_rotation_warn_days}일 경과 — "
+                           f"{', '.join(stale_ids[:5])}"
+                           + (" ..." if len(stale_ids) > 5 else "")),
+                    owner_email=self.settings.admin_email,
+                )
+            except Exception as e:  # noqa: BLE001
+                log.error("토큰 순환 경고 발송 실패: %s: %s", type(e).__name__, e)
 
     def _add_source_job(self, source: Source, sched: SourceSchedule) -> None:
         cron = sched.cron.strip() or self.settings.default_schedule_cron
@@ -145,7 +213,7 @@ class SourceScheduler:
     def _next_run(self, job, cron: str, enabled: bool) -> str:
         job_next_run = getattr(job, "next_run_time", None) if job else None
         if job_next_run:
-            return job_next_run.isoformat()
+            return isoformat_z(job_next_run)
         if enabled:
             try:
                 return next_fire(cron)

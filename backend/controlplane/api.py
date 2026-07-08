@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import re
 import secrets
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import (APIRouter, Body, Depends, HTTPException, Query, Request,
@@ -18,6 +19,14 @@ from ..common.docshub import build_mr_plan, submit_change_request
 from . import projection
 from .models import DocTarget, ScmInstance, Source, SourceSchedule
 from .schedule import normalize_schedule_payload
+from .schemas import (
+    AuditRecentResponse,
+    CostsResponse,
+    OverviewResponse,
+    PipelineStatusResponse,
+    RunSummary,
+)
+from .timeutil import isoformat_z
 
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
@@ -76,6 +85,34 @@ def _check_run_id(run: str) -> str:
     return run
 
 
+# ── audit (ENT-F) ──────────────────────────────────────────────
+
+def _audit(request: Request, *, action: str, target_kind: str = "",
+           target_id: str = "", detail: dict | None = None) -> None:
+    """관리 mutation 엔드포인트가 끝날 때 호출. 실패는 무시 (감사가 본 요청을 막으면 안 됨)."""
+    try:
+        audit = getattr(request.app.state, "audit_service", None)
+        if audit is None:
+            return
+        actor = _state(request).api_tokens and (
+            list(_state(request).api_tokens.values())[0]  # fallback for dev mode
+            if not _extract_token(request) else
+            next((name for tok, name in _state(request).api_tokens.items()
+                  if secrets.compare_digest(_extract_token(request), tok)), "(anon)")
+        )
+        audit.record(
+            actor=str(actor)[:120],
+            action=action[:80],
+            target_kind=target_kind[:40],
+            target_id=str(target_id)[:200],
+            request_id=_state(request).__dict__.get("current_request_id", ""),
+            detail=detail or {},
+            remote_addr=(request.client.host if request.client else ""),
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
 # ── 메타 ─────────────────────────────────────────────────────
 
 @router.get("/")
@@ -85,6 +122,7 @@ def index() -> dict:
         "service": "wiki-pipeline control plane",
         "endpoints": [
             "/api/runs", "/api/runs/db", "POST /api/runs/trigger",
+            "/api/pipelines/status",
             "/api/sources", "/api/schedules", "POST /api/sources", "PATCH /api/sources/{id}",
             "PATCH /api/sources/{id}/schedule",
             "POST /api/sources/{id}/schedules", "PATCH /api/sources/{id}/schedules/{schedule_id}",
@@ -105,6 +143,58 @@ def health(request: Request) -> dict:
     return {"ok": True, "db": request.app.state.db_ok,
             "auth": bool(request.app.state.api_tokens),
             "secretbox": request.app.state.box.enabled}
+
+
+# ── 시스템 설정 (읽기 전용 상태) ─────────────────────────────
+
+@router.get("/api/settings/llm", dependencies=[Depends(require_api_token)])
+def get_llm_settings() -> dict:
+    """LLM 런타임 설정 상태 (키는 has_key 불린만 노출 — 값 노출 금지).
+
+    .env에서 로드되므로 갱신하려면 .env 수정 후 재기동. 쓰기 엔드포인트는
+    의도적으로 제공하지 않는다 — 런타임 핫리로드는 권한·감사 축에서 위험.
+
+    os.environ에서 직접 읽는다 — common.Settings가 다른 분기(이전 ControlPlaneSettings
+    분리 작업)에 있어도 일관되게 동작하도록.
+    """
+    import os
+    return {
+        "provider": os.getenv("LLM_PROVIDER", "openai-compatible"),
+        "base_url": os.getenv("LLM_BASE_URL", ""),
+        "model": os.getenv("LLM_MODEL", ""),
+        "has_key": bool(os.getenv("LLM_API_KEY", "").strip()),
+        "max_tokens": int(os.getenv("LLM_MAX_TOKENS", "65536")),
+        "temperature": float(os.getenv("LLM_TEMPERATURE", "0.2")),
+        "timeout_sec": float(os.getenv("LLM_TIMEOUT", "180")),
+        "retry_attempts": int(os.getenv("LLM_RETRY_ATTEMPTS", "4")),
+    }
+
+
+@router.get("/api/runs/{run_id}/doc", dependencies=[Depends(require_api_token)])
+def get_run_doc(request: Request, run_id: str, path: str = Query("")) -> dict:
+    """run 산출물 디렉터리 내 문서 원문을 반환한다 (마크다운 + mermaid).
+
+    경로 안전: run 디렉터리 밖으로 벗어나는 상대경로(..)는 거부한다.
+    """
+    from pathlib import Path
+    run_id = _check_run_id(run_id)
+    if not path or not re.match(r"^[A-Za-z0-9._/\-]+\.(md|markdown|mermaid)$", path):
+        raise HTTPException(400, "잘못된 path — markdown/mermaid 확장자만 허용")
+    if ".." in path.split("/"):
+        raise HTTPException(400, "상위 경로 접근 금지")
+    st = _state(request)
+    run_root = projection.find_run_path(st.settings.out_path, run_id)
+    if run_root is None:
+        raise HTTPException(404, f"run 출력 디렉터리를 찾을 수 없습니다: {run_id}")
+    doc_path = (run_root / path).resolve()
+    try:
+        doc_path.relative_to(run_root.resolve())
+    except ValueError as e:
+        raise HTTPException(400, "경로가 run 디렉터리를 벗어납니다") from e
+    if not doc_path.is_file():
+        raise HTTPException(404, f"문서 없음: {path}")
+    text = doc_path.read_text(encoding="utf-8", errors="replace")
+    return {"run_id": run_id, "path": path, "content": text, "size": len(text)}
 
 
 # ── runs (조회 — DB 우선, 레거시 파일 폴백) ──────────────────
@@ -148,16 +238,39 @@ def trigger_run(request: Request, db=Depends(_db),
     return {"ok": True, "run_id": run.id, "launched": launched}
 
 
-@router.get("/api/run-summary", dependencies=[Depends(require_api_token)])
+@router.get("/api/run-summary", dependencies=[Depends(require_api_token)],
+            response_model=RunSummary)
 def run_summary(request: Request, db=Depends(_db), run: str = Query("")) -> dict:
+    """run 1건의 요약 — DB run row(진실) + events(파생)를 병합.
+
+    상태 일관성 규칙: DB run row 가 있으면 그 status/pipeline_id/branch_role 이 진실.
+    events 기반으로만 추론하면 DB 의 빠른 상태 갱신(complete_run webhook)과 어긋나는
+    경우가 생긴다 — projection 에 row 값을 override 로 넘긴다.
+    """
     st = _state(request)
     run = _check_run_id(run)
     if st.run_service.has_db_events(db, run):
         events = st.run_service.all_db_events(db, run)
         row = next((r for r in st.run_service.list_runs(db, limit=1000)
                     if r["run_id"] == run), None)
+        if row is None:
+            return projection.summarize_events(
+                events, run_id=run, source_id="")
         return projection.summarize_events(
-            events, run_id=run, source_id=(row or {}).get("source_id", ""))
+            events, run_id=run, source_id=row.get("source_id", ""),
+            run_status_override=row.get("status", ""),
+            run_pipeline_id=row.get("pipeline_id", ""),
+            run_branch_role=row.get("branch_role", ""),
+            run_mode=row.get("mode", ""),
+            run_trigger=row.get("trigger", ""),
+            run_from_sha=row.get("from_sha", ""),
+            run_to_sha=row.get("to_sha", ""),
+            run_mr_url=row.get("mr_url", ""),
+            run_doc_count=int(row.get("doc_count") or 0),
+            run_error=row.get("error", ""),
+            run_started_at=row.get("created_at", ""),
+            run_updated_at=row.get("updated_at", ""),
+        )
     path = projection.find_run_path(st.settings.out_path, run)
     if not path:
         raise HTTPException(404, "run 없음")
@@ -183,7 +296,8 @@ def read_events(request: Request, db=Depends(_db),
     return projection.read_new_file_events(path, offset)
 
 
-@router.get("/api/overview", dependencies=[Depends(require_api_token)])
+@router.get("/api/overview", dependencies=[Depends(require_api_token)],
+            response_model=OverviewResponse)
 def overview(request: Request, db=Depends(_db)) -> dict:
     st = _state(request)
     runs = list_runs(request, db)
@@ -203,6 +317,26 @@ def overview(request: Request, db=Depends(_db)) -> dict:
         "errors": sum(s["kpi"]["errors"] for s in summaries),
     }
     return {"totals": totals, "recent": summaries}
+
+
+@router.get("/api/pipelines/status", dependencies=[Depends(require_api_token)],
+            response_model=PipelineStatusResponse)
+def pipelines_status(request: Request, db=Depends(_db),
+                     window: int = Query(24, ge=1, le=168)) -> dict:
+    """각 (source × pipeline_id) 쌍의 상태 집계 — 프런트 MonitorDashboard 가 쓴다.
+
+    반환: {pipelines: [...], window_hours, generated_at}. 한 번의 호출로
+    useDbRunsQuery + 수동 집계하던 것을 서버가 단일 응답으로 제공한다.
+    다음 스케줄 시각(next_scheduled_at)은 scheduler 가 reload 시 계산하므로
+    별도 조회가 필요하면 /api/schedules 를 병행 호출.
+    """
+    st = _state(request)
+    pipelines = st.run_service.pipeline_status(db, window_hours=window)
+    return {
+        "window_hours": window,
+        "pipelines": pipelines,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 # ── sources ─────────────────────────────────────────────────
@@ -245,12 +379,17 @@ def _apply_schedule_payload(row: SourceSchedule, payload: dict) -> SourceSchedul
     row.cron = normalize_schedule_payload(payload, row.cron)
     if "enabled" in payload:
         row.enabled = bool(payload["enabled"])
-    if row.pipeline_id not in ("static",):
+    if row.pipeline_id not in ("static", "manual"):
         raise ValueError(f"지원하지 않는 pipeline_id: {row.pipeline_id}")
-    if row.mode not in ("auto", "init", "diff"):
+    # 매뉴얼 파이프라인은 mode(init/diff) 의미가 없다 — 관측 기반이므로 auto 만 허용.
+    if row.pipeline_id == "manual" and row.mode not in ("auto", ""):
+        raise ValueError(f"매뉴얼 파이프라인은 mode 'auto' 만 지원 (got: {row.mode})")
+    if row.pipeline_id == "static" and row.mode not in ("auto", "init", "diff"):
         raise ValueError(f"지원하지 않는 mode: {row.mode}")
     if row.branch_role not in ("dev", "release"):
         raise ValueError(f"지원하지 않는 branch_role: {row.branch_role}")
+    # 매뉴얼 파이프라인은 릴리스 브랜치(태그) 기반이 원칙 (decision-release-tag-trigger).
+    # dev 도 허용하되 권장을 경고로 남긴다 — 검증 오류가 아니다.
     return row
 
 
@@ -318,6 +457,8 @@ def create_source(request: Request, db=Depends(_db), payload: dict = Body(...)) 
     st.broadcaster.publish({"type": "sources_changed"})
     view = st.registration.source_view(db, source)
     view["verification"] = verification
+    _audit(request, action="source.create", target_kind="source",
+           target_id=source.id, detail={"verified": bool(verification.get("verified"))})
     return view
 
 
@@ -338,6 +479,8 @@ def update_source(source_id: str, request: Request, db=Depends(_db),
     st.broadcaster.publish({"type": "sources_changed"})
     view = st.registration.source_view(db, source)
     view["verification"] = verification
+    _audit(request, action="source.update", target_kind="source",
+           target_id=source.id, detail={"verified": bool(verification.get("verified"))})
     return view
 
 
@@ -436,7 +579,7 @@ def _instance_view(inst: ScmInstance) -> dict:
     return {"id": inst.id, "kind": inst.kind, "label": inst.label,
             "base_url": inst.base_url, "token_header": inst.token_header,
             "has_token": bool(inst.token), "enabled": inst.enabled,
-            "updated_at": inst.updated_at.isoformat() if inst.updated_at else ""}
+            "updated_at": isoformat_z(inst.updated_at)}
 
 
 @router.get("/api/instances", dependencies=[Depends(require_api_token)])
@@ -453,6 +596,8 @@ def create_instance(request: Request, db=Depends(_db), payload: dict = Body(...)
     inst = st.registration.upsert_instance(db, payload)
     db.commit()
     st.broadcaster.publish({"type": "instances_changed"})
+    _audit(request, action="instance.create", target_kind="scm_instance",
+           target_id=inst.id, detail={"kind": inst.kind, "base_url": inst.base_url[:100]})
     return _instance_view(inst)
 
 
@@ -466,6 +611,9 @@ def update_instance(instance_id: str, request: Request, db=Depends(_db),
     inst = st.registration.upsert_instance(db, payload, preserve_token=True)
     db.commit()
     st.broadcaster.publish({"type": "instances_changed"})
+    _audit(request, action="instance.update", target_kind="scm_instance",
+           target_id=inst.id, detail={"has_token": bool(inst.token),
+                                        "rotated_at": isoformat_z(inst.token_rotated_at)})
     return _instance_view(inst)
 
 
@@ -506,6 +654,8 @@ def create_target(request: Request, db=Depends(_db), payload: dict = Body(...)) 
     target = st.registration.upsert_doc_target(db, payload)
     db.commit()
     st.broadcaster.publish({"type": "targets_changed"})
+    _audit(request, action="doc_target.create", target_kind="doc_target",
+           target_id=target.id, detail={"kind": target.kind, "enabled": target.enabled})
     return st.registration.doc_target_view(target)
 
 
@@ -519,6 +669,8 @@ def update_target(target_id: str, request: Request, db=Depends(_db),
     target = st.registration.upsert_doc_target(db, payload, preserve_token=True)
     db.commit()
     st.broadcaster.publish({"type": "targets_changed"})
+    _audit(request, action="doc_target.update", target_kind="doc_target",
+           target_id=target.id, detail={"enabled": target.enabled})
     return st.registration.doc_target_view(target)
 
 
@@ -568,7 +720,12 @@ def submit_mr(request: Request, db=Depends(_db), payload: dict = Body(...)) -> d
 # ── WebSocket 실시간 채널 (폴링 대체 — 폴링 API는 폴백으로 유지) ──
 
 @router.websocket("/api/ws")
-async def ws_channel(websocket: WebSocket):
+async def ws_channel(websocket: WebSocket, verbose: int = Query(0)):
+    """실시간 채널 — ?verbose=1 이면 thinking 이벤트까지 수신, 기본(0)은 제외.
+
+    control_ws_default_verbose 설정이 true 면 verbose 인수가 없을 때 기본값이 1.
+    클라이언트가 명시적으로 ?verbose=0 을 주면 설정과 무관하게 필터 적용.
+    """
     state = websocket.app.state
     tokens: dict[str, str] = state.api_tokens
     if tokens:
@@ -577,7 +734,13 @@ async def ws_channel(websocket: WebSocket):
             await websocket.close(code=4401)
             return
     await websocket.accept()
-    q = state.broadcaster.register()
+    # 기본 필터: verbose=1 → 모두 수신(passthrough), verbose=0 → thinking 제거
+    from .ws import default_filter, passthrough_filter
+    # 사용자가 명시하지 않았을 때 settings.control_ws_default_verbose 가 true 면 verbose.
+    if "verbose" not in websocket.query_params:
+        verbose = 1 if state.settings.control_ws_default_verbose else 0
+    filter_fn = passthrough_filter if verbose else default_filter
+    q = state.broadcaster.register(filter_fn)
 
     async def _pump():
         while True:
@@ -657,14 +820,38 @@ def webhook_complete(request: Request, db=Depends(_db), payload: dict = Body(...
     st = _state(request)
     run_id = _check_run_id(str(payload.get("run_id") or ""))
     try:
-        return st.run_service.complete_run(db, run_id, payload)
+        result = st.run_service.complete_run(db, run_id, payload)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
+    # ENT-C: 파이프라인 종료 메트릭 (status·duration·token)
+    try:
+        from .observability import record_run_completion
+        # run_row 가 있으면 pipeline_id 조회, 없으면 payload 에서 추정
+        pipeline_id = str(payload.get("pipeline_id") or "")
+        from sqlalchemy import select
+        from .models import Run as RunModel
+        run_row = db.get(RunModel, run_id)
+        if run_row is not None and not pipeline_id:
+            pipeline_id = run_row.pipeline_id
+        duration = 0.0
+        if run_row is not None and run_row.created_at and run_row.updated_at:
+            duration = (run_row.updated_at - run_row.created_at).total_seconds()
+        record_run_completion(
+            pipeline_id=pipeline_id,
+            status=result.get("status", payload.get("status", "unknown")),
+            duration_sec=duration,
+            input_tokens=int(run_row.input_tokens if run_row else 0),
+            output_tokens=int(run_row.output_tokens if run_row else 0),
+        )
+    except Exception:  # noqa: BLE001 — 메트릭 실패는 무시
+        pass
+    return result
 
 
 # ── 비용 집계 (question-cost-estimation 실측) ────────────────
 
-@router.get("/api/costs", dependencies=[Depends(require_api_token)])
+@router.get("/api/costs", dependencies=[Depends(require_api_token)],
+            response_model=CostsResponse)
 def costs(request: Request, db=Depends(_db)) -> dict:
     service = _state(request).run_service
     rows = service.list_runs(db, limit=1000)
@@ -703,3 +890,19 @@ def costs(request: Request, db=Depends(_db)) -> dict:
         "total_input_tokens": sum(a["input_tokens"] for a in by_source.values()),
         "total_output_tokens": sum(a["output_tokens"] for a in by_source.values()),
     }
+
+
+# ── audit log (ENT-F) ──────────────────────────────────────────
+
+@router.get("/api/audit/recent", dependencies=[Depends(require_api_token)],
+            response_model=AuditRecentResponse)
+def audit_recent(request: Request, db=Depends(_db),
+                  limit: int = Query(50, ge=1, le=500),
+                  action: str = Query(""),
+                  actor: str = Query("")) -> dict:
+    """최근 audit 로그 조회. 운영 디버깅 / 컴플라이언스."""
+    audit = getattr(request.app.state, "audit_service", None)
+    if audit is None:
+        return {"entries": [], "limit": limit}
+    rows = audit.list_recent(db, limit=limit, actor=actor, action=action)
+    return {"entries": rows, "limit": limit}

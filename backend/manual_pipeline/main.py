@@ -46,8 +46,9 @@ def main() -> int:
     print(f"[매뉴얼 파이프라인 · {mode}] endpoint={settings.mcp_endpoint_url} "
           f"(하이브리드 순회: 시나리오 + 자율 탐색 -> 관측 근거 매뉴얼)\n")
     summary = run_manual(
-        settings, scenarios_file=args.scenarios, themes=themes,
-        explore_steps=args.explore_steps, resume_run_id=args.resume,
+        settings, run_id=args.resume, resume=bool(args.resume),
+        scenarios_file=args.scenarios, themes=themes,
+        explore_steps=args.explore_steps,
         no_explore=args.no_explore,
     )
     print("\n" + "=" * 60)

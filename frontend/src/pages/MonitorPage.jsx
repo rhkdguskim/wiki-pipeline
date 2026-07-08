@@ -1,11 +1,12 @@
 import {ChevronDown, GitBranch, PlayCircle, Radio} from 'lucide-react';
 import {StatusPill} from '../components/StatusPill.jsx';
-import {EmptyState} from '../components/EmptyState.jsx';
+import {MonitorDashboard} from '../components/MonitorDashboard.jsx';
 import {PageHeader} from '../components/PageHeader.jsx';
 import {OverviewNarrative} from '../components/OverviewNarrative.jsx';
+import {PipelineFlow} from '../components/PipelineFlow.jsx';
 import {StagesPage} from './StagesPage.jsx';
 import {TracePage} from './TracePage.jsx';
-import {STALL_SEC} from '../lib/format.js';
+import {deriveStageState, fmtDur, STALL_SEC} from '../lib/format.js';
 
 const SUB_TABS = [
   {id: 'overview', label: '개요'},
@@ -16,58 +17,70 @@ const SUB_TABS = [
 const STATUS_LABEL = {pending: '대기', running: '실행 중', done: '완료', failed: '실패'};
 
 export function MonitorPage({
-  runId, setRunId, filteredRuns, selectedSource, setSelectedSource, sources,
+  runId, setRunId, filteredRuns, dbRuns = [],
+  selectedSource, setSelectedSource, sources,
   S, live, state, stages, activeRun, runSummary,
   mrPlan, mrBusy, mrMessage, onSubmitMr,
   monitorView, setMonitorView, onOpenRepositories,
 }) {
+  // 파이프라인 플로우 — S.stages 맵에서 노드/링크 상태를 계산.
+  const flowStages = runId
+    ? [...S.stages.entries()].map(([key, s]) => {
+        const {state: st, end} = deriveStageState(s, live);
+        const dur = s.firstTs ? fmtDur((end || s.lastTs) - s.firstTs) : undefined;
+        return {key, label: key, status: st, dur};
+      })
+    : [];
+  const doneCount = flowStages.filter(s => s.status === 'done').length;
+  const total = flowStages.length;
+  const elapsedMs = runId && S.firstTs ? (live ? Date.now() : S.lastTs) - S.firstTs : 0;
+
+  // 대시보드에 쓸 dbRuns/sources — selectedSource로 좁혀질 수 있음.
+  const dashDbRuns = selectedSource === 'all' ? dbRuns : dbRuns.filter(r => r.source_id === selectedSource);
+  const dashSources = selectedSource === 'all' ? sources : sources.filter(s => s.id === selectedSource);
+
   return <div>
     <PageHeader
+      eyebrow={runId ? `RUN · ${runId.slice(0, 12)}` : 'MONITOR'}
       title="모니터"
-      description="선택한 run이 지금 무엇을 하고 있는지 보여줍니다"
+      description={runId ? '선택한 run의 실시간 진행 흐름' : '저장소별 run 현황과 최근 활동을 한눈에'}
       actions={<>
         <label className="selectWrap"><GitBranch size={15} /><select value={selectedSource} onChange={e => setSelectedSource(e.target.value)}>
           <option value="all">전체 소스</option>
           {sources.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
         </select><ChevronDown size={14} /></label>
-        <label className="selectWrap"><PlayCircle size={15} /><select value={runId} onChange={e => setRunId(e.target.value)}>
-          <option value="">run 선택</option>
-          {filteredRuns.map(r => <option key={r.run_id} value={r.run_id}>{r.run_id}{r.age_sec < STALL_SEC ? ' ●' : ''}</option>)}
-        </select><ChevronDown size={14} /></label>
+        {runId && (
+          <label className="selectWrap"><PlayCircle size={15} /><select value={runId} onChange={e => setRunId(e.target.value)}>
+            <option value="">run 선택</option>
+            {filteredRuns.map(r => <option key={r.run_id} value={r.run_id}>{r.run_id}{r.age_sec < STALL_SEC ? ' ●' : ''}</option>)}
+          </select><ChevronDown size={14} /></label>
+        )}
       </>}
     />
 
     {!runId ? (
-      <>
-        <EmptyState
-          icon={Radio}
-          title="이력에서 run을 선택하세요"
-          description={filteredRuns.length ? '위 셀렉트 또는 아래 목록에서 run을 고르면 실행 상세가 표시됩니다' : '아직 실행 이력이 없습니다 — 저장소에서 소스를 실행하세요'}
-          actionLabel={filteredRuns.length ? undefined : '저장소로 이동'}
-          onAction={filteredRuns.length ? undefined : onOpenRepositories}
-        />
-        {!!filteredRuns.length && <section className="panel" style={{marginTop: 12}}>
-          <div className="panelHead"><h2>최근 run</h2></div>
-          <div className="tableScroll">
-            <table>
-              <thead><tr><th>run</th><th>소스</th><th>상태</th></tr></thead>
-              <tbody>
-                {filteredRuns.slice(0, 10).map(r => <tr key={r.run_id} className="clickable" onClick={() => setRunId(r.run_id)}>
-                  <td className="mono strong ellipsis" title={r.run_id}>{r.run_id}</td>
-                  <td className="ellipsis" title={r.source_id || ''}>{r.source_id || '-'}</td>
-                  <td><span className={`stageState ${r.status || 'idle'}`}>{(r.status === 'running' || r.age_sec < STALL_SEC) && <span className="spinner tiny" />}{STATUS_LABEL[r.status] || r.status || (r.age_sec < STALL_SEC ? '실행 중' : '-')}</span></td>
-                </tr>)}
-              </tbody>
-            </table>
-          </div>
-        </section>}
-      </>
+      <MonitorDashboard
+        dbRuns={dashDbRuns}
+        sources={dashSources}
+        onSelectRun={setRunId}
+        onOpenRepositories={onOpenRepositories}
+      />
     ) : <>
       <div className="monitorHead">
         <StatusPill state={state} />
         <span className="contextTitle mono">{runId}</span>
         <span className="muted">{activeRun?.source_id || '-'}</span>
       </div>
+
+      {flowStages.length > 0 && (
+        <PipelineFlow
+          stages={flowStages}
+          meta={[
+            {label: 'STAGES', value: `${doneCount}/${total}`},
+            {label: 'ELAPSED', value: fmtDur(elapsedMs)},
+          ]}
+        />
+      )}
 
       <nav className="tabs">
         {SUB_TABS.map(({id, label, dev}) => (
@@ -81,6 +94,7 @@ export function MonitorPage({
         S={S} live={live} state={state} stages={stages} activeRun={activeRun}
         runSummary={runSummary} mrPlan={mrPlan} mrBusy={mrBusy} mrMessage={mrMessage}
         onSubmitMr={onSubmitMr} onOpenTrace={() => setMonitorView('feed')}
+        runId={runId}
       />}
       {monitorView === 'stages' && <StagesPage S={S} live={live} />}
       {monitorView === 'feed' && <TracePage S={S} live={live} state={state} stages={stages} />}

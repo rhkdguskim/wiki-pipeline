@@ -11,6 +11,8 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+from .timeutil import fromtimestamp_utc, isoformat_z
+
 _MAX_CHUNK = 4 * 1024 * 1024
 _MAX_SUMMARY_BYTES = 32 * 1024 * 1024
 
@@ -25,7 +27,24 @@ def _parse_ts(value: str | None) -> float | None:
 
 
 def summarize_events(events: list[dict], *, run_id: str, source_id: str = "",
-                     path: str = "", artifacts: list[dict] | None = None) -> dict:
+                     path: str = "", artifacts: list[dict] | None = None,
+                     run_status_override: str = "",
+                     run_pipeline_id: str = "",
+                     run_branch_role: str = "",
+                     run_mode: str = "",
+                     run_trigger: str = "",
+                     run_from_sha: str = "",
+                     run_to_sha: str = "",
+                     run_mr_url: str = "",
+                     run_doc_count: int = 0,
+                     run_error: str = "",
+                     run_started_at: str = "",
+                     run_updated_at: str = "") -> dict:
+    """이벤트 → KPI 요약. DB run row 가 있으면 그 권위 있는 상태를 override 로 받는다.
+
+    일관성 규칙: run row 의 status/pipeline_id/branch_role 등은 DB 가 진실. event 파생
+    값(token·stages·tools 등)은 event 스트림 기반. 두 출처가 충돌하면 DB row 우선.
+    """
     stages: dict[str, dict] = {}
     usage = {"input_tokens": 0, "output_tokens": 0, "llm_calls": 0}
     usage_by_model: dict[str, dict] = {}
@@ -112,7 +131,11 @@ def summarize_events(events: list[dict], *, run_id: str, source_id: str = "",
                 warnings.append({"stage": stage_name, "kind": "llm_retry",
                                  "message": detail.get("error", "")})
 
-        if layer in ("run", "stage", "engine_call") or (detail.get("kind") in ("tool_use", "tool_result", "llm_retry")):
+        if layer in ("run", "stage", "engine_call", "agent_step"):
+            # timeline = 클라이언트 LiveFeed/AgentConversation 표시 항목과 1:1 일치.
+            # 과거: thinking/usage 만 빼고 담아, summary 새로고침이 feed 를 덮어쓸 때
+            # WS 로 받은 thinking 이 사라지는 불일치가 있었다. 이제 전부 담는다
+            # (control_ws_default_verbose=false 일 때만 WS 전송단에서 필터).
             timeline.append({"ts": e.get("ts"), "layer": layer, "stage": stage_name,
                              "status": status, "detail": detail})
 
@@ -125,17 +148,32 @@ def summarize_events(events: list[dict], *, run_id: str, source_id: str = "",
     tool_errors = sum(1 for e in errors if e.get("kind") == "tool_result")
     staged_total = len([s for s in stage_rows if s.get("status")])
     duration = round(last_ts - first_ts, 3) if first_ts is not None and last_ts is not None else None
+    # status 우선순위: DB row override > event 파생 > fallback
+    final_status = run_status_override or run_status or ("failed" if failed else "running")
+    # pipeline_id 도 DB 가 진실 — event 가 안 담았어도 row 값으로 채운다
+    final_pipeline = run_pipeline_id or pipeline
+    # 시간 정규화 — naive datetime(SQLite) 도 UTC Z 접미사로. fromtimestamp_utc 로
+    # local time 오염 방지. 빈 값은 빈 문자열로.
     return {
         "run_id": run_id,
         "source_id": source_id,
         "path": path,
-        "pipeline_id": pipeline,
-        "status": run_status or ("failed" if failed else "running"),
+        "pipeline_id": final_pipeline,
+        "branch_role": run_branch_role,
+        "mode": run_mode,
+        "trigger": run_trigger,
+        "status": final_status,
         "current_stage": current,
-        "started_at": datetime.fromtimestamp(first_ts).isoformat() if first_ts else "",
-        "last_event_at": datetime.fromtimestamp(last_ts).isoformat() if last_ts else "",
+        "started_at": run_started_at or (isoformat_z(fromtimestamp_utc(first_ts)) if first_ts else ""),
+        "last_event_at": isoformat_z(fromtimestamp_utc(last_ts)) if last_ts else "",
+        "updated_at": run_updated_at,
         "duration_sec": duration,
         "event_count": len(events),
+        "from_sha": run_from_sha,
+        "to_sha": run_to_sha,
+        "mr_url": run_mr_url,
+        "doc_count": run_doc_count,
+        "error": run_error,
         "kpi": {
             "stage_done": done,
             "stage_total": staged_total,

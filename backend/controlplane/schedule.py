@@ -90,10 +90,11 @@ def describe_cron(cron: str) -> str:
 
 
 def next_fire(cron: str) -> str:
+    from .timeutil import isoformat_z
     value = str(cron or "").strip() or DEFAULT_CRON
     trigger = CronTrigger.from_crontab(value, timezone=TZ)
     next_at = trigger.get_next_fire_time(None, datetime.now(TZ))
-    return next_at.isoformat() if next_at else ""
+    return isoformat_z(next_at) if next_at else ""
 
 
 def parse_cron_without_label(cron: str) -> dict:

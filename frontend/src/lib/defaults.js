@@ -1,8 +1,10 @@
+// 폼 기본값. 사내 URL을 하드코딩하지 않는다 — 사용자가 직접 채우도록 빈 값으로.
+// 인스턴스/소스를 처음 등록하는 환경(GitHub, gitlab.com, 사내 GitLab 등)을 가리지 않는다.
 export const blankSource = {
   id: '',
   label: '',
   kind: 'gitlab',
-  url: 'http://wish.mirero.co.kr',
+  url: '',
   project_id: '',
   token: '',
   token_header: 'PRIVATE-TOKEN',
@@ -30,9 +32,9 @@ export const defaultDocTarget = {
   id: 'product-common',
   label: 'product-common',
   kind: 'gitlab',
-  url: 'http://wish.mirero.co.kr/mirero/project/pcc/product-common',
+  url: '',
   project_id: '',
-  project_path: 'mirero/project/pcc/product-common',
+  project_path: '',
   token: '',
   token_header: 'PRIVATE-TOKEN',
   default_branch: 'master',

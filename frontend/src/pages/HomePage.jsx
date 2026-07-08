@@ -52,7 +52,7 @@ export function HomePage({sources, dbRuns, isLoading, isError, error, onRetry, o
   return <div>
     <section className="agentHero">
       <div className="agentHeroCopy">
-        <div className="eyebrow"><Sparkles size={14} />Agentic documentation control</div>
+        <div className="eyebrow"><Sparkles size={12} />Agentic documentation control</div>
         <h1>Agent studio</h1>
         <p>저장소 변경을 읽고, 문서 갱신 run을 실행하고, 실패 지점을 바로 추적합니다.</p>
         <div className="heroActions">
@@ -145,7 +145,7 @@ export function HomePage({sources, dbRuns, isLoading, isError, error, onRetry, o
               {recentRuns.map(r => <tr key={r.run_id} className="clickable" onClick={() => onSelectRun(r.run_id)}>
                 <td className="mono strong">{r.run_id}</td>
                 <td>{r.source_id || '-'}</td>
-                <td><span className={`stageState ${r.status || 'idle'}`}><span />{STATUS_LABEL[r.status] || r.status || '-'}</span></td>
+                <td><span className={`pill small ${r.status || ''}`}>{STATUS_LABEL[r.status] || r.status || '-'}</span></td>
                 <td>{timeAgo(r.created_at)}</td>
               </tr>)}
             </tbody>

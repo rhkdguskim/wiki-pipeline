@@ -17,6 +17,8 @@
 - [[summary-failure-alerting-email]] — 실시간 이메일 알림 요약: 인증 해지·파이프라인 실패 · 역할 기반 수신
 - [[summary-open-questions-decisions]] — 2026-07-07 열린 질문 결정 4건 요약: MVP 절단선(정적+매뉴얼) · 등록 baseline A · 방치 소스 수동 큐레이션 · 테마 경계
 - [[summary-ops-backend-plan]] — 2026-07-07 운영화 전환 백엔드 계획 요약: POC 격차 진단 · SCM 다중 인스턴스+GitHub MVP 승격 · Control Plane FastAPI/PostgreSQL 확정 · Phase 1–4 계획
+- [[summary-backend-state-audit]] — 2026-07-08 백엔드 구현 상태 감사 요약: 위키 설계 대비 POC 격차 (Control Plane 부재 · 이벤트 JSONL+offset · MR 스텁 · 시크릿 평문)
+- [[summary-backend-enterprise-batch]] — 2026-07-08 백엔드 엔터프라이즈화 일괄 요약: A~G 트랙 + ENT-A~L (Alembic·JSON logging·Prometheus·deep health·rate limit·audit·Dockerfile·backup·OpenAPI schemas·dependabot·graceful shutdown)
 
 ### 매뉴얼 추출 파이프라인
 

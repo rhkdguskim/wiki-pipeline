@@ -60,6 +60,23 @@ class ChangeRequest:
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
 
+@dataclass(frozen=True)
+class TagRef:
+    """태그 참조 — 매뉴얼 파이프라인 트리거(decision-release-tag-trigger) 폴링용.
+
+    name: 태그명(예: v1.2.3, release-2026-07-08).
+    sha: 태그가 가리키는 커밋(40자). annotated tag 라면 태그 객체 자체 sha 가 아니라
+         그 태그가 가리키는 커밋 sha 를 반환한다 (상태 비교 일관성).
+    target_branch: 태그가 찍힌 브랜치(추정). GitLab/GitHub API 모두 직접 제공하지 않으므로
+                   커넥터 구현이 판단한다 (보통 default_branch 또는 release 전용 브랜치).
+    """
+
+    name: str
+    sha: str
+    target_branch: str = ""
+    raw: dict[str, Any] = field(default_factory=dict, repr=False)
+
+
 class ScmConnector(abc.ABC):
     """프로바이더 중립 SCM 계약. 모든 메서드는 동기·멱등 재시도 내장(읽기 한정)."""
 
@@ -86,6 +103,14 @@ class ScmConnector(abc.ABC):
 
     @abc.abstractmethod
     def list_branches(self) -> list[str]: ...
+
+    def list_tags(self) -> list[TagRef]:
+        """릴리스 태그 목록 (최신순). 매뉴얼 파이프라인 트리거 폴링이 쓴다.
+
+        v1: 기본 구현은 빈 목록(미지원 커넥터 호환). GitLab·GitHub 구현이 덮어쓴다.
+        폴링 사이드이펙트 최소화를 위해 최신 N(기본 50)개만 반환한다.
+        """
+        return []
 
     @abc.abstractmethod
     def project_info(self) -> ProjectInfo: ...

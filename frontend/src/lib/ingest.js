@@ -17,6 +17,51 @@ export const emptyState = () => ({
   feed: [],
 });
 
+export function stateFromRunSummary(summary) {
+  const next = emptyState();
+  if (!summary) return next;
+
+  const stageRows = summary.stages || [];
+  const firstStageTs = stageRows
+    .map(s => Date.parse(s.first_ts || ''))
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b)[0];
+  const startedTs = Date.parse(summary.started_at || '');
+  const lastTs = Date.parse(summary.last_event_at || '');
+
+  next.firstTs = Number.isFinite(firstStageTs) ? firstStageTs : (Number.isFinite(startedTs) ? startedTs : null);
+  next.lastTs = Number.isFinite(lastTs) ? lastTs : next.firstTs;
+  next.runStatus = summary.status || null;
+  next.pipeline = summary.pipeline_id || '';
+  next.inTok = summary.kpi?.input_tokens || 0;
+  next.outTok = summary.kpi?.output_tokens || 0;
+  next.llmCalls = summary.kpi?.llm_calls || 0;
+  next.toolCalls = summary.kpi?.tool_calls || 0;
+  next.toolErr = summary.kpi?.tool_errors || 0;
+  next.modelUsage = new Map((summary.usage_by_model || []).map(row => [
+    `${row.provider || 'unknown'}::${row.model || 'unknown'}`,
+    row,
+  ]));
+  next.feed = (summary.timeline || []).slice(-FEED_MAX);
+
+  for (const row of stageRows) {
+    const first = Date.parse(row.first_ts || '');
+    const last = Date.parse(row.last_ts || '');
+    next.stages.set(row.name, {
+      layer: row.layer,
+      firstTs: Number.isFinite(first) ? first : next.firstTs,
+      lastTs: Number.isFinite(last) ? last : (Number.isFinite(first) ? first : next.lastTs),
+      status: row.status,
+      in: row.input_tokens || 0,
+      out: row.output_tokens || 0,
+      tools: row.tools || 0,
+      progress: row.progress || {},
+    });
+  }
+
+  return next;
+}
+
 export function ingest(S, e) {
   const next = {...S, stages: new Map(S.stages), modelUsage: new Map(S.modelUsage || []), series: [...S.series], feed: [...S.feed]};
   const t = Date.parse(e.ts);

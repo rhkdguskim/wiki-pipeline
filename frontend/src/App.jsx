@@ -3,6 +3,7 @@ import {useUiStore} from './store/ui.js';
 import {
   useSourcesQuery, useInstancesQuery, useDocTargetsQuery, useRunsQuery, useDbRunsQuery,
   useSourceRunsQuery, useCostsQuery, useOverviewQuery, useHealthQuery, useMrPlanQuery,
+  useHealthReadyQuery,
   useSaveSourceMutation, useVerifySourceMutation, useSaveInstanceMutation,
   useSaveDocTargetMutation, useTriggerRunMutation, useSubmitMrMutation,
   useCreateSourceScheduleMutation, useUpdateSourceScheduleMutation,
@@ -13,6 +14,7 @@ import {useLiveSocket} from './hooks/useLiveSocket.js';
 import {useLiveSocketStore} from './store/liveSocket.js';
 import {runState} from './lib/format.js';
 import {blankSource, blankInstance, defaultDocTarget} from './lib/defaults.js';
+import {setRateLimitHandler} from './api/client.js';
 
 import {SideNav} from './components/SideNav.jsx';
 import {SourceWizard} from './components/SourceWizard.jsx';
@@ -22,8 +24,10 @@ import {HomePage} from './pages/HomePage.jsx';
 import {MonitorPage} from './pages/MonitorPage.jsx';
 import {RepositoriesPage} from './pages/RepositoriesPage.jsx';
 import {SourceDetailPage} from './pages/SourceDetailPage.jsx';
-import {RunsPage} from './pages/RunsPage.jsx';
 import {CostsPage} from './pages/CostsPage.jsx';
+import {SettingsPage} from './pages/SettingsPage.jsx';
+import {PipelineStatusPage} from './pages/PipelineStatusPage.jsx';
+import {AuditLogPage} from './pages/AuditLogPage.jsx';
 
 export function App() {
   const {
@@ -44,6 +48,7 @@ export function App() {
   const costsQuery = useCostsQuery();
   const overviewQuery = useOverviewQuery();
   const {data: health} = useHealthQuery();
+  const {data: healthReady} = useHealthReadyQuery();
 
   const sources = sourcesQuery.data || [];
   const instances = instancesQuery.data || [];
@@ -56,6 +61,14 @@ export function App() {
   const [instanceForm, setInstanceForm] = useState(blankInstance);
   const [verifyResult, setVerifyResult] = useState(null);
   const [query, setQuery] = useState('');
+
+  // ENT-E: 429 rate limit → toast. 한 번만 등록하면 모든 호출자가 공유.
+  useEffect(() => {
+    setRateLimitHandler(({retryAfter}) => {
+      pushToast(`분당 요청 한도 초과 — ${Math.ceil(retryAfter)}초 후`, 'error');
+    });
+    return () => setRateLimitHandler(null);
+  }, [pushToast]);
 
   useEffect(() => {
     if (docTargets.length && targetForm === defaultDocTarget) setTargetForm(docTargets[0]);
@@ -80,6 +93,15 @@ export function App() {
   const [state] = runState(S, lastAge);
   const live = state === 'running' || state === 'stalled';
   const stages = [...S.stages.values()].filter(s => s.status != null);
+
+  useEffect(() => {
+    if (page !== 'monitor') return;
+    // 대시보드를 랜딩 뷰로 사용 — 더 이상 첫 run으로 자동 진입하지 않는다.
+    // 사용자가 대시보드에서 run을 고르면 runId가 설정되어 상세 뷰로 드릴다운.
+    if (runId && !filteredRuns.length && !runs.some(r => r.run_id === runId)) {
+      setRunId('');
+    }
+  }, [page, filteredRuns, runId, setRunId, runs]);
 
   const saveSource = async () => {
     try {
@@ -209,7 +231,7 @@ export function App() {
 
   return (
     <div className="app">
-      <SideNav page={page} onNavigate={setPage} health={health} liveStatus={liveStatus} />
+      <SideNav page={page} onNavigate={setPage} health={health} healthReady={healthReady} liveStatus={liveStatus} />
       <main className="main">
         {page === 'home' && <HomePage
           sources={sources}
@@ -255,7 +277,6 @@ export function App() {
             onOpenDetail={(id) => { selectSourceForEdit(sources.find(s => s.id === id) || blankSource); openSourceDetail(id); }}
             onVerifySource={doVerifySource}
             onTriggerSource={doTriggerRun}
-            onEditSource={selectSourceForEdit}
             onToggleSourceEnabled={toggleSourceEnabled}
             targetForm={targetForm}
             onTargetFormChange={setTargetForm}
@@ -271,6 +292,7 @@ export function App() {
 
         {page === 'monitor' && <MonitorPage
           runId={runId} setRunId={setRunId} filteredRuns={filteredRuns}
+          dbRuns={dbRuns}
           selectedSource={selectedSource} setSelectedSource={setSelectedSource} sources={sources}
           S={S} live={live} state={state} stages={stages} activeRun={activeRun}
           runSummary={runSummary} mrPlan={mrPlan} mrBusy={submitMrMutation.isPending}
@@ -280,18 +302,42 @@ export function App() {
           onOpenRepositories={goRepositories}
         />}
 
-        {page === 'runs' && <RunsPage
-          rows={dbRuns} onSelect={setRunId} onTrigger={doTriggerRun} sources={sources}
-          isLoading={dbRunsQuery.isLoading} isError={dbRunsQuery.isError} error={dbRunsQuery.error}
-          onRetry={() => dbRunsQuery.refetch()}
-        />}
-
         {page === 'costs' && <CostsPage
           costs={costsQuery.data} overview={overviewQuery.data}
           isLoading={costsQuery.isLoading || overviewQuery.isLoading}
           isError={costsQuery.isError || overviewQuery.isError}
           error={costsQuery.error || overviewQuery.error}
           onRetry={() => { costsQuery.refetch(); overviewQuery.refetch(); }}
+        />}
+
+        {page === 'pipelines' && <PipelineStatusPage
+          onOpenSource={(id) => { openSourceDetail(id); setPage('repositories'); }}
+          onOpenRun={(rid) => { setRunId(rid); setPage('monitor'); }}
+          onTrigger={doTriggerRun}
+          dbRuns={dbRuns}
+          dbRunsIsLoading={dbRunsQuery.isLoading}
+          dbRunsIsError={dbRunsQuery.isError}
+          dbRunsError={dbRunsQuery.error}
+          onRetryDbRuns={() => dbRunsQuery.refetch()}
+          sources={sources}
+        />}
+
+        {page === 'audit' && <AuditLogPage
+          isAdmin={true}
+        />}
+
+        {page === 'settings' && <SettingsPage
+          targetForm={targetForm}
+          onTargetFormChange={setTargetForm}
+          onSaveTarget={saveDocTarget}
+          instances={instances}
+          instanceForm={instanceForm}
+          onInstanceFormChange={setInstanceForm}
+          onSaveInstance={saveInstance}
+          onToggleInstanceEnabled={toggleInstanceEnabled}
+          busy={saveSourceMutation.isPending || saveInstanceMutation.isPending || saveDocTargetMutation.isPending}
+          message=""
+          pushToast={pushToast}
         />}
       </main>
 

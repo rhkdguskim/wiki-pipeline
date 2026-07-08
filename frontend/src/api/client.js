@@ -1,9 +1,22 @@
-// Control Plane 자체 토큰 인증 (CONTROL_API_TOKENS 설정 시): localStorage.cp_token을 모든 API 호출에 첨부
+// Control Plane 자체 토큰 인증 (CONTROL_API_TOKENS 설정 시):
+// localStorage.cp_token을 모든 API 호출에 첨부.
+// 401 응답은 친절한 에러로 정규화 — TokenSettings UI에서 토큰을 다시 입력하도록 안내.
+const AUTH_ERROR_HINT = '인증 토큰이 유효하지 않습니다. 좌측 하단 토큰 설정을 확인하세요.';
+// ENT-E rate limit. 429 + Retry-After 헤더는 호출자가 보고용으로 쓸 수 있게
+// 일반화 — asJson 이 throw 하기 전에 콜백을 한 번 부른다.
+let rateLimitHandler = null;
+export function setRateLimitHandler(fn) { rateLimitHandler = fn; }
+
 export const api = (url, opts = {}) => {
   const token = localStorage.getItem('cp_token');
   const headers = {...(opts.headers || {}), ...(token ? {'X-Api-Token': token} : {})};
   return fetch(url, {...opts, headers});
 };
+
+// 401 감지 시 호출부에 안내 메시지를 전달하고, 선택적으로 콜백을 실행한다.
+// 다른 곳(useLiveSocket, App.jsx)에서 onAuthError 콜백을 등록해 UI 반응(toast 등)을 담당한다.
+let authErrorHandler = null;
+export function setAuthErrorHandler(fn) { authErrorHandler = fn; }
 
 async function asJson(r) {
   const raw = await r.text();
@@ -12,10 +25,22 @@ async function asJson(r) {
     try {
       data = JSON.parse(raw);
     } catch {
-      // 서버가 JSON이 아닌 응답(프록시 오류 페이지, 빈 본문 등)을 준 경우 —
-      // 파싱 예외를 그대로 던지지 않고 사람이 읽을 수 있는 오류로 정규화한다.
       throw new Error(r.ok ? '응답을 해석할 수 없습니다 (JSON 아님)' : `요청 실패 (${r.status})`);
     }
+  }
+  if (r.status === 401) {
+    if (authErrorHandler) authErrorHandler();
+    throw new Error(data?.error || data?.detail || AUTH_ERROR_HINT);
+  }
+  if (r.status === 429) {
+    // Retry-After 헤더(초) 가 있으면 그만큼, 없으면 detail.retry_after_sec 사용.
+    const retryAfter = Number(r.headers.get('Retry-After') || 0)
+      || (data && (data.retry_after_sec || data.detail?.retry_after_sec))
+      || 60;
+    if (rateLimitHandler) {
+      try { rateLimitHandler({retryAfter, message: data?.error || data?.detail}); } catch (e) { /* ignore */ }
+    }
+    throw new Error(`분당 요청 한도 초과 — ${Math.ceil(retryAfter)}초 후 다시 시도`);
   }
   if (!r.ok) throw new Error(data?.error || data?.detail || `요청 실패 (${r.status})`);
   return data;
@@ -26,8 +51,6 @@ function jsonBody(payload, method) {
 }
 
 export const getSources = () => api('/api/sources').then(asJson);
-
-export const getSchedules = () => api('/api/schedules').then(asJson);
 
 export const saveSource = (form, existing) =>
   api(existing ? `/api/sources/${encodeURIComponent(form.id)}` : '/api/sources',
@@ -75,6 +98,9 @@ export const getEvents = (runId, offset) => api(`/api/events?run=${encodeURIComp
 
 export const getOverview = () => api('/api/overview').then(asJson);
 
+export const getPipelineStatus = (windowHours = 24) =>
+  api(`/api/pipelines/status?window=${windowHours}`).then(asJson);
+
 export const getCosts = () => api('/api/costs').then(asJson);
 
 export const getMrPlan = (runId, target = 'product-common') =>
@@ -84,3 +110,24 @@ export const submitMr = (runId, target = 'product-common') =>
   api('/api/docs-hub/submit-mr', jsonBody({run: runId, target, confirm: target}, 'POST')).then(asJson);
 
 export const getHealth = () => api('/health').then(asJson);
+
+// Deep health (ENT-D): liveness/ready/startup 분리. k8s 컨벤션이지만
+// 프런트 헤더의 서버 상태 표시도 ready 를 보고 'degraded' 표시를 결정한다.
+export const getHealthLive = () => api('/health/live').then(asJson);
+export const getHealthReady = () => api('/health/ready').then(asJson);
+export const getHealthStartup = () => api('/health/startup').then(asJson);
+
+export const getLlmSettings = () => api('/api/settings/llm').then(asJson);
+
+export const getRunDoc = (runId, path) =>
+  api(`/api/runs/${encodeURIComponent(runId)}/doc?path=${encodeURIComponent(path)}`).then(asJson);
+
+// Audit log (ENT-F) — 관리 작업 이력 조회. action/actor 필터 지원.
+export const getAuditRecent = (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.limit) qs.set('limit', params.limit);
+  if (params.action) qs.set('action', params.action);
+  if (params.actor) qs.set('actor', params.actor);
+  const tail = qs.toString();
+  return api(`/api/audit/recent${tail ? `?${tail}` : ''}`).then(asJson);
+};

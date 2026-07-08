@@ -16,6 +16,7 @@ from ...connectors import ScmConnector, make_connector
 from ..crypto import SecretBox
 from ..models import DocTarget, ScmInstance, Source, SourceBranch, SourceSchedule
 from ..schedule import normalize_schedule_payload, parse_cron
+from ..timeutil import isoformat_z
 
 _ID_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -31,21 +32,41 @@ class RegistrationService:
 
     # ── SCM 인스턴스 ─────────────────────────────────────────
     def upsert_instance(self, db: Session, payload: dict[str, Any], *,
-                        preserve_token: bool = False) -> ScmInstance:
+                        preserve_token: bool = False,
+                        rotated_by: str = "",
+                        rotation_note: str = "") -> ScmInstance:
         iid = _slug(str(payload.get("id") or payload.get("label") or payload.get("base_url") or ""))
         inst = db.get(ScmInstance, iid)
+        new_instance = inst is None
         if inst is None:
             inst = ScmInstance(id=iid)
             db.add(inst)
         inst.kind = str(payload.get("kind") or inst.kind or "gitlab").lower()
         inst.label = str(payload.get("label") or inst.label or iid)
-        inst.base_url = str(payload.get("base_url") or payload.get("url") or inst.base_url or "").rstrip("/")
+        inst.base_url = str(payload.get("url") or payload.get("base_url") or inst.base_url or "").rstrip("/")
         inst.token_header = str(payload.get("token_header") or inst.token_header or "PRIVATE-TOKEN")
         if "enabled" in payload:
             inst.enabled = bool(payload["enabled"])
         token = str(payload.get("token") or "")
+        token_changed = False
         if token and not (preserve_token and not token.strip()):
-            inst.token = self.box.encrypt(token)
+            encrypted = self.box.encrypt(token)
+            # 토큰이 실제로 바뀐 경우만 rotation 기록 (같은 토큰 재제출은 노이즈)
+            if new_instance or not inst.token or inst.token != encrypted:
+                token_changed = True
+                inst.token = encrypted
+        # Track B-1: 토큰 순환 추적. 시크릿은 평문 미저장 — 시점·누가·이유만.
+        if token_changed:
+            from datetime import datetime, timezone
+            from ..models import ScmInstanceTokenRotation
+            now = datetime.now(timezone.utc)
+            inst.token_rotated_at = now
+            db.add(ScmInstanceTokenRotation(
+                instance_id=inst.id, rotated_at=now,
+                rotated_by_token=rotated_by[:120] or "",
+                note=rotation_note[:200] or
+                    ("initial registration" if new_instance else "token rotation"),
+            ))
         db.flush()
         return inst
 
@@ -208,7 +229,7 @@ class RegistrationService:
             "release_branch": release.branch if release else "",
             "last_processed_sha": (dev.last_processed_sha if dev else "") or "",
             "release_last_processed_sha": (release.last_processed_sha if release else "") or "",
-            "updated_at": source.updated_at.isoformat() if source.updated_at else "",
+            "updated_at": isoformat_z(source.updated_at),
         }
 
     def schedule_view(self, row: SourceSchedule) -> dict:
@@ -222,7 +243,7 @@ class RegistrationService:
             "schedule_cron": row.cron,
             "schedule": parse_cron(row.cron),
             "enabled": row.enabled,
-            "updated_at": row.updated_at.isoformat() if row.updated_at else "",
+            "updated_at": isoformat_z(row.updated_at),
         }
 
     # ── docs-hub 타깃 ────────────────────────────────────────
@@ -255,7 +276,7 @@ class RegistrationService:
             "project_path": target.project_path, "token_header": target.token_header,
             "default_branch": target.default_branch, "enabled": target.enabled,
             "has_token": bool(target.token),
-            "updated_at": target.updated_at.isoformat() if target.updated_at else "",
+            "updated_at": isoformat_z(target.updated_at),
         }
         if with_token:
             view["token"] = self.box.decrypt(target.token) if target.token else ""
