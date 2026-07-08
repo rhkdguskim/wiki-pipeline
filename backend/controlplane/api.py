@@ -115,19 +115,27 @@ def _extract_run_id(payload: dict) -> str:
 # ── audit (ENT-F) ──────────────────────────────────────────────
 
 def _resolve_actor(request: Request) -> str:
-    """audit용 actor 문자열 — 인증 토큰 이름, 또는 dev 모드면 "(dev)".
+    """audit용 actor 문자열 — 인증된 토큰 이름, 또는 명확한 sentinel.
 
-    예전 코드는 api_tokens가 비어있을 때 (dev 모드) `actor = {}` 가 되어
-    str({}) = "{}" 가 audit에 저장되는 버그가 있었다. 명시적으로 처리한다.
+    반환 규칙:
+    - api_tokens 미설정(dev 모드) → "(dev)"
+    - 토큰 제시 + 일치 → 토큰 이름
+    - 토큰 제시 + 불일치 → "(anon)" (해시 비교 실패는 401이어야 하지만 방어적)
+    - 토큰 미제시 → "(no-token)" (require_api_token 누락 — _audit 호출 경로 결함)
+
+    예전 폴백은 api_tokens 의 첫 번째 토큰 이름을 반환했는데, 이는 인증되지 않은
+    요청을 첫 토큰 소유자 행위로 오기록하는 감사 추적 오염이었다.
     """
     tokens = _state(request).api_tokens
     if not tokens:
         return "(dev)"
     presented = _extract_token(request)
     if not presented:
-        # 토큰이 설정되어 있지만 이 요청이 require_api_token을 거치지 않은 경우
-        # (예: 러너 전용 엔드포인트) — 첫 토큰 이름을 폴백으로.
-        return next(iter(tokens.values()))
+        # 이 경로는 require_api_token 을 거치지 않은 audit 호출에서만 도달한다
+        # — 예: 러너 전용 엔드포인트. 정상 흐름에선 401 로 차단되지만, 만에 하나
+        # 누락된 의존성이 있어도 audit 은 정직한 sentinel 로 남는다.
+        log.warning("audit 호출 시 토큰 미제시 — endpoint=%s", request.url.path)
+        return "(no-token)"
     for tok, name in tokens.items():
         if secrets.compare_digest(presented, tok):
             return name

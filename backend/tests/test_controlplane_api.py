@@ -600,3 +600,21 @@ def test_webhook_complete_metric_failure_does_not_break_response(client, monkeyp
     resp = client.post("/api/webhook/complete", headers=RUNNER,
                        json={"run_id": "../bad", "status": "done"})
     assert resp.status_code == 400
+
+
+def test_resolve_actor_returns_no_token_sentinel_not_first_token(client):
+    """_resolve_actor 가 토큰 미제시 시 api_tokens 의 첫 토큰 이름으로 폴백하지 않는다.
+
+    과거 폴백은 인증되지 않은 요청을 첫 토큰 소유자 행위로 오기록해 audit 추적을
+    오염시켰다. 토큰 미제시 + api_tokens 설정 상태면 명시적 sentinel "(no-token)" 으로
+    남아야 한다.
+    """
+    from backend.controlplane.api import _resolve_actor
+    from starlette.requests import Request as StarletteRequest
+    scope = {"type": "http", "headers": [], "path": "/test", "method": "GET",
+             "app": client.app}
+    fake_req = StarletteRequest(scope)
+    actor = _resolve_actor(fake_req)
+    assert actor == "(no-token)", \
+        f"토큰 미제시인데 '{actor}' 로 반환 — 첫 토큰 폴백 버그 재현"
+    assert actor != "admin", "인증되지 않은 요청이 'admin' 으로 기록됨"
