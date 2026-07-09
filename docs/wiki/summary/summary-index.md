@@ -32,6 +32,10 @@
 - [[summary-code-index-finalization]] — 코드 인덱스 최종 확정 요약: 어댑터 cg-colby · 단일 레포 · 저장소 평면
 - [[summary-code-index-out-of-pipeline]] — 코드 인덱스 범위 제외 요약: 개인 관리 이관 · 결정군 8건 supersede
 
+### 데이터 웨어하우스 · 분석 통합 (2026-07-09)
+
+- [[summary-dwh-design-plan]] — DataWarehouse 설계 계획 요약: Monday.com + wiki_pipeline → PostgreSQL (Kimball+Medallion · webhook+폴맨스 하이브리드 · typed long+JSONB · dbt+cron-first · SCD 혼합)
+
 ### 사내 환경 실측
 
 - [[summary-wish-gitlab-api-survey]] — wish GitLab API 실측 조사 요약: 16.3 CE · 파이프라인별 API 표면 · 파생 질문 6건

@@ -60,6 +60,15 @@
 - [[decision-manual-delete-grace]] — 매뉴얼 삭제 = deprecated 유예 후 삭제 (이중 게이트)
 - [[decision-coverage-metric-gap]] — 순회 커버리지 = 지표 + 누락 표시 (시나리오 + 탐색 합산)
 
+### 데이터 웨어하우스 · 분석 통합 (2026-07-09 — Monday.com + wiki_pipeline → PostgreSQL)
+
+- [[decision-dwh-shape-kimball-medallion]] — **DWH 전체 형태 = Kimball 차원 모델링 + Medallion layering** (소스 2개·BI 지향; Inmon/Data Vault/Lakehouse 기각 — 오버스펙)
+- [[decision-dwh-storage-postgres-single]] — **저장소 = PostgreSQL 단일 클러스터, 다른 스키마** (이미 쓰는 PG 재사용·별도 클러스터/클라우드 DW 기각; 읽기 복제본으로 점진 확장)
+- [[decision-monday-ingest-hybrid]] — **Monday 적재 = webhook(실시간 근사) + 야간 전수 폴링(보정) 하이브리드** (webhook만/폴링만 기각 — 30분 재시도 한계/지연)
+- [[decision-dwh-column-value-hybrid]] — **반정형 = typed long table + JSONB 폴백 + GIN 인덱스** (pure JSONB/exploded/EAV 기각 — 드리프트/쿼리성능/안티패턴)
+- [[decision-dwh-scd-strategy]] — **SCD = entity별 0/1/2/append 혼합** (items/users/boards SCD2·statuses SCD1·run/step append-only fact; dbt snapshot + merge)
+- [[decision-dwh-transform-dbt]] — **변환·오케스트레이션 = dbt-postgres + cron-first** (순수 SQL/데이터프레임/처음부터 Airflow 기각; Airflow는 10+ 태스크 시 이관)
+
 ### 코드 인덱스 파이프라인 (2026-07-05 도입 → 2026-07-06 범위 제외)
 
 - [[decision-code-index-out-of-pipeline]] — **코드 인덱스 = 파이프라인 범위 제외, 개발자 개인 관리 이관** (아래 8건 일괄 supersede; 재검토 조건 = cross-repo 등 개인이 못 푸는 요구)

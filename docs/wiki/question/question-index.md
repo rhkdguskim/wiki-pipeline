@@ -49,6 +49,15 @@
 - [[question-code-index-store]] ✅ — 인덱스 저장소 소유 (answered: 별도 질의 서비스 평면 — superseded)
 - [[question-blob-vs-code-index-overlap]] ✅ — 내장 blob 검색·CodeScene vs 코드 인덱스 역할 중복 (answered: 파이프라인 제외로 질문 자체 해소 → [[decision-code-index-out-of-pipeline]])
 
+### 데이터 웨어하우스 (2026-07-09 — 설계 확정 전 사용자 결정 필요)
+
+- [[question-monday-plan-tier]] — Monday.com plan tier와 activity log 보존기간 (보존기간 < 동기화 주기면 full refresh 강제 → [[decision-monday-ingest-hybrid]])
+- [[question-monday-user-mapping]] — Monday 사용자와 wiki_pipeline 사용자의 SSO 일치 여부 (dim_user 단일 통합 가능성)
+- [[question-monday-item-source-key]] — Monday item ↔ wiki_pipeline source(repo)를 잇는 키 (브릿지 팩트 fact_item_documentation의 핵심)
+- [[question-dwh-data-volume]] — DWH 예상 데이터 볼륨 (분할·읽기 복제본 이관 시점 → [[decision-dwh-storage-postgres-single]])
+- [[question-dwh-latency-target]] — DWH 지연 목표 일 배치/시간/실시간 (webhook 레인 도입 시기·폴맴스 주기 → [[decision-monday-ingest-hybrid]])
+- [[question-dwh-multi-tenancy]] — DWH 다부서 확장 가능성과 RLS 도입 시기 (→ [[decision-dwh-storage-postgres-single]])
+
 ### 향후 기능 후보 (Phase 3+)
 
 - [[question-theme-expansion]] — 테마 2차 확장 시점 (dev-guide·api-protocol은 1차 승격 → [[decision-theme-scope-expansion]]; 남은 후보 실측 후)

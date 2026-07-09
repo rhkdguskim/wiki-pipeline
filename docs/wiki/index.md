@@ -6,13 +6,13 @@
 | 유형       | 폴더 인덱스             | 페이지 | 무엇을 담는가             |
 | -------- | ------------------ | :-: | ------------------- |
 | overview | [[overview]]       |  1  | 시스템 전체 그림 · 진입 허브   |
-| summary  | [[summary-index]]  |  20 | raw 소스 요약           |
-| entity   | [[entity-index]]   |  6  | 실재 대상 (시스템·레포·환경)   |
-| concept  | [[concept-index]]  |  5  | 재사용 개념·패턴           |
-| decision | [[decision-index]] | 54  | 내려진 결정 + 근거 + 기각 대안 (10건 superseded) |
-| question | [[question-index]] | 34  | 미해결 질문 (23건 answered) |
+| summary  | [[summary-index]]  |  21 | raw 소스 요약           |
+| entity   | [[entity-index]]   |  8  | 실재 대상 (시스템·레포·환경)   |
+| concept  | [[concept-index]]  |  8  | 재사용 개념·패턴           |
+| decision | [[decision-index]] |  60  | 내려진 결정 + 근거 + 기각 대안 (10건 superseded) |
+| question | [[question-index]] |  40  | 미해결 질문 (23건 answered) |
 
 > 연산 기록(감사 추적)은 날짜별로 → [[log-index]] (`wiki/log/`, lazy-loading)
 
 ---
-페이지 120 (overview 포함) · raw 소스 24 · 최종 갱신 2026-07-09
+페이지 138 (overview 포함) · raw 소스 25 · 최종 갱신 2026-07-09

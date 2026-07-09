@@ -134,6 +134,38 @@ flowchart TB
   삭제는 MR 제안으로 사람이 확인한다 → [[decision-commit-history-manual-diff]]
 - **정적 파이프라인과의 관계** — 관리 서버·docs-hub·MR 게이트만 공유하는 **별개 파이프라인** → [[decision-manual-pipeline-separate]]
 
+## 데이터 웨어하우스 · 분석 통합 (2026-07-09 신규 축)
+
+두 파이프라인의 산출물과 **Monday.com 과제 데이터**를 하나로 통합하는 **세 번째 시스템 축**. 산출물을 docs-hub MR로 내는 것과는 별개로, 분석 가능한 형태로 영구 보존·교차 분석한다 → [[entity-data-warehouse]] · [[summary-dwh-design-plan]].
+
+```mermaid
+flowchart LR
+    MON[("Monday.com<br/>GraphQL read-only")]
+    CP[("Control Plane DB<br/>runs · docs · 비용")]
+    DWH[("DataWarehouse<br/>PostgreSQL<br/>bronze·silver·gold")]
+    BI["📊 BI · analytics_reader"]
+
+    MON -->|"webhook + 야간 폴맨스"| DWH
+    CP -->|"direct read"| DWH
+    DWH --> BI
+
+    classDef src fill:#fff3e0,stroke:#e65100,color:#bf360c;
+    classDef dw fill:#e3f2fd,stroke:#1565c0,color:#0d47a1;
+    classDef con fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20;
+    class MON,CP src
+    class DWH dw
+    class BI con
+```
+
+- **형태** = Kimball 차원 모델링 + Medallion(Bronze/Silver/Gold) layering on PostgreSQL → [[decision-dwh-shape-kimball-medallion]] · [[concept-medallion-dwh-on-postgres]]
+- **적재** = Monday webhook(실시간 근사) + 야간 전수 폴링(보정) 하이브리드 · pipeline은 direct read → [[decision-monday-ingest-hybrid]] · [[concept-readonly-saas-cdc]]
+- **반정형 처리** = typed long table + JSONB 폴백 + GIN 인덱스 (Monday column value 타입별 JSON 상이) → [[decision-dwh-column-value-hybrid]] · [[concept-monday-column-value-modeling]]
+- **SCD** = items/users/boards SCD2 · statuses SCD1 · run/step append-only → [[decision-dwh-scd-strategy]]
+- **변환·오케스트레이션** = dbt-postgres + cron-first (→ Airflow 10+ 태스크 시) → [[decision-dwh-transform-dbt]]
+- **저장소** = PostgreSQL 단일 클러스터 다른 스키마 → [[decision-dwh-storage-postgres-single]]
+- **핵심 가치** = `fact_item_documentation` 브릿지 팩트가 Monday 과제 ↔ wiki_pipeline 문서·run·비용을 잇는다 (과제 진행 ↔ 문서화 자동화 교차 분석)
+- **설계 확정 전 열린 질문** 6건 (plan tier · 사용자 매핑 · item↔repo 키 · 볼륨 · 지연 목표 · 다부서) → [[question-monday-plan-tier]] 등
+
 ## 범위 제외 — 코드 인덱스 (2026-07-06, 개인 관리 이관)
 
 코드 인덱스는 2026-07-05 ③번 파이프라인(짧은 주기 폴링 → MCP 질의)으로 설계됐으나, **중앙 파이프라인
