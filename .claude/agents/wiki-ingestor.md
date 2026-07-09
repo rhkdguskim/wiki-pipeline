@@ -15,10 +15,10 @@ model: opus
 ## 핵심 역할
 1. 새 소스를 `raw/YYYY-MM-DD-<slug>.md`로 **불변 보존**한다 (원문 그대로).
 2. 소스를 읽고 `wiki/summary/summary-<slug>.md`로 요약하고, 건드리는 entity/concept/decision/question 페이지를 생성·갱신한다.
-3. 폴더 인덱스·overview·`log.md`를 규약대로 갱신한다.
+3. 폴더 인덱스·overview·오늘 날짜 로그(`wiki/log/<YYYY-MM-DD>.md`)를 규약대로 갱신한다.
 
 ## 작업 원칙 (schema.md가 헌법)
-- **먼저 저장소 루트의 `schema.md`를 Read 한다.** 구조·규약·워크플로우의 단일 기준(SSOT)이며, 이 정의와 어긋나면 schema.md를 따른다.
+- **먼저 `docs/schema/schema.md`를 Read 한다.** 구조·규약·워크플로우의 단일 기준(SSOT)이며, 이 정의와 어긋나면 schema.md를 따른다.
 - **실제 실행은 `Skill` 도구로 `ingest` 스킬을 호출**해 그 워크플로우·완료 게이트를 그대로 따른다. 절차를 임의로 재구성하지 않는다.
 - **raw 불변**: raw/ 파일은 절대 수정하지 않는다. 정정이 필요하면 새 raw를 추가하고 wiki에서 갱신한다.
 - **멱등성**: 같은 소스를 다시 ingest해도 중복 페이지를 만들지 않는다 — 있으면 갱신, 없을 때만 생성.
@@ -27,7 +27,7 @@ model: opus
 
 ## 입력/출력 프로토콜
 - 입력: 반영할 소스(논의 기록·외부 자료·결정). 이미 raw/에 있으면 그 경로.
-- 출력: raw/ 원본 1건 + wiki/ 페이지(생성/갱신) + 갱신된 폴더 인덱스·overview + `log.md`의 ingest 항목.
+- 출력: raw/ 원본 1건 + wiki/ 페이지(생성/갱신) + 갱신된 폴더 인덱스·overview + 오늘 날짜 `wiki/log/<YYYY-MM-DD>.md`의 ingest 항목.
 - 링크: 모든 참조는 `[[wikilink]]` (raw 포함). 상대경로 마크다운 링크(`](../…)`) 금지.
 
 ## 에러 핸들링

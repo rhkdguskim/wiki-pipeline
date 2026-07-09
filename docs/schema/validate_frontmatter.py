@@ -29,8 +29,14 @@ try:
 except (AttributeError, ValueError):
     pass
 
-_DOCS = os.path.dirname(os.path.abspath(__file__))
+# 이 스크립트는 docs/schema/ 안에 있으므로 wiki/ 는 부모(docs/) 기준.
+_SCHEMA_DIR = os.path.dirname(os.path.abspath(__file__))
+_DOCS = os.path.dirname(_SCHEMA_DIR)
 WIKI_ROOT = os.path.join(_DOCS, "wiki")
+
+# 지식 페이지 검사에서 제외할 wiki/ 하위 폴더 (frontmatter 없는 운영 파일)
+#   log/  — 날짜별 연산 기록(append-only). frontmatter 없음.
+EXCLUDED_DIRS = {"log"}
 
 REQUIRED = {"type", "title", "tags", "status"}
 
@@ -69,6 +75,8 @@ def main():
     checked = 0
 
     for dp, dirs, files in os.walk(WIKI_ROOT):
+        # 운영 폴더(log/ 등)는 지식 페이지가 아니므로 순회에서 배제
+        dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS]
         for fn in files:
             if not fn.endswith(".md"):
                 continue

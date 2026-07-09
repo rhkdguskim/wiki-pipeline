@@ -16,7 +16,7 @@ description: >-
 
 ## 0. 먼저 schema.md를 읽는다 (필수 · 위반 금지)
 
-작업 전 **반드시 저장소 루트의 `schema.md`를 Read** 하라. schema.md가 구조·규약·워크플로우의
+작업 전 **반드시 `docs/schema/schema.md`를 Read** 하라. schema.md가 구조·규약·워크플로우의
 **단일 기준(SSOT)**이다. 이 스킬은 그 워크플로우를 대체하지 않고 실행을 강제·안내할 뿐이다.
 schema.md의 "Ingest — 새 지식 반영" 절과 실제 단계가 어긋나면 **schema.md를 따른다**.
 
@@ -24,9 +24,9 @@ schema.md의 "Ingest — 새 지식 반영" 절과 실제 단계가 어긋나면
 
 | 계층 | 위치 | 규칙 |
 |------|------|------|
-| Raw sources | `raw/` | **불변** — 수정 금지, 추가만. `YYYY-MM-DD-<slug>.md` |
-| The wiki | `wiki/` | LLM이 생성·유지 — ingest/query/lint로만 갱신 |
-| The schema | `schema.md` | 헌법 — 규약 변경 시에만 수정 (log 기록) |
+| Raw sources | `docs/raw/` | **불변** — 수정 금지, 추가만. `YYYY-MM-DD-<slug>.md` |
+| The wiki | `docs/wiki/` | LLM이 생성·유지 (지식 + `log/` + `index.md`) — ingest/query/lint로만 갱신 |
+| The schema | `docs/schema/` | 헌법 — `schema.md`(규약) + `templates/` + 검증기. 규약 변경 시에만 수정 (log 기록) |
 
 - **불변 raw**: 원본은 진실의 앵커다. 정정이 필요해도 raw를 고치지 않고 새 raw를 추가한 뒤 wiki에서 갱신한다.
 - **멱등성**: 같은 소스를 다시 ingest해도 중복 페이지가 생기면 안 된다. 기존 페이지가 있으면 **갱신**, 없을 때만 생성.
@@ -40,14 +40,15 @@ schema.md의 "Ingest — 새 지식 반영" 절과 실제 단계가 어긋나면
    유형 라우팅과 concept↔decision 판별은 schema.md 표를 따른다. 한 소스가 여러 페이지를 건드릴 수 있다.
 4. **인덱스·overview 갱신** — 건드린 각 유형의 폴더 인덱스(`wiki/<type>/<type>-index.md`)를 **반드시** 갱신.
    시스템 구조가 바뀌었으면 `wiki/overview.md`도 갱신. 새 유형/폴더면 허브 `wiki/index.md`도 갱신.
-5. **log 기록** — `log.md`에 append:
+5. **log 기록** — 오늘 날짜 파일 `wiki/log/<YYYY-MM-DD>.md`에 append:
    ```
    ## [YYYY-MM-DD] ingest | <소스 제목>
    - raw: [[YYYY-MM-DD-<slug>]]
    - 생성: <페이지들>
    - 갱신: <페이지들>
    ```
-   (오늘 날짜는 environment의 currentDate를 쓴다.)
+   (오늘 날짜는 environment의 currentDate를 쓴다.) 그날 파일이 없으면 새로 만들고(헤더 + `[[log-index]]` 링크),
+   `wiki/log/log-index.md`에 그 날짜 행을 추가한다(최신 위). 기존 날짜면 파일 맨 끝에 항목만 append 한다.
 
 ## 링크 규약 (schema.md 링크 규약)
 
@@ -61,6 +62,6 @@ schema.md의 "Ingest — 새 지식 반영" 절과 실제 단계가 어긋나면
 - [ ] 새/갱신 페이지가 올바른 `wiki/<type>/` 폴더에 있고 frontmatter 4필드(type·title·tags·status)를 갖췄다.
 - [ ] 건드린 모든 유형의 폴더 인덱스를 갱신했다. 새 폴더면 허브 index도 갱신했다.
 - [ ] 모든 링크가 `[[wikilink]]`이고 깨진 링크·고아 페이지가 없다.
-- [ ] `log.md`에 ingest 항목을 남겼다.
+- [ ] 오늘 날짜 `wiki/log/<YYYY-MM-DD>.md`에 ingest 항목을 남겼다 (새 날짜면 log-index도 갱신).
 
 마무리로 **`/lint`를 돌려 무결성을 확인**할 것을 권한다.

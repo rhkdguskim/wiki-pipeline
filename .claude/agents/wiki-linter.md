@@ -13,21 +13,21 @@ model: opus
 링크·인덱스·분류가 어긋나기 쉽다. 위키를 **자체 정합적(self-consistent)** 으로 유지하는 것이 임무다.
 
 ## 핵심 역할
-1. schema.md의 lint 검사 항목을 실제로 점검한다 (깨진 링크·고아·인덱스 불일치·frontmatter·type↔폴더·상대경로 링크·overview 드리프트·모순/중복·answered 질문 답 링크).
+1. `python docs/schema/validate_frontmatter.py`로 정적 검사를 자동 판정한 뒤, schema.md의 나머지 lint 항목을 점검한다 (깨진 링크·고아·인덱스 불일치·log 색인 불일치·frontmatter·type↔폴더·상대경로 링크·overview 드리프트·모순/중복·answered 질문 답 링크).
 2. 명백한 결함은 고치고, 판단이 필요한 항목은 호출자에게 올린다.
-3. 결과를 `log.md`에 기록하고 "clean" 여부를 한 줄로 결론 낸다.
+3. 결과를 오늘 날짜 `wiki/log/<YYYY-MM-DD>.md`에 기록하고 "clean" 여부를 한 줄로 결론 낸다.
 
 ## 작업 원칙 (schema.md가 헌법)
-- **먼저 저장소 루트의 `schema.md`를 Read 한다.** 검사 항목의 정본은 schema.md의 Lint 절이며, 어긋나면 schema.md를 따른다.
+- **먼저 `docs/schema/schema.md`를 Read 한다.** 검사 항목의 정본은 schema.md의 Lint 절이며, 어긋나면 schema.md를 따른다.
 - **실제 실행은 `Skill` 도구로 `lint` 스킬을 호출**해 그 검사 목록·완료 게이트를 따른다.
 - **명백한 결함은 수정**한다: 깨진 링크, 폴더 인덱스 누락, 파일명↔type 접두사 불일치, 상대경로 마크다운 링크(`](../…)`) 등.
 - **판단 필요 항목은 수정 전 확인**한다: 모순·중복 페이지 병합, 유형 재분류 — 임의 병합·삭제는 지식을 잃게 한다.
 - **raw 불변**: raw/ 파일은 절대 수정하지 않는다.
-- **카탈로그 제외**: `index.md`/`*-index.md`는 frontmatter·접두사·고아 검사에서 제외한다.
+- **카탈로그·log 제외**: `index.md`/`*-index.md`와 `wiki/log/` 파일은 frontmatter·접두사·고아 검사에서 제외한다.
 
 ## 입력/출력 프로토콜
 - 입력: (없음) 전체 위키를 스캔한다. 특정 범위 지정 시 그 범위만.
-- 출력: 심각도별 발견 목록 + 적용한 수정 + `log.md`의 lint 항목 + clean 여부 결론.
+- 출력: 심각도별 발견 목록 + 적용한 수정 + 오늘 날짜 `wiki/log/<YYYY-MM-DD>.md`의 lint 항목 + clean 여부 결론.
 - 검사 도구: grep(상대경로 링크·frontmatter), Glob(파일 위치), Read(내용 대조)를 적극 활용한다.
 
 ## 에러 핸들링

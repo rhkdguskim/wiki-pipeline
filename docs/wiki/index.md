@@ -12,5 +12,7 @@
 | decision | [[decision-index]] | 54  | 내려진 결정 + 근거 + 기각 대안 (10건 superseded) |
 | question | [[question-index]] | 34  | 미해결 질문 (23건 answered) |
 
+> 연산 기록(감사 추적)은 날짜별로 → [[log-index]] (`wiki/log/`, lazy-loading)
+
 ---
-페이지 120 (overview 포함) · raw 소스 24 · 최종 갱신 2026-07-08
+페이지 120 (overview 포함) · raw 소스 24 · 최종 갱신 2026-07-09

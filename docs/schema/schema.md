@@ -7,14 +7,18 @@
 
 | 계층 | 위치 | 역할 | 변경 규칙 |
 |------|------|------|-----------|
-| Raw sources | `raw/` | 불변 원본 소스 (논의 기록, 외부 자료 발췌) | **수정 금지, 추가만.** 파일명 `YYYY-MM-DD-<slug>.md` |
-| The wiki | `wiki/` | LLM이 생성·유지하는 지식 페이지 | ingest/query/lint 워크플로우로만 갱신 |
-| The schema | `schema.md` (이 문서) | 구조·규약·워크플로우의 단일 기준 | 규약 변경 시에만, log에 기록 |
+| Raw sources | `docs/raw/` | 불변 원본 소스 (논의 기록, 외부 자료 발췌) | **수정 금지, 추가만.** 파일명 `YYYY-MM-DD-<slug>.md` |
+| The wiki | `docs/wiki/` | LLM이 생성·유지하는 지식 페이지 + 연산 기록(`log/`) + 인덱스(`index.md`) | ingest/query/lint 워크플로우로만 갱신 |
+| The schema | `docs/schema/` | 구조·규약·워크플로우의 단일 기준 (`schema.md`) + 도구(`templates/`·검증기) | 규약 변경 시에만, log에 기록 |
 
-보조 파일: **lazy-loading 2계층 인덱스** — 허브 `wiki/index.md`(유형별 폴더 인덱스로 드릴다운) + 폴더별 `wiki/<type>/<type>-index.md`(그 폴더 페이지만 나열). `log.md`(append-only 연산 기록).
+Karpathy LLM Wiki 원안대로 **위키가 곧 상태**다 — 연산 기록(`log/`)과 인덱스(`index.md`) 모두 `wiki/` 안에 산다. schema는 위키 밖의 "헌법"으로, 느리고 의도적으로만 바뀐다.
 
-스키마 도구(`schema.md` 규약의 실행 보조물):
-- `validate_frontmatter.py` — frontmatter 정합성 자동 검증기. lint 시 실행(`python docs/validate_frontmatter.py`, 종료코드 0=통과). 이 규약의 정적 검사 항목(필수 4필드·type 6종·status enum·type↔폴더·파일명 접두사·answered question의 blocking 잔존)을 코드화한 것. 규약을 바꾸면 이 스크립트의 규칙도 함께 고친다.
+보조 파일 (모두 `wiki/` 안):
+- **lazy-loading 2계층 인덱스** — 허브 `wiki/index.md`(유형별 폴더 인덱스로 드릴다운) + 폴더별 `wiki/<type>/<type>-index.md`(그 폴더 페이지만 나열).
+- **날짜별 연산 기록** — `wiki/log/<YYYY-MM-DD>.md`(그날의 append-only 기록) + `wiki/log/log-index.md`(날짜별 진입 색인, 최신 위). 인덱스와 같은 lazy-loading 원리 — 필요한 날짜만 연다.
+
+스키마 도구 (`docs/schema/`, 규약의 실행 보조물):
+- `validate_frontmatter.py` — frontmatter 정합성 자동 검증기. lint 시 실행(`python docs/schema/validate_frontmatter.py`, 종료코드 0=통과). 이 규약의 정적 검사 항목(필수 4필드·type 6종·status enum·type↔폴더·파일명 접두사·answered question의 blocking 잔존)을 코드화한 것. `wiki/log/`는 frontmatter 없는 운영 파일이라 검사에서 제외한다. 규약을 바꾸면 이 스크립트의 규칙도 함께 고친다.
 - `templates/<type>.md` — 유형별 노트 스타터 6종(overview·summary·entity·concept·decision·question). 새 페이지는 해당 템플릿을 복사해 시작한다.
 제품 스펙(`PRD.md`·`docs/`)은 **아직 작성하지 않는다** (2026-07-05 삭제, 추후 재작성 예정 — git 이력에 보존). 현재는 raw/ + 위키가 유일한 지식 소스이며, PRD가 재작성되면 위키 페이지가 상세를 docs/ 링크로 위임한다.
 
@@ -89,20 +93,20 @@ status: active            # active | open | answered | superseded
 2. 소스를 읽고 `wiki/summary/summary-<slug>.md` 작성 (요지 + 파생 페이지 링크)
 3. 소스가 건드리는 entity/concept/decision/question 페이지를 생성 또는 갱신 (한 소스가 여러 페이지를 건드릴 수 있음)
 4. `wiki/overview.md` 갱신 (필요 시), **해당 폴더 인덱스**(`<type>-index.md`) 갱신 (필수). 새 유형/폴더면 허브 [[index]]도 갱신
-5. `log.md`에 append: `## [YYYY-MM-DD] ingest | <소스 제목>` + 건드린 페이지 목록
+5. **오늘 날짜 파일** `wiki/log/<YYYY-MM-DD>.md`에 append: `## [YYYY-MM-DD] ingest | <소스 제목>` + 건드린 페이지 목록. 그날 파일이 없으면 새로 만들고(헤더 + `[[log-index]]` 링크), `wiki/log/log-index.md`에 그 날짜 행을 추가한다(최신 위)
 
 ### Query — 질문에 답하기
 
 1. 허브 [[index]]에서 유형을 고르고 **해당 폴더 인덱스만** 열어 관련 페이지를 찾는다 (lazy-loading — 전체 카탈로그를 로드하지 않음)
 2. 해당 페이지들(+필요 시 raw·docs)을 읽고 답을 합성한다
-3. 유용한 합성 결과(비교·분석)는 새 wiki 페이지로 파일링한다 (복리 축적) → index/log 갱신
+3. 유용한 합성 결과(비교·분석)는 새 wiki 페이지로 파일링한다 (복리 축적) → index 갱신 + 오늘 날짜 `wiki/log/<YYYY-MM-DD>.md`에 query 항목 append(+ 필요 시 log-index 날짜 행)
 
 ### Lint — 건강 점검
 
-먼저 `python docs/validate_frontmatter.py`를 실행한다 — 정적 검사(frontmatter 필수 4필드 누락 / 알 수 없는 type / status enum 밖 / type↔폴더 불일치 / 파일명↔type 접두사 불일치 / answered question의 blocking 잔존)를 자동 판정한다(종료코드 0=통과).
+먼저 `python docs/schema/validate_frontmatter.py`를 실행한다 — 정적 검사(frontmatter 필수 4필드 누락 / 알 수 없는 type / status enum 밖 / type↔폴더 불일치 / 파일명↔type 접두사 불일치 / answered question의 blocking 잔존)를 자동 판정한다(종료코드 0=통과). `wiki/log/`는 검사에서 자동 제외된다.
 
-이어서 스크립트가 못 잡는 항목을 수동 검사: 깨진 `[[링크]]` / 고아 페이지 / **폴더 인덱스 누락·불일치**(지식 페이지가 자기 `<type>-index.md`에 없음 / 폴더 인덱스가 허브 [[index]]에 없음) / 상대경로 마크다운 링크 잔존(`](../…)`·`](./…)` — raw·wiki 참조 모두 `[[wikilink]]`여야 함) / overview 드리프트(새 페이지 미반영) / 모순·중복 페이지 / `answered` question에 답 링크 부재. (카탈로그 파일 `index.md`/`*-index.md`은 frontmatter·접두사·고아 검사 제외)
-결과를 `log.md`에 `## [YYYY-MM-DD] lint | 결과 요약`으로 기록한다.
+이어서 스크립트가 못 잡는 항목을 수동 검사: 깨진 `[[링크]]` / 고아 페이지 / **폴더 인덱스 누락·불일치**(지식 페이지가 자기 `<type>-index.md`에 없음 / 폴더 인덱스가 허브 [[index]]에 없음) / **log 색인 불일치**(`wiki/log/`의 날짜 파일이 `log-index.md`에 없음, 또는 색인이 가리키는 날짜 파일이 없음) / 상대경로 마크다운 링크 잔존(`](../…)`·`](./…)` — raw·wiki 참조 모두 `[[wikilink]]`여야 함) / overview 드리프트(새 페이지 미반영) / 모순·중복 페이지 / `answered` question에 답 링크 부재. (카탈로그 파일 `index.md`/`*-index.md`·log 파일은 frontmatter·접두사·고아 검사 제외)
+결과를 오늘 날짜 `wiki/log/<YYYY-MM-DD>.md`에 `## [YYYY-MM-DD] lint | 결과 요약`으로 기록한다.
 
 ## 콘텐츠 규칙
 
@@ -111,13 +115,19 @@ status: active            # active | open | answered | superseded
 - **결정 번복**: 기존 decision을 덮어쓰지 않는다. 새 decision 페이지 생성 + 옛 페이지 `status: superseded` + 상호 링크
 - **raw 불변**: raw/ 파일은 절대 수정하지 않는다. 정정이 필요하면 새 raw 파일을 추가하고 wiki에서 갱신
 
-## log.md 형식 (grep-파싱 가능)
+## log 형식 (grep-파싱 가능)
+
+연산 기록은 `wiki/log/` 아래 **날짜별 1파일**로 나뉜다. 각 날짜 파일은 짧은 헤더(날짜·항목 수·`[[log-index]]` 링크) 뒤에 그날의 항목을 시간 오름차순으로 append 한다. `wiki/log/log-index.md`가 날짜별 진입 색인(최신 위)이다.
 
 ```
+# Wiki Log — 2026-07-05
+> 이 날짜의 연산 기록 N건 (…). append-only, 시간 오름차순. 전체 날짜 색인: [[log-index]]
+
 ## [2026-07-05] ingest | 설계 논의 기록
 - raw: [[2026-07-05-design-session]]
 - 생성: summary-design-session, decision-pull-model, …
 ```
 
-- 항목 헤더는 반드시 `## [YYYY-MM-DD] <op> | <제목>` — `grep "^## \[" log.md | tail -5`로 최근 이력 조회
+- 항목 헤더는 반드시 `## [YYYY-MM-DD] <op> | <제목>` — 최근 이력은 `grep "^## \[" wiki/log/*.md | tail -5` (파일명이 날짜순 정렬되므로 전 기간 시간순)
 - op ∈ {init, ingest, query, lint, schema}
+- 새 날짜의 첫 항목이면 날짜 파일을 만들고 `log-index.md`에 그 날짜 행을 추가한다. 기존 날짜면 해당 파일 맨 끝에 항목만 append 한다 (기존 항목·다른 날짜 파일은 불변 — append-only)

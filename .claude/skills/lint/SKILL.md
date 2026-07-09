@@ -17,13 +17,19 @@ ingest/query가 남긴 흔적이 규약대로인지 검증한다.
 
 ## 0. 먼저 schema.md를 읽는다 (필수 · 위반 금지)
 
-작업 전 **반드시 저장소 루트의 `schema.md`를 Read** 하라. 검사 항목의 **정본은 schema.md의
+작업 전 **반드시 `docs/schema/schema.md`를 Read** 하라. 검사 항목의 **정본은 schema.md의
 "Lint — 건강 점검" 절**이다. 아래 목록은 그 실행 체크리스트이며, 어긋나면 schema.md를 따른다.
+
+## 1. 검증기를 먼저 돌린다 (정적 검사 자동화)
+
+`python docs/schema/validate_frontmatter.py` — frontmatter 4필드·type 6종·status enum·
+type↔폴더·파일명 접두사·answered question의 blocking 잔존을 자동 판정한다(종료코드 0=통과).
+`wiki/log/`는 자동 제외된다. 아래 수동 항목 4·5·6·10 일부를 이 스크립트가 커버하므로 먼저 돌려 통과시킨 뒤 나머지를 손으로 본다.
 
 ## 검사 항목 (schema.md Lint 절)
 
-각 항목을 실제로 확인하라 (grep·Glob·Read 활용). 카탈로그 파일 `index.md`/`*-index.md`는
-frontmatter·접두사·고아 검사에서 **제외**된다.
+각 항목을 실제로 확인하라 (grep·Glob·Read 활용). 카탈로그 파일 `index.md`/`*-index.md`와
+`wiki/log/` 파일은 frontmatter·접두사·고아 검사에서 **제외**된다.
 
 1. **깨진 `[[링크]]`** — 링크 대상 파일이 실제로 존재하는가.
 2. **고아 페이지** — 지식 페이지가 최소 1개의 inbound `[[링크]]`를 갖는가 (폴더 인덱스 등재 포함).
@@ -36,12 +42,14 @@ frontmatter·접두사·고아 검사에서 **제외**된다.
 8. **overview 드리프트** — 새 페이지·구조 변화가 `wiki/overview.md`에 반영됐는가.
 9. **모순·중복 페이지** — 같은 관심사가 쪼개졌거나 서로 상충하는 내용.
 10. **`answered` question에 답 링크 부재** — status가 answered인데 답 decision 링크가 없음.
+11. **log 색인 불일치** — `wiki/log/`의 날짜 파일이 `log-index.md`에 등재됐는가 /
+    색인이 가리키는 날짜 파일이 실재하는가 / 각 날짜 파일 헤더의 항목 수가 실제 `## [` 개수와 맞는가.
 
 ## 참고 grep
 
 - 상대경로 링크: `grep -rn "](\.\.\?/" wiki/`
 - frontmatter 시작 확인: 각 지식 페이지 첫 줄이 `---`인지.
-- 최근 이력: `grep "^## \[" log.md | tail -5`
+- 최근 이력: `grep "^## \[" wiki/log/*.md | tail -5` (파일명 날짜순 = 전 기간 시간순)
 
 ## 보고와 수정
 
@@ -49,15 +57,16 @@ frontmatter·접두사·고아 검사에서 **제외**된다.
 2. **수정** — 명백한 결함(깨진 링크, 인덱스 누락, 접두사 불일치 등)은 고친다.
    판단이 필요한 항목(모순·중복 병합, 유형 재분류)은 **수정 전 사용자에게 확인**한다.
    raw/는 절대 수정하지 않는다.
-3. **log 기록** — `log.md`에 append:
+3. **log 기록** — 오늘 날짜 파일 `wiki/log/<YYYY-MM-DD>.md`에 append:
    ```
    ## [YYYY-MM-DD] lint | <결과 요약>
    ```
-   (오늘 날짜는 environment의 currentDate를 쓴다.)
+   (오늘 날짜는 environment의 currentDate를 쓴다. 새 날짜면 파일 생성 + log-index 갱신.)
 
 ## 완료 게이트
 
-- [ ] 10개 검사 항목을 모두 점검했다 (해당 없음도 명시).
+- [ ] 검증기(`validate_frontmatter.py`)를 돌려 통과시켰다.
+- [ ] 11개 검사 항목을 모두 점검했다 (해당 없음도 명시).
 - [ ] 명백한 결함은 수정했고, 판단 필요 항목은 사용자에게 올렸다.
-- [ ] `log.md`에 lint 결과를 기록했다.
+- [ ] 오늘 날짜 `wiki/log/<YYYY-MM-DD>.md`에 lint 결과를 기록했다.
 - [ ] "clean" 여부를 한 줄로 결론 냈다 (남은 이슈가 있으면 개수와 함께).

@@ -21,7 +21,7 @@ wiki_pipeline 지식 위키(Karpathy LLM Wiki)의 작업을 분류해 전문 에
 ## 상태 모델 (위키 특화 — `_workspace/` 없음)
 
 일반 하네스와 달리 중간 산출물 폴더를 만들지 않는다. **위키 저장소 자체가 상태**이고,
-`log.md`가 append-only **감사 추적**이다. raw/는 불변 원본, wiki/는 갱신 대상.
+`wiki/log/`(날짜별 append-only)가 **감사 추적**이다. raw/는 불변 원본, wiki/는 갱신 대상.
 
 ## 에이전트 구성
 
@@ -36,8 +36,8 @@ wiki_pipeline 지식 위키(Karpathy LLM Wiki)의 작업을 분류해 전문 에
 ## 워크플로우
 
 ### Phase 0: 컨텍스트 확인
-1. 저장소 루트 `schema.md`를 Read 한다 (모든 위키 작업의 단일 기준).
-2. 최근 이력을 확인한다: `grep "^## \[" log.md | tail -5`.
+1. `docs/schema/schema.md`를 Read 한다 (모든 위키 작업의 단일 기준).
+2. 최근 이력을 확인한다: `grep "^## \[" wiki/log/*.md | tail -5`.
 3. 후속 요청이면("아까 이어서", "다시") 직전 log 항목이 어떤 작업이었는지 파악해 이어붙인다.
 
 ### Phase 1: 작업 분류 (라우팅)
@@ -57,7 +57,7 @@ wiki_pipeline 지식 위키(Karpathy LLM Wiki)의 작업을 분류해 전문 에
 
 - 단일 작업: 해당 에이전트 1회 호출 (`run_in_background: false`, 결과를 사용자에게 요약).
 - 연쇄 작업(예: 반영 후 점검): 앞 에이전트 완료 후 그 결과를 다음 에이전트 프롬프트에 요약해 전달하고 순차 호출.
-- 호출 프롬프트에는 반드시 포함: (a) 사용자의 원 요청, (b) "schema.md를 먼저 읽고 해당 스킬을 Skill 도구로 실행하라", (c) 후속이면 직전 작업 맥락.
+- 호출 프롬프트에는 반드시 포함: (a) 사용자의 원 요청, (b) "docs/schema/schema.md를 먼저 읽고 해당 스킬을 Skill 도구로 실행하라", (c) 후속이면 직전 작업 맥락.
 
 예시 (반영 + 점검 연쇄):
 ```
@@ -70,7 +70,7 @@ Agent(subagent_type="wiki-linter", model="opus",
 
 ### Phase 3: 종합
 1. 각 에이전트 반환값을 수집한다.
-2. 무엇이 생성/갱신/수정됐는지, `log.md`에 어떤 항목이 남았는지 한 줄로 요약해 사용자에게 보고한다.
+2. 무엇이 생성/갱신/수정됐는지, `wiki/log/<오늘>.md`에 어떤 항목이 남았는지 한 줄로 요약해 사용자에게 보고한다.
 3. 연쇄에서 뒷 단계가 앞 단계의 결함을 발견하면 그 사실을 명시한다 (숨기지 않는다).
 
 ## 데이터 전달 프로토콜
@@ -78,7 +78,7 @@ Agent(subagent_type="wiki-linter", model="opus",
 | 전략 | 방식 | 용도 |
 |------|------|------|
 | 반환값 기반 | `Agent` 반환 메시지 | 에이전트 결과를 라우터가 수집 |
-| 파일 기반 | wiki/·raw/·log.md (저장소 자체) | 실제 지식 산출물·감사 추적 |
+| 파일 기반 | wiki/(지식·log/)·raw/ (저장소 자체) | 실제 지식 산출물·감사 추적 |
 
 중간 산출물 폴더(`_workspace/`)를 만들지 않는다 — 위키 저장소가 곧 산출물이다.
 
@@ -100,7 +100,7 @@ Agent(subagent_type="wiki-linter", model="opus",
 3. Phase 1: ingest + lint로 분류 (순서: ingest → lint)
 4. Phase 2: wiki-ingestor 호출 → 완료 후 wiki-linter 호출 (앞 결과 전달)
 5. Phase 3: 생성/갱신 페이지 + lint clean 여부 요약 보고
-6. 예상 결과: raw/ 1건 + wiki/ 페이지 갱신 + log.md에 ingest·lint 2항목
+6. 예상 결과: raw/ 1건 + wiki/ 페이지 갱신 + `wiki/log/<오늘>.md`에 ingest·lint 2항목
 
 ### 에러 흐름
 1. 사용자: "위키 손봐줘" (의도 모호)
