@@ -14,7 +14,7 @@ python-dotenv>=1.0                 # .env 로드
 tenacity>=8.0                      # 재시도 (retry.py)
 
 # ── Control Plane (Phase 2 — decision-control-plane-fastapi) ──
-fastapi>=0.115                     # 관리 서버 API
+fastapi>=0.139.0                     # 관리 서버 API
 uvicorn>=0.30                      # ASGI 서버
 sqlalchemy>=2.0                    # DB source of truth (decision-db-source-of-truth)
 psycopg[binary]>=3.2              # PostgreSQL 드라이버 (운영 — CONTROL_DB_URL=postgresql+psycopg://...)
