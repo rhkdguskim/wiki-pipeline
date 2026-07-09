@@ -1,11 +1,12 @@
 import {useState} from 'react';
-import {ArrowLeft, GitBranch, History, Play, ShieldCheck, Monitor} from 'lucide-react';
+import {ArrowLeft, GitBranch, History, ShieldCheck, Monitor, Play} from 'lucide-react';
 import {SourceEditor} from '../components/SourceEditor.jsx';
 import {SourceRunHistory} from '../components/SourceRunHistory.jsx';
 import {SourceSchedulesPanel} from '../components/SourceSchedulesPanel.jsx';
 import {ManualProfilePanel} from '../components/ManualProfilePanel.jsx';
 import {ScenarioEditor} from '../components/ScenarioEditor.jsx';
 import {ArtifactSelectorPanel} from '../components/ArtifactSelectorPanel.jsx';
+import {TriggerDialog} from '../components/TriggerDialog.jsx';
 import {EmptyState} from '../components/EmptyState.jsx';
 import {PageHeader} from '../components/PageHeader.jsx';
 import {formatSchedule} from '../lib/schedule.js';
@@ -28,6 +29,7 @@ export function SourceDetailPage({
 }) {
   const [editing, setEditing] = useState(false);
   const [detailTab, setDetailTab] = useState('overview');
+  const [triggerOpen, setTriggerOpen] = useState(false);
   if (!source) return <EmptyState title="소스를 찾을 수 없습니다" actionLabel="목록으로" onAction={onBack} />;
 
   return <div>
@@ -37,7 +39,9 @@ export function SourceDetailPage({
       actions={<>
         <button className="iconTextBtn" onClick={onBack}><ArrowLeft size={15} />목록</button>
         <button type="button" className="iconTextBtn" onClick={() => onVerify(source.id)}><ShieldCheck size={15} />검증</button>
-        <button type="button" className="iconTextBtn" disabled={!source.enabled} onClick={() => onTrigger(source.id)} title={source.enabled ? undefined : source.disabled_reason}><Play size={15} />실행</button>
+        <button type="button" className="iconTextBtn" disabled={!source.enabled} onClick={() => setTriggerOpen(true)} title={source.enabled ? '파이프라인 실행 wizard 열기' : source.disabled_reason}>
+          <Play size={15} />실행
+        </button>
         <button type="button" className="primaryBtn" onClick={() => setEditing(e => !e)}>{editing ? '수정 닫기' : '수정'}</button>
       </>}
     />
@@ -105,11 +109,21 @@ export function SourceDetailPage({
       <div className="panelHead"><h2>에이전트 run 히스토리</h2></div>
       {runs.length
         ? <SourceRunHistory rows={runs} onSelect={onSelectRun} />
-        : <EmptyState icon={History} title="이 소스의 run 이력이 없습니다" description="지금 실행하면 여기에 시간순으로 기록됩니다" actionLabel="이 소스로 첫 실행" onAction={() => onTrigger(source.id)} />}
+        : <EmptyState icon={History} title="이 소스의 run 이력이 없습니다" description="실행 wizard 에서 파이프라인 종류와 옵션을 정한 뒤 기록됩니다" actionLabel="이 소스로 첫 실행" onAction={() => setTriggerOpen(true)} />}
     </section>
     </>}
 
     {detailTab === 'manual' && <ManualAutomationSection source={source} />}
+
+    <TriggerDialog
+      open={triggerOpen}
+      source={source}
+      onClose={() => setTriggerOpen(false)}
+      onSubmit={async (sourceId, opts) => {
+        await onTrigger(sourceId, opts);
+        setTriggerOpen(false);
+      }}
+    />
   </div>;
 }
 
@@ -135,7 +149,7 @@ function ManualAutomationSection({source, artifactPreflight, setArtifactPrefligh
         sourceId={source.id}
         profile={profileQ.data}
         onSave={(payload) => saveMut.mutate({sourceId: source.id, payload})}
-        onPreflight={() => preflightMut.mutate({sourceId: source.id})}
+        onPreflight={() => preflightMut.mutate(source.id)}
         preflightResult={preflightMut.data}
         busy={saveMut.isPending || preflightMut.isPending}
       />
@@ -144,7 +158,7 @@ function ManualAutomationSection({source, artifactPreflight, setArtifactPrefligh
     <section className="panel" style={{marginTop: 12}}>
       <div className="panelHead"><h2>시나리오 세트</h2></div>
       <ScenarioEditor
-        scenarios={scenariosQ.data || []}
+        scenarios={scenariosQ.data?.scenarios || []}
         onCreate={(payload) => createScenarioMut.mutate({sourceId: source.id, payload})}
         onUpdate={(setId, payload) => updateScenarioMut.mutate({sourceId: source.id, scenarioId: setId, payload})}
         onActivate={(setId) => activateScenarioMut.mutate({sourceId: source.id, scenarioId: setId})}

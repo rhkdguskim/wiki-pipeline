@@ -443,9 +443,11 @@ def test_webhook_events_caps_array_size(client, monkeypatch):
     assert resp.status_code == 413
 
 
-def test_complete_run_sha_does_not_regress(client, monkeypatch):
-    """이미 sha=B로 전진한 상태에서 sha=A (더 오래된) 보고가 와도 되돌리지 않는다
-    (concept-idempotent-sha: sha는 단조 증가)."""
+def test_complete_run_advances_opaque_sha_when_snapshot_matches(client, monkeypatch):
+    """Git SHA는 정렬 가능한 값이 아니므로 문자열 크기로 regress를 판단하지 않는다.
+
+    source pointer가 run 시작 시점 snapshot과 같으면 complete 보고의 SHA로 전진한다.
+    """
     _create_source(client, monkeypatch)
     run_id = client.post("/api/runs/trigger", headers=ADMIN,
                          json={"source_id": "demo", "launch": False}).json()["run_id"]
@@ -457,17 +459,16 @@ def test_complete_run_sha_does_not_regress(client, monkeypatch):
     src = client.get("/api/sources", headers=ADMIN).json()[0]
     assert src["last_processed_sha"] == "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
 
-    # 두 번째 run 생성 후 더 오래된 sha 보고 — 전진 안 함
+    # 두 번째 run 생성 후 lexicographically 작은 sha 보고 — CAS snapshot이 맞으면 전진.
     run_id2 = client.post("/api/runs/trigger", headers=ADMIN,
                           json={"source_id": "demo", "launch": False}).json()["run_id"]
     resp = client.post("/api/webhook/complete", headers=RUNNER, json={
         "run_id": run_id2, "status": "done",
         "last_processed_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     })
-    assert resp.json()["sha_advanced"] is False
+    assert resp.json()["sha_advanced"] is True
     src = client.get("/api/sources", headers=ADMIN).json()[0]
-    assert src["last_processed_sha"] == "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", \
-        "더 오래된 sha가 최신 sha를 덮어썼다"
+    assert src["last_processed_sha"] == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 
 def test_complete_run_terminal_guard_idempotent(client, monkeypatch):
@@ -571,6 +572,27 @@ def test_set_llm_does_not_leak_payload_as_env_default(client, monkeypatch):
     # (과거에는 payload 기반 dict라 180이 되었다)
     assert data["timeout_sec"] == 240.0, \
         f"expected 240.0 from env, got {data['timeout_sec']} — env_dict가 payload 기반"
+
+
+def test_llm_settings_are_injected_into_next_runner_env(client, monkeypatch):
+    """LLM settings 저장 후 서비스 재기동 없이 다음 Data Plane run env에 반영된다."""
+    monkeypatch.setenv("LLM_API_KEY", "env-key")
+    monkeypatch.setenv("LLM_MODEL", "env-model")
+
+    resp = client.patch("/api/settings/llm", headers=ADMIN, json={
+        "api_key": "db-key",
+        "model": "db-model",
+        "timeout_sec": 77,
+    })
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["has_key"] is True
+    assert "db-key" not in resp.text
+
+    runtime_env = client.app.state.run_service._effective_llm_env()
+    assert runtime_env["LLM_API_KEY"] == "db-key"
+    assert runtime_env["LLM_MODEL"] == "db-model"
+    assert runtime_env["LLM_TIMEOUT"] == "77.0"
 
 
 # ── regression: 신규 개선점 회귀 방지 ───────────────────────────────

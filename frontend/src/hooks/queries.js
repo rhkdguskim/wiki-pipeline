@@ -128,7 +128,7 @@ export function useAuditRecentQuery(params = {}) {
   });
 }
 
-// LLM 런타임 설정 (읽기 전용 — .env 기반, 갱신은 재기동 필요).
+// LLM 런타임 설정 — DB 저장값은 다음 Data Plane run부터 runner env로 주입된다.
 export function useLlmSettingsQuery() {
   return useQuery({queryKey: ['llm-settings'], queryFn: getLlmSettings, staleTime: 60000});
 }
@@ -259,10 +259,12 @@ export function useSaveDocTargetMutation() {
 export function useTriggerRunMutation() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({sourceId, mode}) => triggerRun(sourceId, mode),
+    mutationFn: ({sourceId, mode, pipeline_id, branch_role, launch}) =>
+      triggerRun(sourceId, {mode, pipeline_id, branch_role, launch}),
     onSuccess: () => {
       qc.invalidateQueries({queryKey: ['runs']});
       qc.invalidateQueries({queryKey: ['dbRuns']});
+      qc.invalidateQueries({queryKey: ['pipelineStatus']});
     },
   });
 }

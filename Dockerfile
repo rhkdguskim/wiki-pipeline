@@ -81,9 +81,13 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 # 비루트 실행 + JSON 로그 (운영용).
 ENV CONTROL_HOST=0.0.0.0 \
     CONTROL_PORT=8420 \
+    OUT_DIR=/app/out \
     LOG_FORMAT=json
 
-USER wpipe
+# Named volumes created before this fix can be root-owned. Start as root only
+# long enough for docker_entrypoint to repair /app/out and /app/db, then drop
+# to the unprivileged wpipe user before uvicorn starts.
+RUN mkdir -p /app/out /app/db && chown -R wpipe:wpipe /app/out /app/db
 
 # Control Plane 기동 — uvicorn 은 lifespan shutdown 으로 graceful 처리.
-ENTRYPOINT ["python", "-m", "backend.controlplane.app"]
+ENTRYPOINT ["python", "-m", "backend.controlplane.docker_entrypoint"]

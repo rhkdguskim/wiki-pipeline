@@ -157,6 +157,8 @@ def test_seq_replay_api(client):
     assert data["latest_seq"] >= 2
     assert data["run_id"] == run_id
     assert isinstance(data["events"], list)
+    assert data["events"][0]["event_id"] == "evt-B"
+    assert data["events"][0]["seq"] == 2
 
 
 def test_heartbeat_webhook(client):

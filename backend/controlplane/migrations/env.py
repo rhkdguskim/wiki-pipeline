@@ -24,9 +24,9 @@ from sqlalchemy import engine_from_config, pool
 # backend  path   Base.metadata  import .
 import sys
 from pathlib import Path
-_BACKEND_DIR = Path(__file__).resolve().parents[2]
-if str(_BACKEND_DIR) not in sys.path:
-    sys.path.insert(0, str(_BACKEND_DIR))
+_REPO_DIR = Path(__file__).resolve().parents[3]
+if str(_REPO_DIR) not in sys.path:
+    sys.path.insert(0, str(_REPO_DIR))
 
 from backend.controlplane.models import Base  # noqa: E402
 

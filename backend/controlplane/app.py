@@ -198,10 +198,14 @@ def create_app(settings: ControlPlaneSettings | None = None, *,
     box = SecretBox(settings.control_secret_key)
     notifier = Notifier(settings)
     broadcaster = Broadcaster()
-    run_service = RunService(settings, notifier, broadcaster)
-    tag_poller = TagPoller(settings, session_factory, run_service, notifier)
     audit_service = AuditService(session_factory)
     settings_service = SettingsService(session_factory)
+    run_service = RunService(
+        settings, notifier, broadcaster,
+        session_factory=session_factory,
+        settings_service=settings_service,
+    )
+    tag_poller = TagPoller(settings, session_factory, run_service, notifier)
     vnc_gateway = VncGateway(
         secret_key=settings.control_secret_key,
         audit_service=audit_service,

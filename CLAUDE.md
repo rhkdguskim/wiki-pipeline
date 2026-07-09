@@ -9,6 +9,7 @@
 
 위키 관련 작업(지식 추가/조회/점검)을 하기 전에 **반드시 `schema.md`를 읽고 그 워크플로우(ingest/query/lint)를 따른다.**
 raw/는 불변이며, wiki/ 갱신 시 폴더 인덱스(`wiki/<type>/<type>-index.md`)·log.md를 함께 갱신한다(인덱스는 허브 `wiki/index.md` + 폴더별 2계층).
+새 페이지는 `docs/templates/<type>.md`를 복사해 시작하고, lint 시 `python docs/validate_frontmatter.py`로 frontmatter 정합성을 먼저 자동 검증한다(종료코드 0=통과).
 
 ## 하네스: 지식 위키 유지
 

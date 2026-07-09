@@ -106,14 +106,30 @@ class PipelineStatusEntry(_Base):
     last_status: str = ""
     last_run_at: str = ""
     last_error: str = ""
+    last_error_kind: str = ""
     last_mr_url: str = ""
     last_doc_count: int = 0
+    last_branch_role: str = ""
+    last_trigger: str = ""
+    last_quality_status: str = "not_evaluated"
+    last_quality_score: Optional[float] = None
+    last_publishable: bool = False
+    last_publish_state: str = "unknown"
+    last_coverage_percentage: Optional[float] = None
+    last_coverage_threshold: Optional[float] = None
     success_window: int = 0
     failed_window: int = 0
     running: int = 0
+    done_with_warnings_window: int = 0
+    failed_quality_gate_window: int = 0
     total_tokens_window: int = 0
     mean_duration_sec: Optional[float] = None
     enabled_schedule: bool = False
+    # schedule_id 는 backend 가 int 로 설정 → str 검증 시 충돌. 프런트가
+    # 사용하지 않으므로 스키마에서 제외하여 extra="ignore" 로 무시되게 한다.
+    schedule_label: str = ""
+    schedule_cron: str = ""
+    schedule_branch_role: str = ""
 
 
 class PipelineStatusResponse(_Base):

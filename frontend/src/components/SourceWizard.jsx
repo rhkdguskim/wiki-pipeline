@@ -1,6 +1,7 @@
-import {useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, GitBranch, Play, Plus, Server, ShieldCheck, X, XCircle} from 'lucide-react';
 import {useInstancesQuery, usePreflightSourceMutation, useSaveSourceMutation} from '../hooks/queries.js';
+import {TriggerDialog} from './TriggerDialog.jsx';
 import {buildCron, formatSchedule, WEEKDAYS} from '../lib/schedule.js';
 
 const THEME_OPTIONS = ['intro', 'requirements', 'architecture-overview', 'component-diagram', 'dev-guide', 'api-protocol'];
@@ -29,6 +30,7 @@ export function SourceWizard({onClose, onCreated, onTriggerSuggested}) {
   const [form, setForm] = useState(emptyWizard);
   const [preflightResult, setPreflightResult] = useState(null);
   const [saveMessage, setSaveMessage] = useState('');
+  const [triggerOpen, setTriggerOpen] = useState(false);
 
   const {data: instances = []} = useInstancesQuery();
   const preflightMutation = usePreflightSourceMutation();
@@ -37,6 +39,35 @@ export function SourceWizard({onClose, onCreated, onTriggerSuggested}) {
   const set = (key, value) => setForm(f => ({...f, [key]: value}));
   const isGithub = form.kind === 'github';
   const matchingInstances = useMemo(() => instances.filter(i => i.kind === form.kind), [instances, form.kind]);
+
+  // ESC 키로 닫기 (a11y). 저장 비활성 중일 때만.
+  const submitInFlight = saveMutation.isPending || preflightMutation.isPending;
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === 'Escape' && !submitInFlight) {
+        e.preventDefault();
+        onClose?.();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [submitInFlight, onClose]);
+
+  // 모달 안의 첫 interactive 로 자동 focus — 단계가 바뀔 때마다 따라감 (a11y).
+  const dialogRef = useRef(null);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      const root = dialogRef.current;
+      if (!root) return;
+      const focusable = root.querySelector(
+        'input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])'
+      );
+      if (focusable) {
+        try { focusable.focus({preventScroll: true}); } catch { focusable.focus(); }
+      }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [step]);
 
   const canGoNext = () => {
     if (step === 1) return form.instanceMode === 'existing' ? !!form.instanceId : true;
@@ -121,8 +152,8 @@ export function SourceWizard({onClose, onCreated, onTriggerSuggested}) {
   };
 
   return (
-    <div className="wizardOverlay" onClick={onClose}>
-      <div className="wizardModal" onClick={e => e.stopPropagation()}>
+    <div className="wizardOverlay" role="dialog" aria-modal="true" aria-label="소스 추가 wizard" onClick={onClose}>
+      <div className="wizardModal" ref={dialogRef} onClick={e => e.stopPropagation()}>
         <div className="wizardHead">
           <h2>소스 추가</h2>
           <button className="iconBtn" onClick={onClose} title="닫기"><X size={16} /></button>
@@ -245,10 +276,30 @@ export function SourceWizard({onClose, onCreated, onTriggerSuggested}) {
             ? <button type="button" className="primaryBtn" disabled={!canGoNext() || preflightMutation.isPending} onClick={next}>다음<ChevronRight size={15} /></button>
             : <button type="button" className="primaryBtn" disabled={saveMutation.isPending || !!saveMutation.data} onClick={save}><Plus size={15} />소스 저장</button>}
           {saveMutation.data && (
-            <button type="button" className="iconTextBtn" onClick={() => { onTriggerSuggested?.(saveMutation.data.id); onClose(); }}><Play size={15} />지금 실행</button>
+            <button type="button" className="primaryBtn" onClick={() => { setTriggerOpen(true); }}><Play size={15} />지금 실행</button>
           )}
         </div>
       </div>
+
+      {saveMutation.data && (() => {
+        const created = saveMutation.data;
+        const wizardSource = {
+          id: created.id,
+          label: created.label || form.label || created.id,
+          enabled: true,
+          schedules: [],
+        };
+        return <TriggerDialog
+          open={triggerOpen}
+          source={wizardSource}
+          onClose={() => setTriggerOpen(false)}
+          onSubmit={async (sourceId, opts) => {
+            await onTriggerSuggested?.(sourceId, opts);
+            setTriggerOpen(false);
+            onClose();
+          }}
+        />;
+      })()}
     </div>
   );
 }

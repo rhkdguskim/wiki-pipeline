@@ -92,8 +92,26 @@ export const getRuns = () => api('/api/runs').then(asJson);
 export const getDbRuns = (limit = 100, sourceId = '') =>
   api(`/api/runs/db?limit=${limit}${sourceId ? `&source=${encodeURIComponent(sourceId)}` : ''}`).then(asJson);
 
-export const triggerRun = (sourceId, mode = 'auto') =>
-  api('/api/runs/trigger', jsonBody({source_id: sourceId, mode}, 'POST')).then(asJson);
+/**
+ * Trigger a pipeline run.
+ *
+ * @param {string} sourceId
+ * @param {object} [opts]
+ * @param {'auto'|'init'|'diff'} [opts.mode='auto']    — 정적 파이프라인만 의미 있음 (매뉴얼은 backend 가 auto 만 허용).
+ * @param {'static'|'manual'}   [opts.pipeline_id='static']
+ * @param {'dev'|'release'}     [opts.branch_role='dev']
+ * @param {boolean}             [opts.launch=true]
+ */
+export const triggerRun = (sourceId, opts = {}) => {
+  const body = {
+    source_id: sourceId,
+    mode: opts.mode || 'auto',
+    pipeline_id: opts.pipeline_id || 'static',
+    branch_role: opts.branch_role || 'dev',
+    launch: opts.launch !== false,
+  };
+  return api('/api/runs/trigger', jsonBody(body, 'POST')).then(asJson);
+};
 
 export const getRunSummary = runId => api(`/api/run-summary?run=${encodeURIComponent(runId)}`).then(asJson);
 

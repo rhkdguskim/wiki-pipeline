@@ -1,0 +1,11 @@
+{
+  "defaultViewMode": "preview",
+  "strictLineBreaks": false,
+  "showIndentGuide": true,
+  "rightToLeft": false,
+  "autoPairMarkdown": true,
+  "autoPairBrackets": true,
+  "smartIndentList": true,
+  "tabSize": 4,
+  "vimMode": false
+}

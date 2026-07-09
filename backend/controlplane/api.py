@@ -234,8 +234,8 @@ def update_llm_settings(request: Request, payload: dict = Body(...),
                         db=Depends(_db)) -> dict:
     """LLM settings 갱신 — DB 에 저장. 빈 문자열 / null 은 해당 키 삭제(env 복귀).
 
-    ⚠ 런타임 provider 는 import 시점에 settings.llm_* 를 캡처한다. 변경 후
-    Data Plane 러너를 재기동해야 적용된다 (Control Plane 재기동으로는 부족).
+    새로 시작되는 Data Plane run 은 RunService.launch_runner() 가 DB effective
+    settings 를 subprocess 환경변수로 주입하므로 서비스 재기동 없이 적용된다.
     """
     svc = request.app.state.settings_service
     # _resolve_actor 로 토큰 평문이 audit detail 에 남는 것을 방지.
@@ -252,7 +252,7 @@ def reset_llm_settings(request: Request, db=Depends(_db)) -> dict:
 
     부분 삭제(특정 키만) 도 같은 효과지만, 보통 일괄 reset 이 운영 의도다.
     """
-    from ..models import SystemSetting
+    from .models import SystemSetting
     from sqlalchemy import delete
     db.execute(delete(SystemSetting).where(SystemSetting.key.like("llm.%")))
     db.commit()
@@ -494,6 +494,20 @@ def _augment_summary(base: dict, db, run_id: str) -> dict:
     artifact_view = resources.get_artifact_view(db, run_id)
     vnc_view = resources.get_vnc_view(db, run_id)
     evidence_view = resources.get_evidence_pack(db, run_id, limit=1) or {}
+    # RunDocOutput 테이블에서 실제 생성된 문서 목록 조회 — projection 이
+    # detail.saved/file 에서 추출하지 못한 경우(이벤트에 saved 필드가 없는 경우)의
+    # fallback 겸 정확한 문서 목록 source.
+    try:
+        doc_outputs = resources.get_doc_outputs(db, run_id)
+    except Exception:
+        doc_outputs = []
+    if doc_outputs:
+        base["generated"] = [{
+            "path": d["path"],
+            "theme": d.get("theme", ""),
+            "warned": d.get("warning_count", 0) > 0,
+            "verdict": d.get("quality_status", ""),
+        } for d in doc_outputs]
     quality_status = str(run_row.quality_status or quality_view.get("status")
                          or "not_evaluated")
     publish_state = str(run_row.publish_state or "unknown")
@@ -561,12 +575,13 @@ def _augment_summary(base: dict, db, run_id: str) -> dict:
             "view_only": bool(vnc_view.get("view_only", True)),
             "expires_at": vnc_view.get("expires_at", ""),
         },
-        "mr": _mr_readiness_view(run_row, quality, coverage_view),
+        "mr": _mr_readiness_view(run_row, quality, coverage_view, doc_outputs),
     })
     return base
 
 
-def _mr_readiness_view(run_row, quality: dict, coverage: dict) -> dict:
+def _mr_readiness_view(run_row, quality: dict, coverage: dict,
+                       doc_outputs: list[dict] | None = None) -> dict:
     """MR readiness — quality/coverage 기반으로 publishable 가능 여부 도출."""
     if not run_row.mr_url:
         readiness = "not_created"
@@ -587,11 +602,20 @@ def _mr_readiness_view(run_row, quality: dict, coverage: dict) -> dict:
             blocked_reason = quality["failed_gate"]
         elif coverage.get("status") == "fail":
             blocked_reason = "coverage below threshold"
+    # included/excluded 카운트를 RunDocOutput 에서 정확히 계산 —
+    # run_row.doc_count 는 러너가 보고한 값으로 0인 경우가 많다.
+    if doc_outputs is not None:
+        included = sum(1 for d in doc_outputs
+                       if str(d.get("quality_status", "")) != "fail")
+        excluded = len(doc_outputs) - included
+    else:
+        included = int(run_row.doc_count or 0)
+        excluded = 0
     return {
         "readiness": readiness,
         "blocked_reason": blocked_reason,
-        "included_files": int(run_row.doc_count or 0),
-        "excluded_files": 0,
+        "included_files": included,
+        "excluded_files": excluded,
     }
 
 

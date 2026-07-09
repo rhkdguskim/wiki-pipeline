@@ -1,7 +1,7 @@
 import {useEffect, useRef, useState} from 'react';
 import {useQueryClient} from '@tanstack/react-query';
 import {getEvents, getRunEventsSeq, getRunSummary} from '../api/client.js';
-import {emptyState, ingest, mergeRunState, stateFromRunSummary} from '../lib/ingest.js';
+import {emptyState, ingest, mergeRunState} from '../lib/ingest.js';
 import {onLiveMessage} from '../lib/liveBus.js';
 import {useLiveSocketStore} from '../store/liveSocket.js';
 
@@ -20,6 +20,7 @@ export function useRunStream(runId) {
   const [lastAge, setLastAge] = useState(0);
   const [S, setS] = useState(emptyState);
   const [runSummary, setRunSummary] = useState(null);
+  const [summaryRefresh, setSummaryRefresh] = useState(0);
 
   const pollingRef = useRef(false);
   const forcePollRef = useRef(false);
@@ -48,10 +49,10 @@ export function useRunStream(runId) {
         const data = await getRunSummary(runId);
         if (cancelled) return;
         setRunSummary(data);
-        setS((prev) => {
-          const snapshot = stateFromRunSummary(data);
-          return mergeRunState(prev, snapshot);
-        });
+        // mergeRunState가 내부적으로 stateFromRunSummary를 호출하므로
+        // 원본 summary(data)를 직접 전달 — 처리된 state를 넘기면
+        // stages가 Map이 되어 stateFromRunSummary에서 .map() 크래시.
+        setS((prev) => mergeRunState(prev, data));
         const last = Date.parse(data.last_event_at || '');
         setLastAge(Number.isFinite(last) ? Math.max(0, Math.floor((Date.now() - last) / 1000)) : 0);
       } catch {
@@ -60,21 +61,29 @@ export function useRunStream(runId) {
     fetchSummary();
     const id = setInterval(fetchSummary, wsConnected ? SUMMARY_MS_LIVE : SUMMARY_MS_FALLBACK);
     return () => { cancelled = true; clearInterval(id); };
-  }, [runId, wsConnected]);
+  }, [runId, wsConnected, summaryRefresh]);
 
   useEffect(() => {
     if (!runId) return;
     const unsubscribe = onLiveMessage((msg) => {
       if (msg.type === 'overflow') {
         forcePollRef.current = true;
+        setSummaryRefresh((n) => n + 1);
         qc.invalidateQueries({queryKey: ['runSummary', runId]});
         return;
       }
       if (msg.type === 'run_status' && msg.run_id === runId) {
+        setSummaryRefresh((n) => n + 1);
         qc.invalidateQueries({queryKey: ['runSummary', runId]});
         qc.invalidateQueries({queryKey: ['runQuality', runId]});
         qc.invalidateQueries({queryKey: ['mrPlan', runId]});
         return;
+      }
+      if ([
+        'quality_updated', 'evidence_updated', 'coverage_updated',
+        'artifact_updated', 'vnc_session_updated', 'mr_plan_updated',
+      ].includes(msg.type) && msg.run_id === runId) {
+        setSummaryRefresh((n) => n + 1);
       }
       if (msg.type === 'events' && msg.run_id === runId) {
         if (!msg.events?.length) return;

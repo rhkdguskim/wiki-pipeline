@@ -15,6 +15,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision: str = "0004_pipeline_quality_evidence"
@@ -26,7 +27,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     bind = op.get_bind()
     is_sqlite = bind.dialect.name == "sqlite"
-    json_type = sa.JSON() if is_sqlite else sa.dialects.postgresql.JSONB()
+    json_type = sa.JSON() if is_sqlite else postgresql.JSONB()
 
     # --- runs extension ---
     op.add_column("runs", sa.Column("attempt", sa.Integer(), nullable=True, server_default="1"))

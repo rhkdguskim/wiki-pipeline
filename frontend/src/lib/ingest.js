@@ -75,7 +75,12 @@ export function stateFromRunSummary(summary) {
   const next = emptyState();
   if (!summary) return next;
 
-  const stageRows = summary.stages || [];
+  // stages는 백엔드에서 배열로 오지만, 호출부에서 이미 처리된 state를
+  // 실수로 넘기면 Map이 올 수 있다. 방어적으로 배열만 추출.
+  const rawStages = summary.stages;
+  const stageRows = Array.isArray(rawStages)
+    ? rawStages
+    : (rawStages instanceof Map ? [...rawStages.values()] : []);
   const firstStageTs = stageRows
     .map(s => Date.parse(s.first_ts || ''))
     .filter(Number.isFinite)

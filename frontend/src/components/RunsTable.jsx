@@ -1,5 +1,5 @@
-import {Play} from 'lucide-react';
 import {fmtNum} from '../lib/format.js';
+import {TriggerButton} from './TriggerButton.jsx';
 
 export function RunsTable({rows, onSelect, onTrigger, sources, hideSource = false}) {
   const colSpan = hideSource ? 9 : 10;
@@ -26,9 +26,14 @@ export function RunsTable({rows, onSelect, onTrigger, sources, hideSource = fals
       </tbody>
     </table>
     {!!sources?.length && <div className="panelActions triggerRow">
-      {sources.map(s => <button key={s.id} className="iconTextBtn" disabled={!s.enabled} onClick={() => onTrigger(s.id)} title={s.enabled ? `${s.label} 배치 실행` : s.disabled_reason || '비활성 소스'}>
-        <Play size={14} />{s.label} 실행
-      </button>)}
+      {sources.map(s => <TriggerButton
+        key={s.id}
+        source={s}
+        onTrigger={onTrigger}
+        disabled={!s.enabled}
+        size="sm"
+        label={`${s.label} 실행`}
+      />)}
     </div>}
   </div>;
 }

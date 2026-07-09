@@ -24,7 +24,7 @@ export function DocsHubPanel({target, onChange, onSave, busy, message, embedded}
       <label>프로젝트 경로<input value={fieldValue(form, 'project_path')} onChange={e => set('project_path', e.target.value)} /></label>
       <label>default 브랜치<input value={fieldValue(form, 'default_branch') || 'master'} onChange={e => set('default_branch', e.target.value)} /></label>
       <label>토큰 헤더<input value={fieldValue(form, 'token_header') || 'PRIVATE-TOKEN'} onChange={e => set('token_header', e.target.value)} /></label>
-      <label className="span2">MR 토큰<input value={fieldValue(form, 'token')} onChange={e => set('token', e.target.value)} type="password" placeholder="product-common MR 생성/브랜치 push용" /></label>
+      <label className="span2">MR 토큰<input value={fieldValue(form, 'token')} onChange={e => set('token', e.target.value)} type="password" autoComplete="off" spellCheck={false} aria-label="MR 토큰" placeholder="product-common MR 생성/브랜치 push용" /></label>
       <label className="checkRow"><input type="checkbox" checked={form.enabled === true} onChange={e => set('enabled', e.target.checked)} />MR 제출 활성</label>
     </div>
     {message && <p className="formMessage">{message}</p>}

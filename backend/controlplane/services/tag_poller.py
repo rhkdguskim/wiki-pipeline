@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -70,16 +71,15 @@ class TagPoller:
                         branch_role=target.branch.role, trigger="schedule",
                         pipeline_id="manual",
                     )
-                    self._mark_seen(db, target, new_tag, run.id)
-                    triggered += 1
+                    db.commit()
                     log.info("매뉴얼 run 트리거: source=%s tag=%s run=%s",
                              target.source.id, new_tag.name, run.id)
                 except ValueError as e:
                     log.warning("매뉴얼 run 생성 실패 source=%s tag=%s: %s",
                                 target.source.id, new_tag.name, e)
                     continue
-                # launch_runner 는 create_run commit 이후에 호출. launch 실패는
-                # bookmark 를 이미 advance 했더라도 last_launch_status 로 표시.
+                # launch_runner 는 create_run commit 이후에 호출한다. runner 가 즉시
+                # 별도 DB 세션으로 context 를 읽어도 방금 만든 run 이 보여야 한다.
                 try:
                     proc = self.run_service.launch_runner(run)
                     launch_ok = proc is not None
@@ -92,12 +92,14 @@ class TagPoller:
                     try:
                         run.status = "failed"
                         run.error = "runner launch failed"
-                        run.terminal_at = run.terminal_at or run.updated_at
+                        run.terminal_at = run.terminal_at or datetime.now(timezone.utc)
                         db.flush()
                     except Exception:  # noqa: BLE001
                         pass
                 else:
+                    self._mark_seen(db, target, new_tag, run.id)
                     self._mark_launch_status(db, target, "launched")
+                    triggered += 1
         return triggered
 
     def _collect_targets(self, db: Session) -> list[_PollTarget]:

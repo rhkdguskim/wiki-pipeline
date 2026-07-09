@@ -33,7 +33,7 @@ export function InstancesPanel({instances, form, onChange, onSave, onToggleEnabl
         <label>이름<input value={fieldValue(form, 'label')} onChange={e => set('label', e.target.value)} /></label>
         <label>{isGithub ? 'URL (비우면 github.com)' : 'Base URL'}<input value={fieldValue(form, 'base_url')} onChange={e => set('base_url', e.target.value)} placeholder={isGithub ? '' : 'https://gitlab.com'} /></label>
         <label>토큰 헤더<input value={fieldValue(form, 'token_header') || 'PRIVATE-TOKEN'} onChange={e => set('token_header', e.target.value)} /></label>
-        <label>토큰<input value={fieldValue(form, 'token')} onChange={e => set('token', e.target.value)} type="password" placeholder="인스턴스 공용 토큰" /></label>
+        <label>토큰<input value={fieldValue(form, 'token')} onChange={e => set('token', e.target.value)} type="password" autoComplete="off" spellCheck={false} aria-label="SCM 인스턴스 토큰" placeholder="인스턴스 공용 토큰" /></label>
       </div>
       <div className="panelActions">
         <button type="button" className="iconTextBtn" onClick={() => onChange(blankInstance)}><Plus size={15} />신규</button>

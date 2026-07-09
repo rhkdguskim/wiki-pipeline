@@ -53,13 +53,7 @@ class SettingsService:
         "llm.retry_attempts",
     ]
 
-    def get_llm_effective(self, db: Session, env: dict[str, str]) -> dict[str, Any]:
-        """DB 값이 있으면 우선, 없으면 env 의 기본값.
-
-        반환 키: provider, base_url, model, has_key, max_tokens,
-                 temperature, timeout_sec, retry_attempts, source.
-        `source` 는 "db" / "env" / "partial" — 어느 경로로 충족됐는지 운영 가시화.
-        """
+    def _merge_llm(self, db: Session, env: dict[str, str]) -> tuple[dict[str, Any], str]:
         env_defaults = {
             "provider": env.get("LLM_PROVIDER", "openai-compatible"),
             "base_url": env.get("LLM_BASE_URL", ""),
@@ -102,6 +96,16 @@ class SettingsService:
             source = "db"
         else:
             source = "partial"
+        return merged, source
+
+    def get_llm_effective(self, db: Session, env: dict[str, str]) -> dict[str, Any]:
+        """DB 값이 있으면 우선, 없으면 env 의 기본값.
+
+        반환 키: provider, base_url, model, has_key, max_tokens,
+                 temperature, timeout_sec, retry_attempts, source.
+        `source` 는 "db" / "env" / "partial" — 어느 경로로 충족됐는지 운영 가시화.
+        """
+        merged, source = self._merge_llm(db, env)
         return {
             "provider": merged["provider"],
             "base_url": merged["base_url"],
@@ -112,6 +116,24 @@ class SettingsService:
             "timeout_sec": merged["timeout_sec"],
             "retry_attempts": merged["retry_attempts"],
             "source": source,
+        }
+
+    def get_llm_runtime_env(self, db: Session, env: dict[str, str]) -> dict[str, str]:
+        """Data Plane runner env로 주입할 effective LLM 설정.
+
+        API 응답과 달리 api_key 실제 값을 포함한다. 호출자는 이 dict를 로그나
+        audit detail에 남기면 안 된다.
+        """
+        merged, _source = self._merge_llm(db, env)
+        return {
+            "LLM_PROVIDER": str(merged["provider"] or "openai-compatible"),
+            "LLM_BASE_URL": str(merged["base_url"] or ""),
+            "LLM_API_KEY": str(merged["api_key"] or ""),
+            "LLM_MODEL": str(merged["model"] or ""),
+            "LLM_MAX_TOKENS": str(int(merged["max_tokens"])),
+            "LLM_TEMPERATURE": str(float(merged["temperature"])),
+            "LLM_TIMEOUT": str(float(merged["timeout_sec"])),
+            "LLM_RETRY_ATTEMPTS": str(int(merged["retry_attempts"])),
         }
 
     def set_llm(self, db: Session, payload: dict[str, Any], *, actor: str = "") -> dict[str, Any]:

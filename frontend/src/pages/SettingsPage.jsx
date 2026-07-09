@@ -1,8 +1,9 @@
 import React, {useState} from 'react';
-import {AlertTriangle, CheckCircle2, KeyRound, Save, Server, Cpu, FileText, RotateCcw, Eye, EyeOff, Link2, Gauge, Plug2, Loader2} from 'lucide-react';
+import {AlertTriangle, CheckCircle2, KeyRound, Save, Server, Cpu, FileText, RotateCcw, Eye, EyeOff, Link2, Gauge, Plug2, Loader2, Radio} from 'lucide-react';
 import {PageHeader} from '../components/PageHeader.jsx';
 import {DocsHubPanel} from '../components/DocsHubPanel.jsx';
 import {InstancesPanel} from '../components/InstancesPanel.jsx';
+import {useUiStore} from '../store/ui.js';
 import {
   useLlmSettingsQuery,
   useUpdateLlmSettingsMutation,
@@ -28,6 +29,7 @@ export function SettingsPage({
 }) {
   const sections = [
     {id: 'auth', label: '인증', icon: KeyRound},
+    {id: 'runtime', label: '런타임', icon: Radio},
     {id: 'llm', label: 'LLM 런타임', icon: Cpu},
     {id: 'docs-hub', label: '문서 허브', icon: FileText},
     {id: 'instances', label: 'SCM 인스턴스', icon: Server},
@@ -54,6 +56,11 @@ export function SettingsPage({
         <section className="panel settingsPanel" id="auth">
           <div className="panelHead"><h2><KeyRound size={14} />인증</h2></div>
           <AuthSection onSaved={() => pushToast?.('API 토큰을 저장했습니다', 'success')} />
+        </section>
+
+        <section className="panel settingsPanel" id="runtime">
+          <div className="panelHead"><h2><Radio size={14} />런타임</h2></div>
+          <RuntimeSection />
         </section>
 
         <section className="panel settingsPanel" id="llm">
@@ -88,7 +95,7 @@ function AuthSection({onSaved}) {
     else localStorage.removeItem('cp_token');
     onSaved?.();
   };
-  return <div className="authSection">
+  return <form className="authSection" onSubmit={(e) => { e.preventDefault(); save(); }}>
     <div className="settingRow">
       <div className="settingRowCopy">
         <strong>Control Plane API 토큰</strong>
@@ -103,9 +110,35 @@ function AuthSection({onSaved}) {
         value={value}
         onChange={e => setValue(e.target.value)}
         placeholder="API 토큰 (비우면 dev 무인증)"
+        autoComplete="current-password"
+        autoCorrect="off"
+        spellCheck={false}
+        aria-label="Control Plane API 토큰"
       />
-      <button type="button" className="iconTextBtn" onClick={() => setRevealed(!revealed)}>{revealed ? '숨기기' : '표시'}</button>
-      <button type="button" className="primaryBtn" onClick={save}><Save size={15} />저장</button>
+      <button type="button" className="iconTextBtn" onClick={() => setRevealed(!revealed)} aria-label={revealed ? '토큰 가리기' : '토큰 표시'}>{revealed ? '숨기기' : '표시'}</button>
+      <button type="submit" className="primaryBtn" onClick={save}><Save size={15} />저장</button>
+    </div>
+  </form>;
+}
+
+function RuntimeSection() {
+  const wsVerbose = useUiStore(s => s.wsVerbose);
+  const setWsVerbose = useUiStore(s => s.setWsVerbose);
+
+  return <div className="runtimeSection">
+    <div className="settingRow">
+      <div className="settingRowCopy">
+        <strong>WebSocket verbose 이벤트</strong>
+        <p>실시간 모니터에서 <code className="mono">agent_step.thinking</code> 이벤트까지 수신합니다.</p>
+      </div>
+      <label className={`settingsToggle ${wsVerbose ? 'on' : ''}`} title="상세 디버깅이 필요할 때만 켜세요.">
+        <input
+          type="checkbox"
+          checked={wsVerbose}
+          onChange={e => setWsVerbose(e.target.checked)}
+        />
+        <span>{wsVerbose ? 'ON' : 'OFF'}</span>
+      </label>
     </div>
   </div>;
 }
@@ -203,7 +236,7 @@ function LlmSection({pushToast}) {
       }
       await updateMut.mutateAsync(payload);
       setDirty(false);
-      pushToast?.('LLM 설정을 저장했습니다. Data Plane 러너를 재기동하세요.', 'success');
+      pushToast?.('LLM 설정을 저장했습니다. 다음 run부터 런타임에 적용됩니다.', 'success');
     } catch (e) {
       pushToast?.(e.message || 'LLM 설정 저장 실패', 'error');
     }
@@ -240,7 +273,7 @@ function LlmSection({pushToast}) {
   const sourceLabel = {db: 'DB 저장값', env: '.env 기본값', partial: '혼합'}[data.source] || data.source;
   const sourcePillCls = data.source === 'db' ? 'done' : data.source === 'env' ? 'stalled' : 'warn';
 
-  return <div className="llmSection">
+  return <form className="llmSection" onSubmit={(e) => { e.preventDefault(); if (!dirty || updateBusy) return; save(); }}>
     <div className="llmStatusBar">
       <div>
         <span className="settingMetaLabel">현재 소스</span>
@@ -254,9 +287,9 @@ function LlmSection({pushToast}) {
         <span className="settingMetaLabel">API Key</span>
         <strong>{data.has_key ? '구성됨' : '미구성'}</strong>
       </div>
-      <div className="llmApplyNote">
-        <AlertTriangle size={13} />
-        <span>저장 후 Data Plane 러너 재기동 필요</span>
+      <div className="llmApplyNote ok">
+        <CheckCircle2 size={13} />
+        <span>다음 run부터 자동 적용</span>
       </div>
     </div>
 
@@ -292,6 +325,9 @@ function LlmSection({pushToast}) {
                         if (isNumber) setField(fk, v === '' ? '' : Number(v));
                         else setField(fk, v);
                       }}
+                      autoComplete={isPassword ? 'off' : undefined}
+                      spellCheck={isPassword ? false : undefined}
+                      aria-label={FIELD_LABEL[fk]}
                       placeholder={isPassword
                         ? (data.has_key
                             ? '저장된 키 (••••••••) — 바꾸려면 새 키 입력, 비우면 .env 로 복귀'
@@ -311,7 +347,7 @@ function LlmSection({pushToast}) {
     </div>
 
     <div className="llmActions">
-      <button type="button" className="primaryBtn" onClick={onSave} disabled={updateBusy || !dirty}>
+      <button type="submit" className="primaryBtn" onClick={onSave} disabled={updateBusy || !dirty}>
         <Save size={15} />{updateBusy ? '저장 중…' : '저장'}
       </button>
       <button type="button" className="iconTextBtn" onClick={onTest} disabled={testMut.isPending} title="현재 폼 값(저장 안 한 것 포함)으로 짧은 LLM 호출 — 연결·키·모델 확인">
@@ -346,5 +382,5 @@ function LlmSection({pushToast}) {
         )}
       </div>
     </div>}
-  </div>;
+  </form>;
 }

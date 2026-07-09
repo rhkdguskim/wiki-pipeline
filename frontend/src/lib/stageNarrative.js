@@ -41,7 +41,7 @@ const PREFIX_RULES = [
   [/^repo:(.+)$/, (_, name) => `'${name}' 문서를 작성하고 있어요`],
   [/^unit:(.+)$/, (_, name) => `'${name}' 코드를 요약하고 있어요`],
   [/^summary:(.+)$/, (_, name) => `'${name}' 코드를 요약하고 있어요`],
-  [/^map:(.+)$/, () => '코드를 읽고 요약하고 있어요'],
+  [/^map:(.+)$/, (_, name) => `'${lastSegment(name)}' 코드를 읽고 요약하고 있어요`],
 ];
 
 function lastSegment(name) {

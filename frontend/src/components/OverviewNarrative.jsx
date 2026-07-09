@@ -131,7 +131,13 @@ export function OverviewNarrative({S, live, state, stages, activeRun, runSummary
       {canSubmit && <button type="button" className="primaryBtn fullBtn" disabled={mrBusy} onClick={onSubmitMr}>
         <GitPullRequest size={15} />{publishState === 'review_required' ? '문서 MR로 제출 (검토 필요)' : '문서 MR로 제출하기'}
       </button>}
-      {publishState === 'blocked' && !mrUrl && <div className="emptyPanel"><AlertTriangle size={14} /> {runSummary?.blocked_reason || '품질 게이트 실패로 MR 제출이 차단됐습니다'}</div>}
+      {publishState === 'blocked' && !mrUrl && <div className="emptyPanel"><AlertTriangle size={14} /> {
+        // run이 품질 게이트 도달 전에 실패한 경우, 게이트 실패 메시지가 오해를 일으킨다.
+        // failed/timeout/cancelled 등 실행 자체가 중단된 경우를 구분해 표시.
+        ['failed', 'timeout', 'cancelled'].includes(state)
+          ? '실행 실패로 MR 제출이 불가능합니다'
+          : (runSummary?.blocked_reason || '품질 게이트 실패로 MR 제출이 차단됐습니다')
+      }</div>}
       {mrMessage && <p className="formMessage">{mrMessage}</p>}
     </section>
 

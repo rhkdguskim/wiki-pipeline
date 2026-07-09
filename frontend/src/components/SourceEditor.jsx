@@ -1,15 +1,18 @@
-import {Play, Save, ShieldCheck, XCircle} from 'lucide-react';
+import {Save, ShieldCheck, XCircle} from 'lucide-react';
 import {fieldValue} from '../lib/defaults.js';
+import {TriggerButton} from './TriggerButton.jsx';
 
 export function SourceEditor({form, onChange, onSave, onVerify, onTrigger, busy, message, verifyResult}) {
   const set = (key, value) => onChange({...form, [key]: value});
   const isGithub = (form.kind || 'gitlab') === 'github';
+  // form 으로 source-like 객체를 합성해서 trigger button 에 넘긴다.
+  const sourceLike = form.id ? {id: form.id, label: form.label || form.id, enabled: form.enabled !== false} : null;
   return <form className="editor" onSubmit={ev => { ev.preventDefault(); onSave(); }}>
     <div className="editorHead">
       <h2>소스 등록</h2>
       <div className="panelActions">
         <button type="button" className="iconTextBtn" disabled={busy || !form.id} onClick={onVerify} title="토큰·접근 검증 + 자동 조회 (compare dry-run)"><ShieldCheck size={15} />검증</button>
-        <button type="button" className="iconTextBtn" disabled={busy || !form.id} onClick={() => onTrigger(form.id)} title="지금 배치 실행 (auto: 포인터 없으면 init, 있으면 diff)"><Play size={15} />실행</button>
+        {sourceLike && <TriggerButton source={sourceLike} onTrigger={onTrigger} busy={busy} disabled={!form.enabled && form.enabled !== undefined} size="md" />}
         <button className="primaryBtn" disabled={busy}><Save size={15} />저장</button>
       </div>
     </div>
@@ -27,7 +30,7 @@ export function SourceEditor({form, onChange, onSave, onVerify, onTrigger, busy,
       <label className="span2">테마<input value={fieldValue(form, 'themes')} onChange={e => set('themes', e.target.value)} /></label>
       <label>담당자 이메일<input value={fieldValue(form, 'owner_email')} onChange={e => set('owner_email', e.target.value)} placeholder="실패 알림 수신자" /></label>
       <label>토큰 헤더<input value={fieldValue(form, 'token_header') || 'PRIVATE-TOKEN'} onChange={e => set('token_header', e.target.value)} /></label>
-      <label>토큰<input value={fieldValue(form, 'token')} onChange={e => set('token', e.target.value)} placeholder="저장 시에만 사용, 응답에는 표시 안 됨" type="password" /></label>
+      <label>토큰<input value={fieldValue(form, 'token')} onChange={e => set('token', e.target.value)} placeholder="저장 시에만 사용, 응답에는 표시 안 됨" type="password" autoComplete="off" spellCheck={false} aria-label="SCM 토큰" /></label>
       <label className="checkRow"><input type="checkbox" checked={form.enabled !== false} onChange={e => set('enabled', e.target.checked)} />활성 (배치 대상)</label>
     </div>
     {verifyResult && <div className={verifyResult.verified ? 'verifyBox ok' : 'verifyBox bad'}>

@@ -33,6 +33,7 @@ from ..models import (
 from ..settings import ControlPlaneSettings
 from ..timeutil import as_utc, isoformat_z
 from .notifier import Notifier
+from .settings import SettingsService
 
 log = logging.getLogger("controlplane.runs")
 
@@ -63,10 +64,13 @@ def _clear_session_publishes(session: Session) -> None:
 
 class RunService:
     def __init__(self, settings: ControlPlaneSettings, notifier: Notifier,
-                 broadcaster=None):
+                 broadcaster=None, session_factory=None,
+                 settings_service: SettingsService | None = None):
         self.settings = settings
         self.notifier = notifier
         self.broadcaster = broadcaster
+        self.session_factory = session_factory
+        self.settings_service = settings_service
 
     def _publish(self, message: dict, db: Session | None = None) -> None:
         """Publish a WS message — deferred until db commit if db is provided.
@@ -124,6 +128,27 @@ class RunService:
         self._publish({"type": "runs_changed", "run_id": run_id}, db)
         return run
 
+    def _effective_llm_env(self) -> dict[str, str]:
+        if self.session_factory is None or self.settings_service is None:
+            return {}
+        env = {
+            "LLM_PROVIDER": os.getenv("LLM_PROVIDER", "openai-compatible"),
+            "LLM_BASE_URL": os.getenv("LLM_BASE_URL", ""),
+            "LLM_API_KEY": os.getenv("LLM_API_KEY", ""),
+            "LLM_MODEL": os.getenv("LLM_MODEL", ""),
+            "LLM_MAX_TOKENS": os.getenv("LLM_MAX_TOKENS", "65536"),
+            "LLM_TEMPERATURE": os.getenv("LLM_TEMPERATURE", "0.2"),
+            "LLM_TIMEOUT": os.getenv("LLM_TIMEOUT", "180"),
+            "LLM_RETRY_ATTEMPTS": os.getenv("LLM_RETRY_ATTEMPTS", "4"),
+        }
+        try:
+            with self.session_factory() as db:
+                return self.settings_service.get_llm_runtime_env(db, env)
+        except Exception as e:  # noqa: BLE001
+            log.warning("LLM runtime env 주입 실패 — process env 사용: %s: %s",
+                        type(e).__name__, e)
+            return {}
+
     def launch_runner(self, run: Run) -> subprocess.Popen | None:
         """Data Plane 러너 프로세스 기동 (backend.runner.job).
 
@@ -142,6 +167,7 @@ class RunService:
             for k in _RUNNER_ENV_ALLOWLIST
             if k in os.environ
         }
+        env.update(self._effective_llm_env())
         env["CONTROL_API_URL"] = api_url
         env["CONTROL_RUNNER_TOKEN"] = self.settings.control_runner_token
         cmd = [sys.executable, "-m", "backend.runner.job",
@@ -271,13 +297,17 @@ class RunService:
             existing_seqs.add(seq)
             received_at = datetime.now(timezone.utc)
             detail = e.get("detail") or {}
+            stored_event = dict(e)
+            stored_event["seq"] = seq
+            if eid:
+                stored_event["event_id"] = eid
             db.add(RunEvent(
                 run_id=run_id,
                 ts=str(e.get("ts") or ""),
                 layer=str(e.get("layer") or ""),
                 stage=str(e.get("stage") or ""),
                 status=str(e.get("status") or ""),
-                payload=json.dumps(e, ensure_ascii=False),
+                payload=json.dumps(stored_event, ensure_ascii=False),
                 event_id=eid,
                 seq=seq,
                 kind=str(e.get("kind") or detail.get("kind") or "")[:120],
@@ -287,7 +317,7 @@ class RunService:
                 received_at=received_at,
             ))
             count += 1
-            accepted.append(e)
+            accepted.append(stored_event)
             if run is not None and e.get("layer") == "run":
                 status = str(e.get("status") or "")
                 if run.status in TERMINAL_STATUSES:
@@ -306,7 +336,7 @@ class RunService:
             run.snapshot_version = int(run.snapshot_version or 0) + 1
         db.flush()
         if count:
-            latest_seq = int(run.snapshot_version or 0)
+            latest_seq = cursor - 1
             self._publish({
                 "type": "events", "run_id": run_id,
                 "events": accepted,
@@ -517,33 +547,54 @@ class RunService:
         advanced = False
         disabled = False
         stale_complete = False
+        # EARLY-RETURN 가드 이후 모든 진단에 run_id 를 포함
+        sha_advance_attempted = False
 
         if report.get("last_processed_sha") and source is not None \
                 and run.pipeline_id == "static":
+            sha_advance_attempted = True
             row = db.scalars(select(SourceBranch).where(
                 SourceBranch.source_id == source.id,
                 SourceBranch.role == (run.branch_role or "dev"))).first()
-            if row is not None:
-                new_sha = str(report["last_processed_sha"])
-                # CAS: snapshot 과 pointer 가 같은 경우에만 전진. 다르면 stale.
-                snapshot = (run.from_sha_snapshot or "").strip()
-                current = (row.last_processed_sha or "").strip()
-                if snapshot and current and snapshot != current:
-                    log.warning("complete_run CAS 실패 — run=%s snapshot=%s current=%s",
-                                run_id, snapshot[:12], current[:12])
-                    stale_complete = True
-                    run.stale_complete = True
-                    if status in ("done", "done_with_warnings"):
-                        # stale 상태로 normalize — sha 전진 안 함
-                        run.status = "stale"
-                        run.publish_state = "blocked"
-                        run.blocked_reason = (
-                            f"source pointer changed mid-run (snapshot={snapshot[:12]} current={current[:12]})"
-                        )
+            # SourceBranch row 가 없으면 자동 생성 — 이전에 등록 소스에서 row 가
+            # 누락된 경우(이전 migration 등)에도 sha 전진이 동작하도록.
+            if row is None:
+                log.info("complete_run: SourceBranch row 없음 → 자동 생성: source=%s role=%s",
+                         source.id, run.branch_role or "dev")
+                row = SourceBranch(source_id=source.id, role=run.branch_role or "dev")
+                db.add(row)
+                db.flush()
+            new_sha = str(report["last_processed_sha"])
+            # CAS: snapshot 과 pointer 가 같은 경우에만 전진. 다르면 stale.
+            snapshot = (run.from_sha_snapshot or "").strip()
+            current = (row.last_processed_sha or "").strip()
+            if snapshot and current and snapshot != current:
+                log.warning("complete_run CAS 실패 — run=%s snapshot=%s current=%s",
+                            run_id, snapshot[:12], current[:12])
+                stale_complete = True
+                run.stale_complete = True
+                if status in ("done", "done_with_warnings"):
+                    # stale 상태로 normalize — sha 전진 안 함
+                    run.status = "stale"
+                    run.publish_state = "blocked"
+                    run.blocked_reason = (
+                        f"source pointer changed mid-run (snapshot={snapshot[:12]} current={current[:12]})"
+                    )
+            else:
+                if new_sha and new_sha != current:
+                    row.last_processed_sha = new_sha
+                    advanced = True
+                    log.info("complete_run: SHA 전진 run=%s source=%s role=%s old=%s new=%s",
+                             run_id, source.id, run.branch_role or "dev",
+                             current[:12] if current else "<empty>",
+                             new_sha[:12])
+                elif new_sha == current:
+                    log.info("complete_run: SHA 이미 동일 run=%s sha=%s (idempotent)",
+                             run_id, current[:12])
                 else:
-                    if not current or new_sha >= current:
-                        row.last_processed_sha = new_sha
-                        advanced = True
+                    log.warning("complete_run: SHA 전진 스킵 run=%s new_sha=%s current=%s (이상 상태)",
+                                run_id, new_sha[:12] if new_sha else "<empty>",
+                                current[:12] if current else "<empty>")
 
         if status == "failed" and source is not None:
             error_kind = str(report.get("error_kind") or "")
@@ -565,6 +616,12 @@ class RunService:
                                          error=str(report.get("error") or ""),
                                          owner_email=source.owner_email)
         db.flush()
+        # SHA 전진 시도했으나 안 된 경우 진단 — source 누락 또는 상태 비정상이 원인.
+        if sha_advance_attempted and not advanced and not stale_complete:
+            log.warning("complete_run: SHA 전진 시도했지만 미적용 run=%s status=%s "
+                        "report_sha=%s — SourceBranch 누락 or status 조건 불일치 가능성",
+                        run_id, status,
+                        str(report.get("last_processed_sha"))[:12])
         self._publish({"type": "run_status", "run_id": run_id, "status": run.status,
                        "sha_advanced": advanced, "source_disabled": disabled,
                        "mr_url": run.mr_url, "publishable": run.publishable,
@@ -683,6 +740,24 @@ class RunService:
                 "schedule_branch_role": sched.branch_role,
             }
 
+        # 각 run의 coverage 리포트 — last_coverage_percentage/threshold 를 채우기 위해
+        # 한 번에 조회해 run_id → {percentage, threshold} 맵을 만든다.
+        # 테이블 없거나 쿼리 실패해도 pipeline_status 전체가 죽지 않도록 방어.
+        coverage_map: dict[str, dict] = {}
+        try:
+            from ..models import RunCoverageReport
+            run_ids = [r.id for r in rows]
+            if run_ids:
+                for cov in db.scalars(
+                    select(RunCoverageReport).where(RunCoverageReport.run_id.in_(run_ids))
+                ).all():
+                    coverage_map[cov.run_id] = {
+                        "percentage": cov.percentage,
+                        "threshold": cov.threshold,
+                    }
+        except Exception:
+            coverage_map = {}
+
         # group by (source_id, pipeline_id)
         grouped: dict[tuple, dict] = {}
         for r in rows:
@@ -698,6 +773,7 @@ class RunService:
                 "last_blocked_reason": "", "last_failed_gate": "",
                 "last_release_tag": "", "last_artifact_version": "",
                 "last_mr_readiness": "unknown", "last_repair_attempts": 0,
+                "last_coverage_percentage": None, "last_coverage_threshold": None,
                 "warning_count_window": 0, "error_count_window": 0,
                 "quality_fail_count_window": 0,
                 "publishable_count_window": 0,
@@ -723,7 +799,13 @@ class RunService:
                 bucket["last_blocked_reason"] = str(r.blocked_reason or "")
                 bucket["last_release_tag"] = str(r.release_tag or "")
                 bucket["last_artifact_version"] = str(r.artifact_version or "")
-                bucket["last_repair_attempts"] = int(r.quality_score or 0)
+                # last_repair_attempts: Run 모델에 별도 컬럼이 없으므로 0으로 둔다.
+                # (이전 버그: r.quality_score 를 잘못 넣고 있었음)
+                bucket["last_repair_attempts"] = 0
+                # coverage 리포트에서 percentage/threshold 를 가져와 채운다
+                cov = coverage_map.get(r.id, {})
+                bucket["last_coverage_percentage"] = cov.get("percentage")
+                bucket["last_coverage_threshold"] = cov.get("threshold")
                 if r.mr_url:
                     if r.status in ("done",) and bool(r.publishable):
                         bucket["last_mr_readiness"] = "ready"

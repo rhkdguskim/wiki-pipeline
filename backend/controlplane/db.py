@@ -44,6 +44,13 @@ def make_session_factory(engine) -> sessionmaker[Session]:
     return sessionmaker(bind=engine, expire_on_commit=False)
 
 
+def _migration_db_url(engine) -> str:
+    url = engine.url
+    if hasattr(url, "render_as_string"):
+        return url.render_as_string(hide_password=False)
+    return str(url)
+
+
 def _alembic_upgrade_to_head(db_url: str) -> bool:
     """Alembic API 로 upgrade head. 성공하면 True, 실패하면 False.
 
@@ -75,6 +82,33 @@ def _alembic_upgrade_to_head(db_url: str) -> bool:
         log.warning("alembic upgrade 실패 — create_all + critical-columns 폴백: %s: %s",
                     type(e).__name__, e)
         return False
+
+
+def _alembic_stamp_head(db_url: str) -> None:
+    from alembic import command as alembic_cmd
+    from alembic.config import Config as AlembicConfig
+
+    cfg = AlembicConfig()
+    cfg.set_main_option("script_location", str(_MIGRATIONS_DIR))
+    cfg.set_main_option("prepend_sys_path", "../..")
+    cfg.set_main_option("sqlalchemy.url", db_url)
+
+    prev = os.environ.get("CONTROL_DB_URL")
+    os.environ["CONTROL_DB_URL"] = db_url
+    try:
+        alembic_cmd.stamp(cfg, "head")
+    finally:
+        if prev is None:
+            os.environ.pop("CONTROL_DB_URL", None)
+        else:
+            os.environ["CONTROL_DB_URL"] = prev
+
+
+def _is_unversioned_existing_schema(engine) -> bool:
+    insp = inspect(engine)
+    if insp.has_table("alembic_version"):
+        return False
+    return any(insp.has_table(table) for table in ("scm_instances", "sources", "runs"))
 
 
 # ── critical columns 안전장치 ───────────────────────────────────
@@ -143,7 +177,16 @@ def init_db(engine) -> None:
     create_all 은 additive only 라서 운영 마이그레이션 수단으로 부적합 — 이건 단지
     개발자가 alembic 없이 빠르게 띄울 수 있는 편의 경로.
     """
-    db_url = str(engine.url)
+    db_url = _migration_db_url(engine)
+
+    if _is_unversioned_existing_schema(engine):
+        log.warning(
+            "existing control-plane schema has no alembic_version — "
+            "creating missing tables and stamping head"
+        )
+        Base.metadata.create_all(engine)
+        _alembic_stamp_head(db_url)
+
     alembic_ok = _alembic_upgrade_to_head(db_url)
     if not alembic_ok:
         # alembic 실패 — create_all 로 누락 테이블 생성.

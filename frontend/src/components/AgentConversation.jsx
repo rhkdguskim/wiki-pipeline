@@ -7,11 +7,12 @@ export function AgentConversation({feed}) {
   return <div className="conversation">
     {events.map((e, idx) => {
       const d = e.detail || {};
+      const kind = d.kind || 'event';
       const role = d.kind === 'tool_use' ? 'tool' : d.kind === 'tool_result' ? 'result' : d.kind === 'usage' ? 'metric' : d.kind === 'llm_retry' ? 'error' : 'agent';
       return <article className={`bubble ${role}`} key={`${e.ts}-${idx}`}>
-        <header><span>{kindLabel[d.kind] || d.kind || 'agent'}</span><time>{fmtClock(Date.parse(e.ts))}</time></header>
+        <header><span>{kindLabel[kind] || kind}</span><time>{fmtClock(Date.parse(e.ts))}</time></header>
         <p>{feedText(e)}</p>
-        <footer>{e.stage}</footer>
+        <footer>{e.stage || '—'}</footer>
       </article>;
     })}
   </div>;

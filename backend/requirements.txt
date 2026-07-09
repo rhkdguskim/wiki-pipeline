@@ -17,7 +17,7 @@ tenacity>=8.0                      # 재시도 (retry.py)
 fastapi>=0.115                     # 관리 서버 API
 uvicorn>=0.30                      # ASGI 서버
 sqlalchemy>=2.0                    # DB source of truth (decision-db-source-of-truth)
-# psycopg[binary]>=3.2             # PostgreSQL 드라이버 (운영 — CONTROL_DB_URL=postgresql+psycopg://...)
+psycopg[binary]>=3.2              # PostgreSQL 드라이버 (운영 — CONTROL_DB_URL=postgresql+psycopg://...)
 apscheduler>=3.10                  # 과제별 cron (decision-schedule-per-source)
 cryptography>=43                   # 시크릿 at-rest 암호화 (SecretBox)
 

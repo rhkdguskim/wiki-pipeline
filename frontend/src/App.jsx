@@ -8,6 +8,7 @@ import {
   useSaveDocTargetMutation, useTriggerRunMutation, useSubmitMrMutation,
   useCreateSourceScheduleMutation, useUpdateSourceScheduleMutation,
   useDeleteSourceScheduleMutation,
+  useSaveManualProfileMutation,
 } from './hooks/queries.js';
 import {useRunStream} from './hooks/useRunStream.js';
 import {useLiveSocket} from './hooks/useLiveSocket.js';
@@ -79,6 +80,7 @@ export function App() {
   const saveInstanceMutation = useSaveInstanceMutation();
   const saveDocTargetMutation = useSaveDocTargetMutation();
   const triggerRunMutation = useTriggerRunMutation();
+  const saveManualProfileMutation = useSaveManualProfileMutation();
   const submitMrMutation = useSubmitMrMutation();
   const createScheduleMutation = useCreateSourceScheduleMutation();
   const updateScheduleMutation = useUpdateSourceScheduleMutation();
@@ -214,10 +216,35 @@ export function App() {
     }
   };
 
-  const doTriggerRun = async (sourceId) => {
+  // opts: { mode, pipeline_id, branch_role, launch, manualProfilePayload? }
+  //   - pipeline_id: 'static' (정적 docu-automation) | 'manual' (매뉴얼 manual-automation)
+  //   - mode: 'auto' (기본) | 'init' | 'diff' — 정적에서만 의미 있음
+  //   - branch_role: 'dev' (기본) | 'release'
+  //   - manualProfilePayload: TriggerDialog 의 wizard 에서 입력된 매뉴얼 프로파일.
+  //     매뉴얼 실행 시 MCP endpoint 가 backend 에 영구 저장되어야 하므로 trigger 전 PUT.
+  const doTriggerRun = async (sourceId, opts = {}) => {
+    const pipeline_id = opts.pipeline_id || 'static';
+    const mode = opts.mode || 'auto';
+    const branch_role = opts.branch_role || 'dev';
     try {
-      const data = await triggerRunMutation.mutateAsync({sourceId, mode: 'auto'});
-      pushToast(`실행 시작: ${data.run_id}`, 'success');
+      if (pipeline_id === 'manual' && opts.manualProfilePayload) {
+        // 매뉴얼 실행 전: wizard 에서 입력/수정한 MCP 프로파일을 소스에 저장.
+        try {
+          await saveManualProfileMutation.mutateAsync({
+            sourceId,
+            payload: opts.manualProfilePayload,
+          });
+          pushToast('매뉴얼 프로파일 저장 완료', 'success');
+        } catch (e) {
+          pushToast(`매뉴얼 프로파일 저장 실패: ${e.message}`, 'error');
+          return; // profile 저장 실패 시 trigger 도 막는다.
+        }
+      }
+      const data = await triggerRunMutation.mutateAsync({sourceId, mode, pipeline_id, branch_role});
+      pushToast(
+        `${pipeline_id === 'manual' ? '매뉴얼' : '정적'} 파이프라인 실행 시작: ${data.run_id}`,
+        'success',
+      );
       setRunId(data.run_id);
     } catch (e) {
       pushToast(e.message, 'error');

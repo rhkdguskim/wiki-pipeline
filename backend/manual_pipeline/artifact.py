@@ -17,6 +17,8 @@ decision-artifact-consumption / decision-artifact-type-dispatch 구현:
 from __future__ import annotations
 
 import hashlib
+import os
+from urllib.parse import urlparse
 import urllib.request
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -38,8 +40,9 @@ def download_artifact(url: str, dest: Path, expected_sha256: str = "") -> dict:
     """
     try:
         dest.parent.mkdir(parents=True, exist_ok=True)
+        source_url = _normalise_file_url(url)
         digester = hashlib.sha256()
-        with urllib.request.urlopen(url, timeout=_DOWNLOAD_TIMEOUT) as resp, \
+        with urllib.request.urlopen(source_url, timeout=_DOWNLOAD_TIMEOUT) as resp, \
                 open(dest, "wb") as fh:
             while True:
                 chunk = resp.read(_CHUNK)
@@ -60,6 +63,22 @@ def download_artifact(url: str, dest: Path, expected_sha256: str = "") -> dict:
     except Exception as e:  # noqa: BLE001 — 모든 실패를 status dict 로 변환
         return {"status": "fail", "path": str(dest), "sha256": "",
                 "error": f"{type(e).__name__}: {e}"}
+
+
+def _normalise_file_url(url: str) -> str:
+    """Accept both valid file URIs and legacy ``file://C:\\...`` test inputs."""
+    parsed = urlparse(url)
+    if parsed.scheme != "file":
+        return url
+    if os.name != "nt":
+        return url
+    path_text = url[7:] if url.startswith("file://") else ""
+    if not path_text:
+        return url
+    path_text = path_text.lstrip("/")
+    if len(path_text) >= 2 and path_text[1] == ":":
+        return Path(path_text).resolve().as_uri()
+    return url
 
 
 def deploy_via_mcp(bridge: "McpBridge", install_profile: dict,

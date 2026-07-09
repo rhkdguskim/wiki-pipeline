@@ -10,7 +10,7 @@
 services:
   # ── PostgreSQL — wiki-pipeline 의 SoT ─────────────────────────
   # control-plane-postgresql decision: docker-compose 안에서 단일 인스턴스로 기동.
-  # 비밀번호는 compose env 로만 주입 (이미지/소스에 하드코딩 금지).
+  # 기본 개발 비밀번호는 wpipe. 운영에서는 POSTGRES_PASSWORD 로 override.
   db:
     image: postgres:16-alpine
     container_name: wiki-pipeline-db
@@ -18,7 +18,7 @@ services:
     environment:
       POSTGRES_DB: wpipe
       POSTGRES_USER: wpipe
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 환경변수 필수}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wpipe}
       # 한국어 collation / timezone 보존.
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
       TZ: Asia/Seoul
@@ -58,11 +58,14 @@ services:
 
     environment:
       # 컨테이너 내부 호스트명 'db' 가 postgres 서비스로 해석.
-      - CONTROL_DB_URL=postgresql+psycopg://wpipe:${POSTGRES_PASSWORD}@db:5432/wpipe
+      - CONTROL_DB_URL=postgresql+psycopg://wpipe:${POSTGRES_PASSWORD:-wpipe}@db:5432/wpipe
       # SPA 마운트 — Dockerfile 멀티스테이지가 frontend/dist 를 /app/frontend/dist 에 복사.
       - CONTROL_FRONTEND_DIST=/app/frontend/dist
       - CONTROL_HOST=0.0.0.0
       - CONTROL_PORT=8420
+      # Docker 이미지 내부 소스 경로(/app/backend)는 read-only 성격으로 유지하고,
+      # 산출물/JSONL 이벤트는 쓰기 가능한 named volume에 저장한다.
+      - OUT_DIR=/app/out
       - LOG_FORMAT=json
       - PYTHONUNBUFFERED=1
 

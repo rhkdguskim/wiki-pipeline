@@ -20,12 +20,21 @@ def _doc_quality_from_summary(summary: dict) -> list[dict]:
     for theme, info in docs.items():
         if not isinstance(info, dict):
             continue
+        file_path = str(info.get("file") or "")
+        # file 경로가 없으면 theme 기반 경로 생성 (최소한 path 는 채워야 upsert 됨)
+        if not file_path:
+            file_path = f"init/{theme}.md"
+        has_error = "error" in info
+        warned = bool(info.get("warned"))
         out.append({
             "theme": theme,
-            "path": str(info.get("file", "")),
-            "quality_status": "warning" if info.get("warned") else "pass",
-            "warning_count": 1 if info.get("warned") else 0,
-            "error_count": 1 if "error" in info else 0,
+            "title": str(info.get("title") or theme),
+            "path": file_path,
+            "action": str(info.get("action") or "create"),
+            "quality_status": "fail" if has_error else ("warning" if warned else "pass"),
+            "publishable": not has_error,
+            "warning_count": 1 if warned else 0,
+            "error_count": 1 if has_error else 0,
         })
     return out
 
@@ -67,6 +76,14 @@ def emit_quality(cp: ControlPlaneClient, run_id: str, summary: dict,
                 "severity": "error",
                 "blocking": True,
                 "message": str(info.get("error", ""))[:500],
+            })
+        elif info.get("warned"):
+            payload["findings"].append({
+                "doc_id": theme,
+                "gate": "critic",
+                "severity": "warning",
+                "blocking": False,
+                "message": f"문서 '{theme}' 검토 결과 경고 — review 필요",
             })
     cp.post_webhook("/api/webhook/quality", payload)
 
@@ -146,10 +163,29 @@ def emit_artifact(cp: ControlPlaneClient, run_id: str, summary: dict) -> None:
     cp.post_webhook("/api/webhook/artifact", payload)
 
 
+def emit_doc_outputs(cp: ControlPlaneClient, run_id: str, summary: dict,
+                     *, pipeline_id: str = "static") -> None:
+    """생성된 문서 목록을 doc-outputs webhook 으로 전송.
+
+    RunDocOutput 테이블을 채워 MR plan 의 included_files/excluded_files 가
+    프런트엔드에 표시되도록 한다. _doc_quality_from_summary 로 doc 품질 정보를
+    함께 보낸다.
+    """
+    docs = _doc_quality_from_summary(summary)
+    if not docs:
+        return
+    payload: dict = {
+        "run_id": run_id,
+        "docs": docs,
+    }
+    cp.post_webhook("/api/webhook/doc-outputs", payload)
+
+
 def report_all(cp: ControlPlaneClient, run_id: str, summary: dict,
                *, pipeline_id: str = "static") -> None:
     emit_quality(cp, run_id, summary, pipeline_id=pipeline_id)
     emit_evidence(cp, run_id, summary, pipeline_id=pipeline_id)
+    emit_doc_outputs(cp, run_id, summary, pipeline_id=pipeline_id)
     if pipeline_id == "manual":
         emit_coverage(cp, run_id, summary)
         emit_artifact(cp, run_id, summary)

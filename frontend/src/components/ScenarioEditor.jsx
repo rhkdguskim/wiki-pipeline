@@ -35,7 +35,7 @@ export function ScenarioEditor({scenarios, onCreate, onUpdate, onActivate, onDel
 
   const save = () => {
     if (!editing) return;
-    onUpdate && onUpdate(editing);
+    onUpdate && onUpdate(editing.id, editing);
   };
   const createNew = () => {
     if (!editing) return;
@@ -54,9 +54,9 @@ export function ScenarioEditor({scenarios, onCreate, onUpdate, onActivate, onDel
                 {s.name} <span className={`pill pill--${s.status === 'active' ? 'success' : 'muted'}`}>{s.status}</span> v{s.version}
               </button>
               {s.status !== 'active' && (
-                <button type="button" onClick={() => onActivate && onActivate(s)}>activate</button>
+                <button type="button" onClick={() => onActivate && onActivate(s.id)}>activate</button>
               )}
-              <button type="button" onClick={() => onDelete && onDelete(s)}>delete</button>
+              <button type="button" onClick={() => onDelete && onDelete(s.id)}>delete</button>
             </li>
           ))}
         </ul>
@@ -84,7 +84,7 @@ export function ScenarioEditor({scenarios, onCreate, onUpdate, onActivate, onDel
             />
             {error && <div className="scenario-editor__error">{error}</div>}
             <div className="scenario-editor__row">
-              <button type="button" onClick={() => onLint && onLint(editing)} disabled={busy}>Lint</button>
+              <button type="button" onClick={() => onLint && onLint(editing)} disabled={busy || !!error}>Lint</button>
               {editing.id ? (
                 <button type="button" onClick={save} disabled={busy}>저장</button>
               ) : (

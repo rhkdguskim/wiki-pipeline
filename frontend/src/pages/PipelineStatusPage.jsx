@@ -226,7 +226,7 @@ export function PipelineStatusPage({
                   <td className="num">{p.running || 0}</td>
                   <td className="num">{nf.format(p.total_tokens_window || 0)}</td>
                   <td className="num">
-                    {p.mean_duration_sec ? fmtDur(p.mean_duration_sec) : '-'}
+                    {p.mean_duration_sec ? fmtDur(p.mean_duration_sec * 1000) : '-'}
                   </td>
                   <td>
                     {p.enabled_schedule ? (

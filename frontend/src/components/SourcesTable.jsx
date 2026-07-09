@@ -1,5 +1,6 @@
-import {ExternalLink, Play, ShieldCheck, Trash2} from 'lucide-react';
+import {ExternalLink, ShieldCheck, Trash2} from 'lucide-react';
 import {formatSchedule} from '../lib/schedule.js';
+import {TriggerButton} from './TriggerButton.jsx';
 
 export function SourcesTable({sources, onOpenDetail, onVerify, onTrigger, onToggleEnabled, onDelete}) {
   return <div className="tableScroll">
@@ -27,7 +28,7 @@ export function SourcesTable({sources, onOpenDetail, onVerify, onTrigger, onTogg
             <div className="panelActions">
               <button type="button" className="iconTextBtn" onClick={() => onOpenDetail(s.id)} title="상세 보기"><ExternalLink size={14} />상세</button>
               <button type="button" className="iconTextBtn" onClick={() => onVerify(s.id)} title="토큰·접근 검증"><ShieldCheck size={14} />검증</button>
-              <button type="button" className="iconTextBtn" disabled={!s.enabled} onClick={() => onTrigger(s.id)} title={s.enabled ? '지금 실행' : s.disabled_reason || '비활성 소스'}><Play size={14} />실행</button>
+              <TriggerButton source={s} onTrigger={onTrigger} disabled={!s.enabled} size="sm" label="실행" />
               <button type="button" className="iconTextBtn" onClick={() => onToggleEnabled(s)} title={s.enabled ? '비활성화 (소프트 삭제)' : '활성화'}>
                 {s.enabled ? '비활성화' : '활성화'}
               </button>

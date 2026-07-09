@@ -6,8 +6,11 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8420',
+        target: 'http://110.110.10.70:8420',
         ws: true,   // /api/ws 웹소켓 프록시
+      },
+      '/health': {
+        target: 'http://110.110.10.70:8420',
       },
     },
   },

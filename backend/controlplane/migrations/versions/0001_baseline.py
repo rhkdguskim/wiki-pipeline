@@ -17,6 +17,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 # revision identifiers, used by Alembic.
@@ -29,7 +30,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     bind = op.get_bind()
     is_sqlite = bind.dialect.name == "sqlite"
-    json_type = sa.JSON() if is_sqlite else sa.dialects.postgresql.JSONB()
+    json_type = sa.JSON() if is_sqlite else postgresql.JSONB()
 
     # ?? scm_instances (decision-scm-multi-instance-github-mvp) ??
     op.create_table(
