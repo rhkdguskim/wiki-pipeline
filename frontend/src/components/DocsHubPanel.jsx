@@ -5,6 +5,15 @@ export function DocsHubPanel({target, onChange, onSave, busy, message, embedded}
   const form = target || defaultDocTarget;
   const set = (key, value) => onChange({...form, [key]: value});
   return <form className={embedded ? 'docsHubEmbedded' : 'editor docsTarget'} onSubmit={ev => { ev.preventDefault(); onSave(); }}>
+    <input
+      type="text"
+      name="username"
+      autoComplete="username"
+      tabIndex={-1}
+      aria-hidden="true"
+      style={{position: 'absolute', left: '-9999px', width: 1, height: 1, opacity: 0}}
+      readOnly
+    />
     {!embedded && <div className="editorHead">
       <div><h2>문서 허브 대상</h2><p>생성 산출물 MR 대상: product-common</p></div>
       <button className="primaryBtn" disabled={busy}><Save size={15} />저장</button>

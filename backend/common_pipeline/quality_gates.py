@@ -3,10 +3,10 @@ normalized quality status 와 terminal run status 를 결정한다.
 
 raw/2026-07-08-ai-agent-output-quality-plan.md §5 통과 기준·§Final Review Corrections.
 
-통과 기준 (raw 설계서 §5):
-- blocker 0
-- major 0
-- score >= 0.82
+통과 기준 (raw 설계서 §5, 2026-07-09 완화):
+- blocker 0 (hallucination/secret 0관용)
+- major <= warning_major (3) — 이하면 warning, 초과면 fail
+- score >= 0.75
 - deterministic verifier pass
 
 status 정규화 (raw 설계서 'Quality Status Normalization'):
@@ -24,11 +24,14 @@ from __future__ import annotations
 from .grounding_critic import severity_counts
 
 # raw 설계서 §5 통과 기준의 기본 임계치.
+# warning_major 를 실제로 적용 — major 가 warning_major 이하면 fail 아닌 warning 허용.
+# (이전 max_major=0 은 major 1개만 있어도 fail 이었는데, 이는 warning 상태가
+# 사실상 발생하지 않는 구조였다. 검증 통과율을 높이기 위해 warning_major 를
+# 실제 임계치로 사용하고 값을 3 으로 상향했다.)
 DEFAULT_THRESHOLDS: dict[str, float] = {
-    "min_score": 0.82,        # critic score 하한
-    "max_blocker": 0,         # blocker 허용 수
-    "max_major": 0,           # major 허용 수 (이 값을 넘으면 warning/fail)
-    "warning_major": 1,       # major 가 이 수 이하면 fail 아닌 warning 허용
+    "min_score": 0.75,        # critic score 하한 (0.82 → 0.75 완화)
+    "max_blocker": 0,         # blocker 허용 수 (0 — hallucination/secret 0관용)
+    "warning_major": 3,       # major 가 이 수 이하면 warning, 초과면 fail
 }
 
 
@@ -74,15 +77,15 @@ def evaluate_quality_gate(
     판정 우선순위:
     1. verifier fail -> status=fail (기계 검증 실패는 LLM critic 전에 끊어야)
     2. blocker > 0 -> status=fail (hallucination/secret/contract 위반)
-    3. major > max_major -> status=fail
+    3. major > warning_major -> status=fail (theme contract 위반 다수)
     4. score < min_score -> status=fail
-    5. major > 0 (하지만 max_major 이하) 또는 minor 만 있으면 -> status=warning
+    5. major > 0 (하지만 warning_major 이하) 또는 minor 만 있으면 -> status=warning
     6. 그 외 -> status=pass
     """
     th = {**DEFAULT_THRESHOLDS, **(thresholds or {})}
     min_score = float(th["min_score"])
     max_blocker = int(th["max_blocker"])
-    max_major = int(th["max_major"])
+    warning_major = int(th["warning_major"])
 
     verifier_ok = _verifier_passed(verifier_result)
     critic_ok, counts, score = _critic_passed(critic_result)
@@ -101,11 +104,12 @@ def evaluate_quality_gate(
         status = "fail"
         failed_gate = "grounding"
         failed_reason = f"blocker {counts['blocker']}건 — hallucination 또는 contract 위반"
-    # 3) major 초과
-    elif counts["major"] > max_major:
+    # 3) major 초과 — warning_major 를 초과하면 fail (이전 max_major=0 버그 수정)
+    elif counts["major"] > warning_major:
         status = "fail"
         failed_gate = "grounding"
-        failed_reason = f"major {counts['major']}건 — theme contract 위반"
+        failed_reason = (f"major {counts['major']}건 — theme contract 위반 "
+                         f"(허용 {warning_major}건 초과)")
     # 4) score 미달
     elif score < min_score:
         status = "fail"

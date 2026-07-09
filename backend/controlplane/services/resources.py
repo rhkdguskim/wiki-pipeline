@@ -828,7 +828,11 @@ def preflight_artifact(db: Session, source_id: str, payload: dict) -> dict:
 
 
 def upsert_doc_outputs(db: Session, run_id: str, docs: list[dict]) -> int:
-    """doc_outputs webhook batch. 기존 row 는 update 없으면 add-only."""
+    """doc_outputs webhook batch. 기존 row 는 update 없으면 add-only.
+
+    content 필드가 있으면 content_text 컬럼에 저장 — DB 기반 서빙의 핵심.
+    디스크(out/) 의존을 끊어 프런트엔드가 어디서든 접근 가능하게 한다.
+    """
     added = 0
     for d in docs:
         if not isinstance(d, dict):
@@ -865,6 +869,12 @@ def upsert_doc_outputs(db: Session, run_id: str, docs: list[dict]) -> int:
             row.mr_inclusion_status = str(d["mr_inclusion_status"])[:24]
         if d.get("content_sha256"):
             row.content_sha256 = str(d["content_sha256"])[:64]
+        # 문서 원문 저장 — runner 가 webhook 으로 전송한 content 필드.
+        # 빈 문자열이 와도 덮어쓰지 않고 (이미 채워져 있으면 유지).
+        content = d.get("content")
+        if content is not None and str(content):
+            row.content_text = str(content)
+            row.content_size = int(d.get("content_size") or len(str(content).encode("utf-8")))
         meta = d.get("metadata")
         if meta is not None:
             row.metadata_json = meta if isinstance(meta, dict) else None
@@ -887,7 +897,79 @@ def get_doc_outputs(db: Session, run_id: str) -> list[dict]:
         "schema_status": r.schema_status, "mermaid_status": r.mermaid_status,
         "mr_inclusion_status": r.mr_inclusion_status,
         "content_sha256": r.content_sha256,
+        "content_size": int(r.content_size or 0),
+        "has_content": bool(r.content_text),
+        "created_at": isoformat_z(r.created_at),
     } for r in rows]
+
+
+def get_doc_content(db: Session, run_id: str, path: str) -> dict | None:
+    """run_id + path 로 문서 원문을 DB 에서 조회. content_text 만 SELECT.
+
+    deferred 컬럼이므로 명시적으로 컬럼을 지정해 로드 — 리스트 조회 시
+    마크다운 원문 전체를 로드하는 비용을 피한다.
+    """
+    row = db.scalars(
+        select(RunDocOutput).where(
+            RunDocOutput.run_id == run_id,
+            RunDocOutput.path == path,
+        ).limit(1)
+    ).first()
+    if row is None:
+        return None
+    return {
+        "run_id": run_id,
+        "path": row.path,
+        "theme": row.theme or "",
+        "title": row.title or "",
+        "content": row.content_text or "",
+        "size": int(row.content_size or 0),
+    }
+
+
+def get_doc_refs(db: Session, source_id: str, *, limit: int = 50) -> dict:
+    """source 의 최신 docu-automation (static) run 산출물을 조회 — manual-automation I/F.
+
+    manual-automation 파이프라인이 docu-automation 이 생성한 기술문서를
+    참조할 수 있도록 제공된다. 가장 최근 완료된 static run 의 doc outputs 를
+    반환한다.
+
+    반환: {source_id, run_id, run_status, generated_at, docs: [...]}
+    docs 각 항목은 get_doc_outputs 와 동일한 형태 + content_text 가 포함된
+    항목은 content 도 함께 반환 (manual pipeline 이 컨텍스트로 사용).
+    """
+    from ..models import Run
+    # 가장 최근 완료된 static run 찾기 — done/done_with_warnings/partial 모두 허용.
+    run_row = db.scalars(
+        select(Run).where(
+            Run.source_id == source_id,
+            Run.pipeline_id == "static",
+            Run.status.in_(("done", "done_with_warnings", "partial")),
+        ).order_by(Run.created_at.desc()).limit(1)
+    ).first()
+    if run_row is None:
+        return {"source_id": source_id, "run_id": "", "run_status": "",
+                "generated_at": "", "docs": []}
+    doc_rows = db.scalars(
+        select(RunDocOutput).where(RunDocOutput.run_id == run_row.id)
+        .order_by(RunDocOutput.id)
+    ).all()
+    docs = [{
+        "id": r.id, "theme": r.theme, "path": r.path, "title": r.title,
+        "action": r.action, "quality_status": r.quality_status,
+        "publishable": r.publishable, "warning_count": r.warning_count,
+        "error_count": r.error_count,
+        "has_content": bool(r.content_text),
+        "content": r.content_text or "",
+        "content_size": int(r.content_size or 0),
+    } for r in doc_rows]
+    return {
+        "source_id": source_id,
+        "run_id": run_row.id,
+        "run_status": run_row.status,
+        "generated_at": isoformat_z(run_row.terminal_at or run_row.updated_at),
+        "docs": docs[:limit],
+    }
 
 
 # ── final-pack per-item validation ──────────────────────────────

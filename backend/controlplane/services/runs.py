@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 
 from ..models import (
     Run, RunCoverageReport, RunEvent, RunModelUsage, RunQualityReport,
-    Source, SourceBranch,
+    Source, SourceBranch, SourceReleaseTag,
 )
 from ..settings import ControlPlaneSettings
 from ..timeutil import as_utc, isoformat_z
@@ -109,13 +109,18 @@ class RunService:
             raise ValueError(f"알 수 없는 source: {source_id}")
         if not source.enabled:
             raise ValueError(f"비활성화된 source: {source_id} ({source.disabled_reason})")
+        # 브랜치 고정 정책 (decision-branch-role-fixed):
+        # caller 가 branch_role 을 뭘로 주든 pipeline_id 에 따라 강제.
+        # - docu-automation (static) → dev 브랜치
+        # - manual-automation (manual) → release 브랜치
+        branch_role = "release" if pipeline_id == "manual" else "dev"
         run_id = f"{pipeline_id}-{source_id}-{uuid.uuid4().hex[:8]}"
         # capture from_sha_snapshot (CAS for static sha advance).
         from_sha_snapshot = ""
         if pipeline_id == "static" and source_id:
             row = db.scalars(select(SourceBranch).where(
                 SourceBranch.source_id == source_id,
-                SourceBranch.role == (branch_role or "dev"),
+                SourceBranch.role == branch_role,
             )).first()
             if row is not None:
                 from_sha_snapshot = row.last_processed_sha or ""
@@ -631,6 +636,28 @@ class RunService:
         self._publish({"type": "runs_changed", "run_id": run_id}, db)
         if disabled:
             self._publish({"type": "sources_changed"}, db)
+        # ── Manual pipeline pointer — release/merge 추적 ──
+        # raw/2026-07-08-manual-automation-data-plane-review.md P0.
+        # manual run 이 release_tag/artifact_digest 보고 시 SourceReleaseTag 갱신.
+        if run.pipeline_id == "manual" and source is not None and (
+            report.get("release_tag") or report.get("artifact_digest")
+        ):
+            bookmark = db.scalars(select(SourceReleaseTag).where(
+                SourceReleaseTag.source_id == source.id,
+                SourceReleaseTag.branch_role == (run.branch_role or "dev"),
+            )).first()
+            if bookmark is None:
+                bookmark = SourceReleaseTag(
+                    source_id=source.id,
+                    branch_role=run.branch_role or "dev",
+                )
+                db.add(bookmark)
+            if report.get("release_tag"):
+                bookmark.last_submitted_tag = str(report["release_tag"])[:200]
+            if report.get("artifact_digest"):
+                bookmark.artifact_digest = str(report["artifact_digest"])[:64]
+            bookmark.last_run_id = run_id
+            db.flush()
         return {"ok": True, "status": run.status, "sha_advanced": advanced,
                 "source_disabled": disabled, "idempotent": False,
                 "publishable": run.publishable, "publish_state": run.publish_state,

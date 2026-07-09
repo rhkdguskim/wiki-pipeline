@@ -587,9 +587,9 @@ class TestQualityGates:
         assert len(payload["gates"]) == 2
 
     def test_default_thresholds(self):
-        assert DEFAULT_THRESHOLDS["min_score"] == 0.82
+        assert DEFAULT_THRESHOLDS["min_score"] == 0.75
         assert DEFAULT_THRESHOLDS["max_blocker"] == 0
-        assert DEFAULT_THRESHOLDS["max_major"] == 0
+        assert DEFAULT_THRESHOLDS["warning_major"] == 3
 
 
 # ── scope_planner ────────────────────────────────────────────

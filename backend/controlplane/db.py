@@ -130,6 +130,9 @@ _CRITICAL_COLUMNS: list[tuple[str, str, str, str]] = [
     ("runs", "updated_at", "DATETIME", ""),
     ("run_events", "id", "INTEGER", ""),
     ("source_release_tags", "id", "INTEGER", ""),
+    # 0006: RunDocOutput 콘텐츠 영속화 — alembic 실패 시 안전장치.
+    ("run_doc_outputs", "content_text", "TEXT", ""),
+    ("run_doc_outputs", "content_size", "INTEGER", ""),
 ]
 
 

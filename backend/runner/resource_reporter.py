@@ -26,6 +26,18 @@ def _doc_quality_from_summary(summary: dict) -> list[dict]:
             file_path = f"init/{theme}.md"
         has_error = "error" in info
         warned = bool(info.get("warned"))
+        # 파일 원문을 읽어 content 로 포함 — DB 기반 서빙의 핵심.
+        # 파일이 없거나 읽기 실패 시 빈 문자열 (메타데이터라도 저장).
+        content = ""
+        content_size = 0
+        if file_path:
+            try:
+                p = Path(file_path)
+                if p.is_file():
+                    content = p.read_text(encoding="utf-8", errors="replace")
+                    content_size = len(content.encode("utf-8"))
+            except OSError:
+                pass
         out.append({
             "theme": theme,
             "title": str(info.get("title") or theme),
@@ -35,6 +47,8 @@ def _doc_quality_from_summary(summary: dict) -> list[dict]:
             "publishable": not has_error,
             "warning_count": 1 if warned else 0,
             "error_count": 1 if has_error else 0,
+            "content": content,
+            "content_size": content_size,
         })
     return out
 

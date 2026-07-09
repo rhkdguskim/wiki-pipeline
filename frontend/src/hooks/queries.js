@@ -12,6 +12,7 @@ import {
   getAuditRecent,
   getLlmSettings, updateLlmSettings, resetLlmSettings, testLlmSettings,
   getRunDoc,
+  getRunDocs,
   getRunQuality, getRunEvidence, getRunEvidenceItem, getRunCoverage,
   getRunArtifacts, getRunVncSession,
   getManualProfile, saveManualProfile, preflightManualProfile,
@@ -162,6 +163,17 @@ export function useRunDocQuery(runId, path, enabled = true) {
     queryFn: () => getRunDoc(runId, path),
     enabled: !!runId && !!path && enabled,
     staleTime: 120000,
+  });
+}
+
+// run 의 생성된 문서 목록 (DB 기반) — docu-automation · manual-automation 공통.
+// run_summary.generated 와 별개로 DB 에서 직접 조회해 항상 최신 상태를 반영.
+export function useRunDocsQuery(runId, enabled = true) {
+  return useQuery({
+    queryKey: ['run-docs', runId],
+    queryFn: () => getRunDocs(runId),
+    enabled: !!runId && enabled,
+    staleTime: 30000,
   });
 }
 

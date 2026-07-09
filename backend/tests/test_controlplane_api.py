@@ -782,3 +782,83 @@ def test_create_app_with_frontend_dist_serves_spa(client, tmp_path):
         # favicon.ico 가 dist 에 없으면 SPA fallback 이 index.html(200) 반환 — 브라우저는 무시.
         assert r.status_code == 200
         assert "SPA" in r.text
+
+
+# ── Manual pipeline pointer (raw/2026-07-08-manual-automation-data-plane-review P0) ──
+def test_manual_complete_run_updates_release_pointer(client, monkeypatch):
+    """manual pipeline run 이 release_tag/artifact_digest 보고 시 SourceReleaseTag 가 갱신된다.
+
+    raw/2026-07-08-manual-automation-data-plane-review.md P0-4 의 권고:
+    "MR merge feedback 또는 사람 확인 후 last_merged_tag 를 전진한다" — 그 이전 단계로
+    release_tag 보고가 SourceReleaseTag.last_submitted_tag / artifact_digest 에 기록되어야
+    같은 release 가 두 번 보고되어도 idempotent 하고, "이 태그까지 manual 문서화했다"가
+    pipeline_status 와 MR body 에 추적 가능해진다.
+    """
+    from backend.controlplane.db import session_scope
+    from backend.controlplane.models import SourceBranch, SourceReleaseTag
+
+    src = _create_source(client, monkeypatch)
+    factory = client.app.state.session_factory
+    # _create_source 는 dev branch 만 만듦. manual release trigger 위해 release branch 추가.
+    with session_scope(factory) as db:
+        if not db.query(SourceBranch).filter_by(source_id=src["id"], role="release").first():
+            db.add(SourceBranch(source_id=src["id"], role="release",
+                                branch="master", enabled=True))
+
+    # manual pipeline trigger (release branch_role, launch=False → runner 미기동)
+    run_id = client.post("/api/runs/trigger", headers=ADMIN, json={
+        "source_id": src["id"], "pipeline_id": "manual",
+        "branch_role": "release", "launch": False,
+    }).json()["run_id"]
+
+    # webhook complete with release_tag / artifact_digest 보고
+    resp = client.post("/api/webhook/complete", headers=RUNNER, json={
+        "run_id": run_id, "status": "done",
+        "release_tag": "v1.2.3",
+        "artifact_digest": "a" * 64,
+    })
+    assert resp.status_code == 200, resp.text
+
+    # DB 에서 SourceReleaseTag 검증
+    with session_scope(factory) as db:
+        bookmark = db.query(SourceReleaseTag).filter_by(
+            source_id=src["id"], branch_role="release",
+        ).first()
+        assert bookmark is not None, \
+            "manual release_tag 보고 시 SourceReleaseTag 가 생성되어야 함"
+        assert bookmark.last_submitted_tag == "v1.2.3"
+        assert bookmark.artifact_digest == "a" * 64
+        assert bookmark.last_run_id == run_id
+
+
+def test_manual_complete_run_no_pointer_update_without_release_tag(client, monkeypatch):
+    """release_tag/artifact_digest 모두 없으면 manual run 이라도 SourceReleaseTag 를 건드리지 않는다.
+
+    raw 리뷰 P0 의 "release/merge 추적"은 release_tag 가 명시될 때만 의미가 있다.
+    빈 report 일 때 무의미한 row 를 만들면 동일 release 에 대한 두 번째 run 이
+    잘못 갱신될 위험이 있다.
+    """
+    from backend.controlplane.db import session_scope
+    from backend.controlplane.models import SourceBranch, SourceReleaseTag
+
+    src = _create_source(client, monkeypatch)
+    factory = client.app.state.session_factory
+    with session_scope(factory) as db:
+        if not db.query(SourceBranch).filter_by(source_id=src["id"], role="release").first():
+            db.add(SourceBranch(source_id=src["id"], role="release",
+                                branch="master", enabled=True))
+
+    run_id = client.post("/api/runs/trigger", headers=ADMIN, json={
+        "source_id": src["id"], "pipeline_id": "manual",
+        "branch_role": "release", "launch": False,
+    }).json()["run_id"]
+    client.post("/api/webhook/complete", headers=RUNNER, json={
+        "run_id": run_id, "status": "done",
+    })
+
+    with session_scope(factory) as db:
+        bookmark = db.query(SourceReleaseTag).filter_by(
+            source_id=src["id"], branch_role="release",
+        ).first()
+        assert bookmark is None, \
+            "release_tag/artifact_digest 없으면 SourceReleaseTag 생성 안 함"

@@ -96,6 +96,17 @@ function AuthSection({onSaved}) {
     onSaved?.();
   };
   return <form className="authSection" onSubmit={(e) => { e.preventDefault(); save(); }}>
+    {/* 보이지 않는 username 필드 — 비밀번호 매니저 접근성 경고 회피용.
+        토큰 자체는 사용자명 개념이 없으므로 화면에 노출되지 않게 off-screen 처리. */}
+    <input
+      type="text"
+      name="username"
+      autoComplete="username"
+      tabIndex={-1}
+      aria-hidden="true"
+      style={{position: 'absolute', left: '-9999px', width: 1, height: 1, opacity: 0}}
+      readOnly
+    />
     <div className="settingRow">
       <div className="settingRowCopy">
         <strong>Control Plane API 토큰</strong>
@@ -274,6 +285,15 @@ function LlmSection({pushToast}) {
   const sourcePillCls = data.source === 'db' ? 'done' : data.source === 'env' ? 'stalled' : 'warn';
 
   return <form className="llmSection" onSubmit={(e) => { e.preventDefault(); if (!dirty || updateBusy) return; save(); }}>
+    <input
+      type="text"
+      name="username"
+      autoComplete="username"
+      tabIndex={-1}
+      aria-hidden="true"
+      style={{position: 'absolute', left: '-9999px', width: 1, height: 1, opacity: 0}}
+      readOnly
+    />
     <div className="llmStatusBar">
       <div>
         <span className="settingMetaLabel">현재 소스</span>

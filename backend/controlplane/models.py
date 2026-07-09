@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import DeclarativeBase, Mapped, deferred, mapped_column, relationship
 
 
 def utcnow() -> datetime:
@@ -395,7 +395,13 @@ class RunEvidenceItem(Base):
 
 
 class RunDocOutput(Base):
-    """생성된 문서 단위 metadata."""
+    """생성된 문서 단위 metadata + 콘텐츠.
+
+    content_text 는 deferred 로 선언 — select(RunDocOutput) 로 리스트를 조회할 때
+    매번 마크다운 원문을 로드하지 않는다 (메타데이터만 필요한 경우가 대부분).
+    콘텐츠가 필요하면 undefer(RunDocOutput.content_text) 옵션을 쓰거나
+    get_doc_content 헬퍼로 컬럼만 직접 SELECT 한다.
+    """
 
     __tablename__ = "run_doc_outputs"
 
@@ -415,19 +421,32 @@ class RunDocOutput(Base):
     mermaid_status: Mapped[str] = mapped_column(String(16), default="")
     mr_inclusion_status: Mapped[str] = mapped_column(String(24), default="candidate")
     content_sha256: Mapped[str] = mapped_column(String(64), default="")
+    # 문서 원문 — DB 기반 서빙의 핵심. runner 가 webhook 으로 전송해 저장.
+    # 디스크(out/) 의존을 끊어 프런트엔드가 어디서든 접근 가능하게 한다.
+    content_text: Mapped[str | None] = mapped_column(
+        Text, deferred=True, nullable=True, default="")
+    content_size: Mapped[int] = mapped_column(Integer, default=0)
     metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class SourceManualProfile(Base):
-    """source 별 manual automation profile. secret value 는 저장 안 함."""
+    """source 별 manual automation profile. secret value 는 저장 안 함.
+
+    mcp_transport 는 SSE 로 고정 (decision-mcp-sse-only). 모델에 컬럼은 남겨
+    레거시 호환성을 유지하되, 서비스 계층에서 항상 "sse" 로 강제한다.
+
+    app_environment_json: 앱 실행 환경 설정 — app_path, app_args, env_vars,
+    working_dir, launch_timeout 등. MCP 가 이 정보를 받아 원격 호스트에서
+    앱을 환경에 맞게 실행·조정한다 (concept-mcp-app-environment).
+    """
 
     __tablename__ = "source_manual_profiles"
 
     source_id: Mapped[str] = mapped_column(ForeignKey("sources.id"), primary_key=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     mcp_endpoint_url: Mapped[str] = mapped_column(String(500), default="")
-    mcp_transport: Mapped[str] = mapped_column(String(16), default="sse")
+    mcp_transport: Mapped[str] = mapped_column(String(16), default="sse")  # SSE 고정
     host_label: Mapped[str] = mapped_column(String(200), default="")
     host_ip: Mapped[str] = mapped_column(String(64), default="")
     host_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -441,6 +460,9 @@ class SourceManualProfile(Base):
     install_profile_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     readiness_check_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     smoke_check_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # 앱 실행 환경 — MCP 가 원격 호스트에서 앱을 실행할 때 사용하는 환경 정보.
+    # app_path, app_args, env_vars, working_dir 등을 JSON 으로 저장.
+    app_environment_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     coverage_threshold: Mapped[int] = mapped_column(Integer, default=70)
     failure_policy: Mapped[str] = mapped_column(String(40), default="block")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True),

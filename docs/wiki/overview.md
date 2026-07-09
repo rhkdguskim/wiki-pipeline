@@ -4,17 +4,15 @@ title: wiki-pipeline 전체 그림
 tags: [hub, architecture]
 status: active
 ---
-# wiki-pipeline 전체 그림
-
 사내 GitLab 과제 레포들(X-LAB/ROC/Smart-ROS/SW-RCS)의 문서화를 AI로 자동화해, 공통 문서 레포
-**docs-hub**에 **MR/PR로 제출**하는 시스템. 문서는 **두 모달리티**(정적=코드, 행위=실행 앱)로 만든다.
+**docs-hub(product-common)**에 **MR/PR로 제출**하는 시스템. 문서는 **두 모달리티**(정적=코드, 행위=실행 앱)로 만든다.
 
-## 한눈에 — 파이프라인 2종
+## 파이프라인 2종
 
-|                           | 입력 → 산출물                   | 트리거           | 산출 채널                   |
-| ------------------------- | -------------------------- | ------------- | ----------------------- |
-| **① 정적** (Docu-Automatic) | 코드 diff → 기술문서             | 야간 배치 · 수동    | docs-hub **MR** (사람 리뷰) |
-| **② 매뉴얼 추출** (행위)         | 릴리스 앱 실행·관측 → 사용자/엔지니어 매뉴얼 | 릴리스/버전 **태그** | docs-hub **MR** (사람 리뷰) |
+|                                 | 입력 → 산출물                   | 트리거           | 산출 채널                   |
+| ------------------------------- | -------------------------- | ------------- | ----------------------- |
+| **① 정적** (Docu-Automatic)       | 코드 diff → 기술문서             | 야간 배치 · 수동    | docs-hub **MR** (사람 리뷰) |
+| **② 매뉴얼 추출** (Manual-Automatic) | 릴리스 앱 실행·관측 → 사용자/엔지니어 매뉴얼 | 릴리스/버전 **태그** | docs-hub **MR** (사람 리뷰) |
 
 **두 파이프라인 모두 MVP 첫 출시 범위에 든다**(2026-07-07 확정 → [[decision-mvp-scope]]). SCM 커넥터는
 MVP에서 **다중 인스턴스 + GitHub까지** 붙는다 — 사내 GitLab·gitlab.com·github.com을 소스로 등록 가능
@@ -73,7 +71,7 @@ flowchart TB
 
 굵은 화살표(①)가 평면 간 트리거, 점선(④)이 완료 보고다.
 
-- **등록** — 대시보드에서 레포별 project access token으로 **레포 1개 + 개발/배포 브랜치 2개**를 등록한다
+- **등록** — 대시보드에서 레포별 project access token으로 **레포 1개 + 개발/배포 브랜치 2개**를 등록한다.
   (project id·default_branch·git URL은 자동 조회, compare dry-run으로 검증) → [[decision-repo-dev-release-registration]]
 - **브랜치 → 문서 역할** — 개발 브랜치 = 최신 기술문서(compare 야간), 배포 브랜치 = 릴리스 문서(태그 트리거).
   docs-hub의 `full_namespace_path/{dev|release}/` 하위폴더로 갈린다 → [[decision-docs-hub-folder-rule]]

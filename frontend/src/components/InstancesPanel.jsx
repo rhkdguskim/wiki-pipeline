@@ -24,6 +24,15 @@ export function InstancesPanel({instances, form, onChange, onSave, onToggleEnabl
       </table>
     </div>
     <form onSubmit={ev => { ev.preventDefault(); onSave(); }}>
+      <input
+        type="text"
+        name="username"
+        autoComplete="username"
+        tabIndex={-1}
+        aria-hidden="true"
+        style={{position: 'absolute', left: '-9999px', width: 1, height: 1, opacity: 0}}
+        readOnly
+      />
       <div className="formGrid">
         <label>식별자(ID)<input value={fieldValue(form, 'id')} onChange={e => set('id', e.target.value)} placeholder="github-com" /></label>
         <label>종류<select value={fieldValue(form, 'kind') || 'gitlab'} onChange={e => set('kind', e.target.value)}>

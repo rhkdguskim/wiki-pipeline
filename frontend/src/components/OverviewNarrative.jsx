@@ -6,6 +6,7 @@ import {RunQualityBadge} from './RunQualityBadge.jsx';
 import {VncSessionBadge} from './VncSessionBadge.jsx';
 import {ChangeImpactPanel} from './ChangeImpactPanel.jsx';
 import {MrReadinessPanel} from './MrReadinessPanel.jsx';
+import {useRunDocsQuery} from '../hooks/queries.js';
 
 const DocViewer = lazy(() => import('./DocViewer.jsx').then(m => ({default: m.DocViewer})));
 
@@ -57,7 +58,29 @@ export function OverviewNarrative({S, live, state, stages, activeRun, runSummary
   const sentence = currentSentence({state, S, runSummary, activeRun});
   const {total, done, pct, unitLabel} = progressInfo({stages, S, runSummary});
   const elapsedMs = S.firstTs ? (live ? Date.now() : S.lastTs) - S.firstTs : 0;
-  const generated = runSummary?.generated || [];
+
+  // DB 기반 문서 목록 — run_summary.generated 보다 정확하고 최신.
+  // docu-automation(static) · manual-automation 산출물 모두 포함.
+  // runId 가 없거나 run 이 진행 중일 수 있으므로 enabled 는 runId 존재 여부에만 의존.
+  const docsQuery = useRunDocsQuery(runId, !!runId);
+  const dbDocs = docsQuery.data?.docs || [];
+  // DB 목록이 있으면 우선, 없으면 runSummary.generated 로 폴백 (run 진행 중 webhook 전).
+  const generated = dbDocs.length ? dbDocs.map(d => ({
+    path: d.path,
+    theme: d.theme,
+    warned: (d.warning_count || 0) > 0,
+    verdict: d.quality_status || '',
+    has_content: d.has_content,
+    content_size: d.content_size || 0,
+    quality_status: d.quality_status || 'not_evaluated',
+    pipeline_id: runSummary?.pipeline_id || '',
+  })) : (runSummary?.generated || []).map(g => ({
+    ...g,
+    has_content: true,
+    content_size: 0,
+    quality_status: g.verdict || '',
+  }));
+
   const modelUsage = runSummary?.usage_by_model?.length ? runSummary.usage_by_model : [...(S.modelUsage || new Map()).values()];
   const topModel = modelUsage.slice().sort((a, b) => (
     ((b.input_tokens || 0) + (b.output_tokens || 0)) - ((a.input_tokens || 0) + (a.output_tokens || 0))
@@ -117,11 +140,18 @@ export function OverviewNarrative({S, live, state, stages, activeRun, runSummary
       {generated.length ? <ul className="docList">
         {generated.map((g, i) => {
           const isMd = /\.(md|markdown)$/i.test(g.path || '');
-          return <li key={`${g.path}-${i}`} className={isMd ? 'docItem clickable' : ''} onClick={isMd ? () => setDocViewer({path: g.path}) : undefined} title={isMd ? '클릭하여 미리보기' : ''}>
+          const qs = g.quality_status || g.verdict || '';
+          const isFail = qs === 'fail';
+          const isWarn = qs === 'warning' || g.warned;
+          // 콘텐츠가 DB 에 있으면 클릭 가능, 아니면 디스크 폴백 시도.
+          const canView = isMd && (g.has_content !== false);
+          return <li key={`${g.path}-${i}`} className={canView ? 'docItem clickable' : ''} onClick={canView ? () => setDocViewer({path: g.path}) : undefined} title={canView ? '클릭하여 미리보기' : (isMd ? '콘텐츠를 불러올 수 없습니다' : '')}>
             <FileText size={14} />
             <span className="docName mono">{g.path}</span>
-            {isMd && <Eye size={12} className="docViewHint" aria-hidden="true" />}
-            {g.warned ? <span className="pill stalled small">경고</span> : <span className="pill done small">통과</span>}
+            {canView && <Eye size={12} className="docViewHint" aria-hidden="true" />}
+            {isFail ? <span className="pill failed small">실패</span>
+              : isWarn ? <span className="pill stalled small">경고</span>
+              : <span className="pill done small">통과</span>}
           </li>;
         })}
       </ul> : <div className="emptyPanel">아직 생성된 문서가 없어요</div>}

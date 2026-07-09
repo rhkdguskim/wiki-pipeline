@@ -230,6 +230,11 @@ export const testLlmSettings = (payload = {}) =>
 export const getRunDoc = (runId, path) =>
   api(`/api/runs/${encodeURIComponent(runId)}/doc?path=${encodeURIComponent(path)}`).then(asJson);
 
+// run 의 생성된 문서 목록 (DB 기반 — 메타데이터 + 콘텐츠 보유 여부).
+// docu-automation(static) · manual-automation 산출물 모두 포함.
+export const getRunDocs = (runId) =>
+  api(`/api/runs/${encodeURIComponent(runId)}/docs`).then(asJson);
+
 // Audit log (ENT-F) — 관리 작업 이력 조회. action/actor 필터 지원.
 export const getAuditRecent = (params = {}) => {
   const qs = new URLSearchParams();

@@ -359,18 +359,46 @@ def test_llm_settings(request: Request, db=Depends(_db),
         return {"ok": False, "model": model_name, "error": msg[:300], "error_kind": kind}
 
 
+@router.get("/api/runs/{run_id}/docs", dependencies=[Depends(require_api_token)])
+def list_run_docs(run_id: str, request: Request, db=Depends(_db)) -> dict:
+    """run 의 생성된 문서 목록을 DB 에서 조회 — 메타데이터 + 콘텐츠 보유 여부.
+
+    프런트엔드 문서 목록 표시용. content_text 자체는 deferred 이므로
+    리스트 응답에 원문이 포함되지 않는다 — 원문은 /api/runs/{run_id}/doc 로.
+    """
+    _check_run_id(run_id)
+    from .services import resources
+    docs = resources.get_doc_outputs(db, run_id)
+    return {"run_id": run_id, "docs": docs, "count": len(docs)}
+
+
 @router.get("/api/runs/{run_id}/doc", dependencies=[Depends(require_api_token)])
-def get_run_doc(request: Request, run_id: str, path: str = Query("")) -> dict:
-    """run 산출물 디렉터리 내 문서 원문을 반환한다 (마크다운 + mermaid).
+def get_run_doc(request: Request, run_id: str, db=Depends(_db),
+                path: str = Query("")) -> dict:
+    """run 산출물 문서 원문을 반환한다 (마크다운 + mermaid).
+
+    DB 우선, 디스크 폴백:
+      1. RunDocOutput.content_text 에 원문이 있으면 DB 에서 서빙 (영속화 경로).
+      2. DB 에 없으면 레거시 경로 — out/ 디렉터리에서 파일을 읽는다.
+         러너가 별도 머신이거나 out/ 이 임시 저장소면 404.
 
     경로 안전: run 디렉터리 밖으로 벗어나는 상대경로(..)는 거부한다.
     """
     from pathlib import Path
+    from .services import resources
     run_id = _check_run_id(run_id)
     if not path or not re.match(r"^[A-Za-z0-9._/\-]+\.(md|markdown|mermaid)$", path):
         raise HTTPException(400, "잘못된 path — markdown/mermaid 확장자만 허용")
     if ".." in path.split("/"):
         raise HTTPException(400, "상위 경로 접근 금지")
+
+    # 1) DB 우선 — RunDocOutput.content_text 에 원문이 있으면 그대로 서빙.
+    doc = resources.get_doc_content(db, run_id, path)
+    if doc is not None and doc.get("content"):
+        return {"run_id": run_id, "path": path, "content": doc["content"],
+                "size": doc["size"], "source": "db"}
+
+    # 2) 디스크 폴백 — 레거시 run (DB 에 content 가 없는 경우).
     st = _state(request)
     run_root = projection.find_run_path(st.settings.out_path, run_id)
     if run_root is None:
@@ -383,7 +411,8 @@ def get_run_doc(request: Request, run_id: str, path: str = Query("")) -> dict:
     if not doc_path.is_file():
         raise HTTPException(404, f"문서 없음: {path}")
     text = doc_path.read_text(encoding="utf-8", errors="replace")
-    return {"run_id": run_id, "path": path, "content": text, "size": len(text)}
+    return {"run_id": run_id, "path": path, "content": text,
+            "size": len(text), "source": "disk"}
 
 
 # ── runs (조회 — DB 우선, 레거시 파일 폴백) ──────────────────
@@ -412,13 +441,17 @@ def trigger_run(request: Request, db=Depends(_db),
     source_id = str(payload.get("source_id") or "")
     if not source_id:
         raise HTTPException(400, "source_id가 필요합니다.")
+    pipeline_id = str(payload.get("pipeline_id") or "static").lower()
+    # 브랜치 고정 정책 (decision-branch-role-fixed):
+    # payload 의 branch_role 은 무시하고 pipeline_id 에 따라 강제.
+    branch_role = "release" if pipeline_id == "manual" else "dev"
     try:
         run = st.run_service.create_run(
             db, source_id=source_id,
             mode=str(payload.get("mode") or "auto"),
-            branch_role=str(payload.get("branch_role") or "dev"),
+            branch_role=branch_role,
             trigger="manual",
-            pipeline_id=str(payload.get("pipeline_id") or "static"),
+            pipeline_id=pipeline_id,
         )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
@@ -742,6 +775,20 @@ def get_run_events_seq(run_id: str, request: Request, db=Depends(_db),
 # ── source manual automation API ───────────────────────────────
 
 
+@router.get("/api/sources/{source_id}/doc-refs",
+            dependencies=[Depends(require_api_token)])
+def get_source_doc_refs(source_id: str, request: Request,
+                        db=Depends(_db)) -> dict:
+    """source 의 최신 docu-automation 산출물을 조회 — manual-automation 참조용 I/F.
+
+    manual-automation 파이프라인이 docu-automation 이 생성한 기술문서를
+    컨텍스트로 사용할 수 있도록 제공된다. 가장 최근 완료된 static run 의
+    문서 목록 + 콘텐츠를 반환한다.
+    """
+    from .services import resources
+    return resources.get_doc_refs(db, source_id)
+
+
 @router.get("/api/sources/{source_id}/manual-profile",
             dependencies=[Depends(require_api_token)])
 def get_source_manual_profile(source_id: str, request: Request,
@@ -1063,7 +1110,11 @@ def _apply_schedule_payload(row: SourceSchedule, payload: dict) -> SourceSchedul
     row.label = str(payload.get("label") or row.label or "정적 문서 자동화")
     row.pipeline_id = str(payload.get("pipeline_id") or row.pipeline_id or "static")
     row.mode = str(payload.get("mode") or row.mode or "auto")
-    row.branch_role = str(payload.get("branch_role") or row.branch_role or "dev")
+    # 브랜치 고정 정책 (decision-branch-role-fixed):
+    # - docu-automation (static) → dev 브랜치
+    # - manual-automation (manual) → release 브랜치
+    # payload 에서 branch_role 을 받아도 무시하고 pipeline_id 에 따라 강제한다.
+    row.branch_role = "release" if row.pipeline_id == "manual" else "dev"
     row.cron = normalize_schedule_payload(payload, row.cron)
     if "enabled" in payload:
         row.enabled = bool(payload["enabled"])
@@ -1074,10 +1125,7 @@ def _apply_schedule_payload(row: SourceSchedule, payload: dict) -> SourceSchedul
         raise ValueError(f"매뉴얼 파이프라인은 mode 'auto' 만 지원 (got: {row.mode})")
     if row.pipeline_id == "static" and row.mode not in ("auto", "init", "diff"):
         raise ValueError(f"지원하지 않는 mode: {row.mode}")
-    if row.branch_role not in ("dev", "release"):
-        raise ValueError(f"지원하지 않는 branch_role: {row.branch_role}")
-    # 매뉴얼 파이프라인은 릴리스 브랜치(태그) 기반이 원칙 (decision-release-tag-trigger).
-    # dev 도 허용하되 권장을 경고로 남긴다 — 검증 오류가 아니다.
+    # branch_role 은 pipeline_id 에 의해 강제되므로 별도 검증 불필요.
     return row
 
 
@@ -1829,6 +1877,11 @@ def runner_context(request: Request, db=Depends(_db), run: str = Query("")) -> d
         ctx["manual_profile"] = manual_profile_view
     if scenario_set_view is not None:
         ctx["scenario_set"] = scenario_set_view
+    # manual run 일 때 docu-automation 산출물을 참조 I/F 로 포함 —
+    # manual-automation 이 docu-automation 이 생성한 기술문서를 컨텍스트로 사용.
+    if (run_row.pipeline_id or "static") == "manual":
+        from .services import resources
+        ctx["doc_refs"] = resources.get_doc_refs(db, source.id)
     return ctx
 
 

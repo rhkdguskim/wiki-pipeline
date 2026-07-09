@@ -8,6 +8,15 @@ export function SourceEditor({form, onChange, onSave, onVerify, onTrigger, busy,
   // form 으로 source-like 객체를 합성해서 trigger button 에 넘긴다.
   const sourceLike = form.id ? {id: form.id, label: form.label || form.id, enabled: form.enabled !== false} : null;
   return <form className="editor" onSubmit={ev => { ev.preventDefault(); onSave(); }}>
+    <input
+      type="text"
+      name="username"
+      autoComplete="username"
+      tabIndex={-1}
+      aria-hidden="true"
+      style={{position: 'absolute', left: '-9999px', width: 1, height: 1, opacity: 0}}
+      readOnly
+    />
     <div className="editorHead">
       <h2>소스 등록</h2>
       <div className="panelActions">
