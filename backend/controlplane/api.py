@@ -1807,7 +1807,7 @@ def runner_context(request: Request, db=Depends(_db), run: str = Query("")) -> d
                     secret_values[ref_name] = val
             manual_profile_view = {
                 "mcp_endpoint_url": mp_row.mcp_endpoint_url,
-                "mcp_transport": mp_row.mcp_transport,
+                "mcp_transport": "sse",  # SSE 고정 (decision-mcp-sse-only)
                 "tool_allowlist": allow if isinstance(allow, list) else [],
                 "secret_values": secret_values,
                 "artifact_selector": mp_row.artifact_selector_json or {},
@@ -1816,6 +1816,10 @@ def runner_context(request: Request, db=Depends(_db), run: str = Query("")) -> d
                 "smoke_check": mp_row.smoke_check_json or {},
                 "coverage_threshold": int(mp_row.coverage_threshold or 70),
                 "failure_policy": mp_row.failure_policy or "block",
+                # 앱 실행 환경 (concept-mcp-app-environment) — MCP 가 이 정보를
+                # 받아 원격 호스트에서 앱을 환경에 맞게 실행·조정한다.
+                # app_path, app_args, env_vars, working_dir 등을 포함.
+                "app_environment": mp_row.app_environment_json or {},
                 "vnc": {
                     "enabled": bool(mp_row.vnc_enabled),
                     "host": mp_row.vnc_host or "",

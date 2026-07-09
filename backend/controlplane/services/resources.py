@@ -529,7 +529,7 @@ def save_manual_profile(db: Session, source_id: str, payload: dict) -> dict:
 
 
 def _apply_manual_profile_payload(row: SourceManualProfile, payload: dict) -> None:
-    for fld in ("enabled", "mcp_endpoint_url", "mcp_transport",
+    for fld in ("enabled", "mcp_endpoint_url",
                 "host_label", "host_ip", "vnc_enabled", "vnc_host",
                 "vnc_gateway_policy", "coverage_threshold", "failure_policy"):
         if fld in payload and payload[fld] is not None:
@@ -549,6 +549,9 @@ def _apply_manual_profile_payload(row: SourceManualProfile, payload: dict) -> No
                 setattr(row, port_fld, int(payload[port_fld]))
             except (TypeError, ValueError):
                 pass
+    # mcp_transport 는 SSE 고정 (decision-mcp-sse-only) — payload 에서 무시.
+    # 레거시 호환을 위해 컬럼은 남겨두고 항상 "sse" 로 강제한다.
+    row.mcp_transport = "sse"
     # JSON field aliases: frontend 는 ..._json 접미사 없이 보낸다 (tool_allowlist
     # vs DB 컬럼 tool_allowlist_json). 둘 다 받아서 정규화.
     json_aliases = {
@@ -558,6 +561,10 @@ def _apply_manual_profile_payload(row: SourceManualProfile, payload: dict) -> No
         "install_profile": "install_profile_json",
         "readiness_check": "readiness_check_json",
         "smoke_check": "smoke_check_json",
+        # 앱 실행 환경 (concept-mcp-app-environment) — MCP 가 원격 호스트에서
+        # 앱을 환경에 맞게 실행·조정한다. app_path, app_args, env_vars,
+        # working_dir 등을 포함하는 dict.
+        "app_environment": "app_environment_json",
     }
     for src_key, db_col in json_aliases.items():
         if src_key in payload and payload[src_key] is not None:
@@ -569,17 +576,25 @@ def _apply_manual_profile_payload(row: SourceManualProfile, payload: dict) -> No
 
 
 def _manual_profile_view(row: SourceManualProfile, *, with_secret: bool) -> dict:
+    # host_ip 는 vnc_host 와 동일한 호스트를 가리키는 경우가 대부분이므로
+    # VNC 호스트를 단일 진실로 사용한다. vnc_host 가 비어있으면 host_ip 로 폴백.
+    effective_host = row.vnc_host or row.host_ip
+    effective_port = row.vnc_port or row.host_port
     return {
         "source_id": row.source_id,
         "enabled": row.enabled,
         "mcp_endpoint_url": row.mcp_endpoint_url,
-        "mcp_transport": row.mcp_transport,
+        "mcp_transport": "sse",  # SSE 고정 — 응답에서도 항상 "sse"
         "host_label": row.host_label,
         "host_ip": row.host_ip if with_secret else _mask_host_ip(row.host_ip),
         "host_port": row.host_port,
+        # VNC 호스트가 원격제어 MCP 와 모니터링 양쪽에서 사용된다
+        # (decision-vnc-host-shared). 프런트는 vnc_host/vnc_port 만 보면 됨.
         "vnc_enabled": row.vnc_enabled,
         "vnc_host": row.vnc_host,
         "vnc_port": row.vnc_port,
+        "effective_host": effective_host if with_secret else _mask_host_ip(effective_host),
+        "effective_port": effective_port,
         "vnc_gateway_policy": row.vnc_gateway_policy,
         "tool_allowlist": row.tool_allowlist_json or [],
         "secret_refs": row.secret_refs_json or {},
@@ -587,6 +602,8 @@ def _manual_profile_view(row: SourceManualProfile, *, with_secret: bool) -> dict
         "install_profile": row.install_profile_json or {},
         "readiness_check": row.readiness_check_json or {},
         "smoke_check": row.smoke_check_json or {},
+        # 앱 실행 환경 — MCP 가 이 정보를 받아 원격 호스트에서 앱을 실행·조정.
+        "app_environment": row.app_environment_json or {},
         "coverage_threshold": row.coverage_threshold,
         "failure_policy": row.failure_policy,
         "updated_at": isoformat_z(row.updated_at),
