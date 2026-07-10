@@ -71,6 +71,8 @@ def test_zai_runtime_forces_serial_gate_and_parallel_workers(monkeypatch):
 
 
 def test_gate_releases_slot_on_exception(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "openai-compatible")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.openai.com/v1")
     monkeypatch.setenv("LLM_MAX_CONCURRENCY", "1")
     llm_gate.reset_for_test()
 
