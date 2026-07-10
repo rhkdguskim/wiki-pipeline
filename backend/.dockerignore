@@ -30,9 +30,7 @@ node_modules/
 .codegraph/
 .obsidian/
 .agents/
-wiki/
-raw/
-schema.md
+docs/
 test_*.py
 tests/
 README.md

@@ -58,9 +58,8 @@ WORKDIR /app
 COPY --from=backend-builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=backend-builder /usr/local/bin /usr/local/bin
 
-# 백엔드 코드 + wiki 운영 지침(schema.md).
+# 백엔드 코드. (docs/ 위키·schema.md 는 운영 지침 문서 — 런타임이 읽지 않으므로 이미지에 넣지 않음)
 COPY backend /app/backend
-COPY schema.md /app/schema.md
 
 # 프런트 빌드 결과물 — SPA 서빙용.
 COPY --from=frontend-builder /build/dist /app/frontend/dist
