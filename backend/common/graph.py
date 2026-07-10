@@ -11,11 +11,12 @@ from typing import Any
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
-from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.prebuilt import ToolNode
 
 from . import events as ev
 from .config import cached_settings
 from .agent_spec import AgentSpec
+from .llm_gate import llm_slot
 from .retry import with_retry
 
 
@@ -74,12 +75,18 @@ def build_agent_graph(spec: AgentSpec, model: BaseChatModel):
         # 도구 호출 한도 초과 시: 도구 없는 모델 + 강제 지시로 마무리.
         over_budget = spec.tools and _count_tool_turns(messages) >= spec.max_steps
         if over_budget:
-            call = lambda: model.invoke(
+            _invoke = lambda: model.invoke(
                 [SystemMessage(content=spec.system_prompt + _FORCE), *messages]
             )
         else:
             # 시스템 프롬프트를 매 호출 앞에 (Full Reset 성격 — 컨텍스트는 messages로만).
-            call = lambda: llm_with_tools.invoke([sys_msg, *messages])
+            _invoke = lambda: llm_with_tools.invoke([sys_msg, *messages])
+        # 공급자 concurrency 한도(예: Z.AI=3) 강제: 실제 호출을 전역 게이트로 감싼다.
+        # 게이트가 in-flight 호출 수를 눌러 담아 429 자체가 잘 안 나게 하고,
+        # 재시도는 그래도 새는 일시 오류를 위한 2차 안전망으로 남는다.
+        def call():
+            with llm_slot():
+                return _invoke()
         # APITimeoutError 등 일시 오류는 지수 백오프로 재시도 (공급자 무관).
         settings = cached_settings()
         resp: AIMessage = with_retry(call, attempts=settings.llm_retry_attempts, on_retry=_on_retry)
@@ -128,14 +135,25 @@ def build_agent_graph(spec: AgentSpec, model: BaseChatModel):
                 ))
         return result
 
+    def route_after_agent(state: dict) -> str:
+        """Route tool calls only while the turn budget still permits execution."""
+        last = state["messages"][-1]
+        if not getattr(last, "tool_calls", None):
+            return END
+        # The forced final model call is intentionally tool-free. A provider can
+        # nevertheless return a tool call, so enforce the cap in graph routing
+        # instead of relying on the prompt or model binding alone.
+        if _count_tool_turns(state["messages"]) > spec.max_steps:
+            return END
+        return "tools"
+
     builder = StateGraph(spec.state_schema)
     builder.add_node("agent", agent_node)
     builder.add_edge(START, "agent")
 
     if spec.tools:
         builder.add_node("tools", observed_tools_node)
-        # 목적지를 명시해 그래프 구조를 선언적으로 고정 (tools_condition은 "tools"/END만 반환).
-        builder.add_conditional_edges("agent", tools_condition, ["tools", END])
+        builder.add_conditional_edges("agent", route_after_agent, ["tools", END])
         builder.add_edge("tools", "agent")
     else:
         builder.add_edge("agent", END)

@@ -16,7 +16,7 @@ import re
 from langchain_core.messages import HumanMessage
 
 from ..common_pipeline.deterministic_verifier import verify as deterministic_verify
-from ..common_pipeline.evidence_builder import evidence_ids
+from ..common_pipeline.evidence_builder import evidence_block_text, evidence_ids
 from ..common_pipeline.grounding_critic import chunked_critic
 from ..common_pipeline.verify import DOC_END_MARKER, run_json_verdict, verified_generate
 from ..common_pipeline.writer import compose_write_prompt, run_writer
@@ -76,7 +76,9 @@ def _make_critic_fn(model, observer, *, stage: str, recursion_limit: int = 12):
             return final_text(final)
         except Exception:  # noqa: BLE001 — 폴백: 직접 model.invoke
             try:
-                resp = model.invoke([HumanMessage(content=prompt)])
+                from ..common.llm_gate import llm_slot
+                with llm_slot():  # 폴백 직접 호출도 공급자 concurrency 한도를 지킨다.
+                    resp = model.invoke([HumanMessage(content=prompt)])
                 return resp.content if isinstance(resp.content, str) else str(resp.content)
             except Exception as e:  # noqa: BLE001
                 return f'{{"result": "fail", "score": 0.0, "blocking_findings": [], "nonblocking_notes": ["critic 호출 실패: {type(e).__name__}"]}}'
@@ -119,18 +121,31 @@ def generate_with_critic(
     """
     ev_ids = evidence_ids(evidence_pack) if evidence_pack else []
     use_deterministic = evidence_pack is not None
+    writer_evidence = evidence_block_text(evidence_pack) if evidence_pack else ""
+    evidence_instruction = ""
+    if writer_evidence:
+        evidence_instruction = (
+            "\n\n## Evidence Pack (사실의 유일한 원천)\n"
+            "아래 [eN] 근거에 있는 사실만 서술하고, 핵심 주장마다 해당 [eN] 인용을 붙여라. "
+            "추가 도구 탐색은 허용되지 않는다.\n\n"
+            + writer_evidence
+        )
 
     def write(feedback: list[str], no_tools: bool, prev_doc: str | None = None) -> str:
-        prompt = compose_write_prompt(base_prompt, feedback=feedback,
-                                      prev_doc=prev_doc, no_tools=no_tools)
-        doc = run_writer(writer_graph_factory(no_tools=no_tools), prompt, observer)
+        prompt = compose_write_prompt(base_prompt + evidence_instruction, feedback=feedback,
+                                      prev_doc=prev_doc,
+                                      no_tools=no_tools or use_deterministic)
+        # Evidence pack이 있으면 writer도 critic과 같은 bounded evidence만 사용한다.
+        # 저장소 전체를 다시 탐색하면 문서와 검증의 사실 원천이 갈라진다.
+        doc = run_writer(
+            writer_graph_factory(no_tools=no_tools or use_deterministic), prompt, observer,
+        )
         # 엣지 라벨 문법(<br/>·괄호)은 재시도 대신 결정적으로 정규화 — lint 전에 고친다.
         return sanitize_mermaid(doc)
 
     def critic(doc_md: str) -> dict:
         if evidence_pack is not None:
             # chunked_critic 경로 — 9k 단절 없이 전체 문서를 chunk 별로 검증.
-            from ..common_pipeline.evidence_builder import evidence_block_text
             evidence_block = evidence_block_text(evidence_pack)
             critic_fn = _make_critic_fn(model, observer, stage=stage)
             verdict = chunked_critic(

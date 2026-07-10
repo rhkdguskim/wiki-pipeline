@@ -176,7 +176,7 @@ const LLM_GROUPS = [
   },
   {
     key: 'sampling', icon: Gauge, title: '런타임 한도',
-    fields: ['max_tokens', 'temperature', 'timeout_sec', 'retry_attempts'],
+    fields: ['max_tokens', 'temperature', 'timeout_sec', 'retry_attempts', 'max_concurrency'],
   },
 ];
 
@@ -189,6 +189,7 @@ const FIELD_LABEL = {
   temperature: 'Temperature',
   timeout_sec: 'Timeout (sec)',
   retry_attempts: 'Retry',
+  max_concurrency: '동시 호출 한도',
 };
 
 const FIELD_PLACEHOLDER = {
@@ -200,6 +201,7 @@ const FIELD_PLACEHOLDER = {
   temperature: '',
   timeout_sec: '',
   retry_attempts: '',
+  max_concurrency: '0=무제한. Z.AI(GLM)는 3',
 };
 
 function LlmSection({pushToast}) {
@@ -224,6 +226,7 @@ function LlmSection({pushToast}) {
         temperature: data.temperature ?? 0.2,
         timeout_sec: data.timeout_sec ?? 180,
         retry_attempts: data.retry_attempts ?? 4,
+        max_concurrency: data.max_concurrency ?? 0,
       });
     }
   }, [data, dirty]);
@@ -284,7 +287,7 @@ function LlmSection({pushToast}) {
   const sourceLabel = {db: 'DB 저장값', env: '.env 기본값', partial: '혼합'}[data.source] || data.source;
   const sourcePillCls = data.source === 'db' ? 'done' : data.source === 'env' ? 'stalled' : 'warn';
 
-  return <form className="llmSection" onSubmit={(e) => { e.preventDefault(); if (!dirty || updateBusy) return; save(); }}>
+  return <form className="llmSection" onSubmit={(e) => { e.preventDefault(); if (!dirty || updateBusy) return; onSave(); }}>
     <input
       type="text"
       name="username"
@@ -323,7 +326,7 @@ function LlmSection({pushToast}) {
           <div className="llmGroupFields">
             {g.fields.map(fk => {
               const isPassword = fk === 'api_key';
-              const isNumber = ['max_tokens', 'temperature', 'timeout_sec', 'retry_attempts'].includes(fk);
+              const isNumber = ['max_tokens', 'temperature', 'timeout_sec', 'retry_attempts', 'max_concurrency'].includes(fk);
               return <label className="llmField" key={fk}>
                 <span>{FIELD_LABEL[fk]}</span>
                 {fk === 'provider' ? (
@@ -336,9 +339,9 @@ function LlmSection({pushToast}) {
                   <div className="llmFieldControl">
                     <input
                       type={isPassword ? (revealedKey ? 'text' : 'password') : (isNumber ? 'number' : 'text')}
-                      step={fk === 'temperature' ? '0.05' : undefined}
+                      step={fk === 'temperature' ? '0.05' : (['max_concurrency', 'retry_attempts', 'max_tokens'].includes(fk) ? '1' : undefined)}
                       min={isNumber ? (fk === 'max_tokens' ? '256' : '0') : undefined}
-                      max={isNumber ? (fk === 'max_tokens' ? '200000' : fk === 'temperature' ? '2' : fk === 'timeout_sec' ? '600' : '10') : undefined}
+                      max={isNumber ? (fk === 'max_tokens' ? '200000' : fk === 'temperature' ? '2' : fk === 'timeout_sec' ? '600' : fk === 'max_concurrency' ? '64' : '10') : undefined}
                       value={form?.[fk] ?? ''}
                       onChange={e => {
                         const v = e.target.value;

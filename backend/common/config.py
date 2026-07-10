@@ -79,6 +79,10 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 65536
     llm_temperature: float = 0.2
     llm_timeout: float = 180.0
+    # 공급자 동시 요청 한도. Z.AI(GLM) 등은 계정 concurrency가 낮아(예: 3)
+    # 병렬 map/reduce가 이를 넘으면 429가 난다. 0=무제한(제한 안 함).
+    # 실제 in-flight LLM invoke 수를 이 값 이하로 강제한다 (common.llm_gate).
+    llm_max_concurrency: int = 0
 
     # ── 정적: GitLab (대상 인스턴스·프로젝트는 전부 .env로 — 코드에 특정 레포 가정 없음) ──
     gitlab_url: str = ""

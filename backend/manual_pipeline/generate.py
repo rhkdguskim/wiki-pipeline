@@ -57,7 +57,9 @@ def _make_critic_fn(model, observer, *, stage: str, recursion_limit: int = 12):
             return final_text(final)
         except Exception:  # noqa: BLE001
             try:
-                resp = model.invoke([HumanMessage(content=prompt)])
+                from ..common.llm_gate import llm_slot
+                with llm_slot():  # 폴백 직접 호출도 공급자 concurrency 한도를 지킨다.
+                    resp = model.invoke([HumanMessage(content=prompt)])
                 return resp.content if isinstance(resp.content, str) else str(resp.content)
             except Exception as e:  # noqa: BLE001
                 return f'{{"result": "fail", "score": 0.0, "blocking_findings": [], "nonblocking_notes": ["critic 호출 실패: {type(e).__name__}"]}}'

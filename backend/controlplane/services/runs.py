@@ -62,6 +62,37 @@ def _clear_session_publishes(session: Session) -> None:
     session.info.pop("_cp_pending_publish", None)
 
 
+def _pid_alive(pid: str) -> bool | None:
+    """같은 호스트에서 실행된 러너 subprocess pid 의 생존 여부.
+
+    True = 살아있음, False = 죽음(회수 가능), None = 판정 불가(pid 없음/이식성 없음).
+    v1 은 러너가 Control Plane 과 같은 호스트의 subprocess 이므로(runs.launch_runner)
+    os.kill(pid, 0) 로 확인할 수 있다. CI 러너로 옮기면 이 신호는 무의미해지므로
+    None 을 돌려 heartbeat/시간 기반 판정으로 폴백한다.
+    """
+    if not pid:
+        return None
+    try:
+        p = int(pid)
+    except (TypeError, ValueError):
+        return None
+    if p <= 0:
+        return None
+    if os.name != "posix":
+        # Windows: os.kill(pid, 0) 은 ERROR_ACCESS_DENIED 등으로 신뢰할 수 없다.
+        # 시간 기반 판정으로 폴백.
+        return None
+    try:
+        os.kill(p, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # 존재하지만 신호 권한 없음 = 살아있음
+    except OSError:
+        return None
+
+
 class RunService:
     def __init__(self, settings: ControlPlaneSettings, notifier: Notifier,
                  broadcaster=None, session_factory=None,
@@ -145,6 +176,7 @@ class RunService:
             "LLM_TEMPERATURE": os.getenv("LLM_TEMPERATURE", "0.2"),
             "LLM_TIMEOUT": os.getenv("LLM_TIMEOUT", "180"),
             "LLM_RETRY_ATTEMPTS": os.getenv("LLM_RETRY_ATTEMPTS", "4"),
+            "LLM_MAX_CONCURRENCY": os.getenv("LLM_MAX_CONCURRENCY", "0"),
         }
         try:
             with self.session_factory() as db:
@@ -331,8 +363,18 @@ class RunService:
                     run.status = "running"
                 elif status in TERMINAL_STATUSES:
                     run.status = status
-                if status == "failed" and detail.get("error") and run.status == "failed":
-                    run.error = str(detail["error"])[:2000]
+                # 실패 원인(error) 저장 — status 전이와 독립적으로 다룬다.
+                # 예전 버그: `run.status == "failed"` 조건이라, reaper 가 먼저
+                # timeout 을 박아버린 뒤 러너가 뒤늦게 failed+error 이벤트를 보내면
+                # run.status 는 "timeout" 이라 error 가 유실돼 프런트 "마지막 오류"가
+                # 빈칸이 됐다. 이제 러너가 원인을 보고했고 아직 error 가 비어 있으면
+                # (또는 stuck reaper 가 남긴 자리표시자면) 실제 원인으로 채운다.
+                if status == "failed" and detail.get("error"):
+                    existing = str(run.error or "")
+                    if run.status in ("failed", "failed_quality_gate", "timeout",
+                                      "stale", "partial") and \
+                            (not existing or existing.startswith("stuck ")):
+                        run.error = str(detail["error"])[:2000]
             if run is not None and detail.get("kind") == "usage":
                 run.input_tokens += int(detail.get("input_tokens") or 0)
                 run.output_tokens += int(detail.get("output_tokens") or 0)
@@ -407,47 +449,75 @@ class RunService:
         return int(last or 0)
 
     def reap_stuck_runs(self, db: Session, *, stale_after_sec: int = 1800,
-                        max_idle_sec: int = 3600) -> int:
-        """stuck/stalled run reaper.
+                        max_idle_sec: int = 3600,
+                        require_dead_pid: bool = False) -> int:
+        """stuck/stalled run reaper — active(pending/running) run 을 terminal 로 수렴.
 
-        - pending 이지만 heartbeat 가 없는 상태로 stale_after_sec 경과 → failed
-        - running 인데 heartbeat_at 이 max_idle_sec 이전 → timeout
+        예전 버그: pending 정리 조건이 `heartbeat_at is None` 이라, 러너가 첫
+        heartbeat(stage="") 를 보낸 직후 죽으면 status 는 pending 인데 heartbeat_at 이
+        채워져 **양쪽 reaper 모두 이 run 을 놓쳐 영구 pending 으로 잔류**했다
+        (프런트 "실시간 작업"의 유령 run). 이제 다음 세 신호로 판정한다:
 
-        1회 호출에서 같은 run 을 두 번 처리하지 않도록 status 가 terminal 이면
-        스킵한다.
+        1. **pid 생존 확인**(같은 호스트 subprocess): runner_pid 가 죽었으면
+           heartbeat/시간과 무관하게 즉시 회수 — 가장 확실한 신호.
+        2. **마지막 활동 시각**: heartbeat_at 이 있으면 그것, 없으면 created_at.
+           pending 은 stale_after_sec, running 은 max_idle_sec 초과 시 회수.
+        3. terminal status 는 절대 건드리지 않는다.
+
+        require_dead_pid=True: pid 가 **확실히 죽은** run 만 회수한다(시간 기준 무시).
+        Control Plane 재기동 직후 crash recovery 에서 쓴다 — 그 순간 살아있는
+        러너(고아 프로세스로 계속 도는 것 포함)는 건드리지 않기 위함.
+        pid 판정 불가(원격/Windows)면 이 모드에선 회수하지 않는다(보수적).
         """
         now = datetime.now(timezone.utc)
         threshold_pending = now - timedelta(seconds=stale_after_sec)
         threshold_idle = now - timedelta(seconds=max_idle_sec)
         n = 0
-        candidates = db.scalars(
-            select(Run).where(Run.status == "pending")
+
+        active = db.scalars(
+            select(Run).where(Run.status.in_(ACTIVE_STATUSES))
         ).all()
-        for r in candidates:
-            if r.created_at and as_utc(r.created_at) <= threshold_pending \
-                    and (r.heartbeat_at is None):
-                r.status = "failed"
-                r.terminal_at = now
-                r.error = f"stuck pending: heartbeat 없음 ({stale_after_sec}s 경과)"
-                r.status_reason = r.error
-                n += 1
-                self._publish({"type": "run_status", "run_id": r.id,
-                               "status": r.status, "reason": "stuck_pending"}, db)
-        idle_candidates = db.scalars(
-            select(Run).where(Run.status == "running")
-        ).all()
-        for r in idle_candidates:
-            if r.heartbeat_at is None:
+        for r in active:
+            # 마지막 활동 시각 — heartbeat 가 있으면 그것, 없으면 생성 시각.
+            last_beat = as_utc(r.heartbeat_at) if r.heartbeat_at else None
+            last_seen = last_beat or (as_utc(r.created_at) if r.created_at else None)
+            is_running = r.status == "running"
+            threshold = threshold_idle if is_running else threshold_pending
+
+            alive = _pid_alive(r.runner_pid)
+            reason = ""
+            new_status = ""
+            if alive is False:
+                # 프로세스가 죽었는데 complete 가 안 왔다 — 급사(kill/OOM/크래시).
+                new_status = "timeout" if is_running else "failed"
+                reason = "runner_pid_dead"
+            elif require_dead_pid:
+                # crash-recovery 모드: pid 가 죽은 것만 회수. 살아있거나(True)
+                # 판정 불가(None)면 시간 기준으로 죽이지 않는다.
                 continue
-            hb = as_utc(r.heartbeat_at)
-            if hb is not None and hb <= threshold_idle:
-                r.status = "timeout"
-                r.terminal_at = now
-                r.error = f"heartbeat 없음 ({max_idle_sec}s idle)"
-                r.status_reason = r.error
-                n += 1
-                self._publish({"type": "run_status", "run_id": r.id,
-                               "status": r.status, "reason": "heartbeat_timeout"}, db)
+            elif alive is None and last_seen is not None and last_seen <= threshold:
+                # pid 판정 불가(원격/Windows) + 마지막 활동이 임계값 초과.
+                new_status = "timeout" if is_running else "failed"
+                reason = "heartbeat_timeout" if is_running else "stuck_pending"
+            elif alive is True and last_beat is not None and last_beat <= threshold_idle:
+                # pid 는 살아있으나 heartbeat 가 오래 끊긴 좀비(행/데드락).
+                new_status = "timeout"
+                reason = "heartbeat_stalled"
+
+            if not new_status:
+                continue
+            r.status = new_status
+            r.terminal_at = now
+            idle_desc = (f"pid={r.runner_pid} 프로세스 종료됨"
+                         if reason == "runner_pid_dead"
+                         else f"heartbeat 없음 ({max_idle_sec if is_running else stale_after_sec}s 경과)")
+            r.error = f"stuck {r.status}: {idle_desc}"
+            r.status_reason = r.error
+            r.publish_state = "blocked"
+            n += 1
+            self._publish({"type": "run_status", "run_id": r.id,
+                           "status": r.status, "reason": reason}, db)
+
         if n:
             db.flush()
             log.info("reaper: %d run 을 terminal 로 전환", n)
@@ -555,8 +625,21 @@ class RunService:
         # EARLY-RETURN 가드 이후 모든 진단에 run_id 를 포함
         sha_advance_attempted = False
 
+        # 모순 감지: static run 이 성공(done/done_with_warnings)했는데 report 에
+        # last_processed_sha 가 비어 있으면 아래 전진 블록에 진입조차 못 해 SHA
+        # 포인터가 조용히 빈 채로 남는다(소스 상세의 "last sha" 가 계속 "-"). 러너의
+        # summary 전파 누락이나 구버전 배포의 신호이므로 명시적으로 로그를 남긴다.
+        if run.pipeline_id == "static" \
+                and status in ("done", "done_with_warnings") \
+                and not str(report.get("last_processed_sha") or "").strip():
+            log.error("complete_run: static run=%s 이 %s 인데 last_processed_sha 가 "
+                      "비어 있음 — SHA 포인터가 전진하지 않습니다. 러너 완료 보고의 "
+                      "summary 전파 또는 backend 배포 버전을 확인하세요.",
+                      run_id, status)
+
         if report.get("last_processed_sha") and source is not None \
-                and run.pipeline_id == "static":
+                and run.pipeline_id == "static" \
+                and status in ("done", "done_with_warnings"):
             sha_advance_attempted = True
             row = db.scalars(select(SourceBranch).where(
                 SourceBranch.source_id == source.id,

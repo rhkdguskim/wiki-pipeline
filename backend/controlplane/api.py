@@ -51,6 +51,7 @@ _RUNNER_ENV_ALLOWLIST = (
     "SYSTEMROOT", "PYTHONPATH", "PYTHONHOME",
     "LLM_PROVIDER", "LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL",
     "LLM_MAX_TOKENS", "LLM_TEMPERATURE", "LLM_TIMEOUT", "LLM_RETRY_ATTEMPTS",
+    "LLM_MAX_CONCURRENCY",
     "OUT_DIR", "LOG_LEVEL", "LOG_FORMAT",
 )
 
@@ -215,6 +216,7 @@ def _env_llm_dict() -> dict[str, str]:
         "LLM_TEMPERATURE": os.getenv("LLM_TEMPERATURE", "0.2"),
         "LLM_TIMEOUT": os.getenv("LLM_TIMEOUT", "180"),
         "LLM_RETRY_ATTEMPTS": os.getenv("LLM_RETRY_ATTEMPTS", "4"),
+        "LLM_MAX_CONCURRENCY": os.getenv("LLM_MAX_CONCURRENCY", "0"),
     }
 
 
@@ -289,12 +291,14 @@ def test_llm_settings(request: Request, db=Depends(_db),
     for k, env_key in [
         ("max_tokens", "LLM_MAX_TOKENS"), ("temperature", "LLM_TEMPERATURE"),
         ("timeout_sec", "LLM_TIMEOUT"), ("retry_attempts", "LLM_RETRY_ATTEMPTS"),
+        ("max_concurrency", "LLM_MAX_CONCURRENCY"),
     ]:
         if k in overrides and overrides[k] not in (None, ""):
             try:
                 merged_env[env_key] = str({
                     "max_tokens": int, "temperature": float,
                     "timeout_sec": float, "retry_attempts": int,
+                    "max_concurrency": int,
                 }[k](overrides[k]))
             except (TypeError, ValueError):
                 pass
@@ -458,7 +462,16 @@ def trigger_run(request: Request, db=Depends(_db),
     db.commit()
     # launch=False 이면 run 행만 만들고 러너는 띄우지 않는다 — 테스트/리허스용.
     should_launch = bool(payload.get("launch", True))
-    launched = should_launch and st.run_service.launch_runner(run) is not None
+    launched = False
+    if should_launch:
+        launched = st.run_service.launch_runner(run) is not None
+        if not launched:
+            # Popen 실패 — pending 방치 대신 즉시 failed 로 마킹(프런트 유령 방지).
+            run.status = "failed"
+            run.error = "러너 프로세스 기동 실패 (Popen)"
+            run.status_reason = run.error
+            run.terminal_at = datetime.now(timezone.utc)
+            db.commit()
     return {"ok": True, "run_id": run.id, "launched": launched}
 
 
@@ -1026,19 +1039,29 @@ def overview(request: Request, db=Depends(_db)) -> dict:
             ))
         else:
             # DB에 이벤트가 없는 file-only 레거시 run — per-call 폴백.
+            # HTTPException(404 등)뿐 아니라 어떤 예외(깨진 evidence row 등)도
+            # 한 run 때문에 홈 "운영 현황" 전체가 500 나지 않도록 격리한다.
             try:
                 summaries.append(run_summary(request, db, run=rid))
             except HTTPException:
                 continue
+            except Exception as e:  # noqa: BLE001
+                log.warning("overview 폴백 요약 실패 run=%s: %s: %s",
+                            rid, type(e).__name__, e)
+                continue
+
+    def _kpi(s: dict, key: str) -> int:
+        kpi = s.get("kpi") or {}
+        return int(kpi.get(key) or 0)
 
     totals = {
         "runs": len(runs),
-        "running": sum(1 for s in summaries if s["status"] == "running"),
-        "failed": sum(1 for s in summaries if s["status"] == "failed"),
-        "done": sum(1 for s in summaries if s["status"] == "done"),
-        "tokens": sum(s["kpi"]["token_total"] for s in summaries),
-        "tool_calls": sum(s["kpi"]["tool_calls"] for s in summaries),
-        "errors": sum(s["kpi"]["errors"] for s in summaries),
+        "running": sum(1 for s in summaries if s.get("status") == "running"),
+        "failed": sum(1 for s in summaries if s.get("status") == "failed"),
+        "done": sum(1 for s in summaries if s.get("status") == "done"),
+        "tokens": sum(_kpi(s, "token_total") for s in summaries),
+        "tool_calls": sum(_kpi(s, "tool_calls") for s in summaries),
+        "errors": sum(_kpi(s, "errors") for s in summaries),
     }
     return {"totals": totals, "recent": summaries}
 
@@ -1110,11 +1133,16 @@ def _apply_schedule_payload(row: SourceSchedule, payload: dict) -> SourceSchedul
     row.label = str(payload.get("label") or row.label or "정적 문서 자동화")
     row.pipeline_id = str(payload.get("pipeline_id") or row.pipeline_id or "static")
     row.mode = str(payload.get("mode") or row.mode or "auto")
-    # 브랜치 고정 정책 (decision-branch-role-fixed):
-    # - docu-automation (static) → dev 브랜치
-    # - manual-automation (manual) → release 브랜치
-    # payload 에서 branch_role 을 받아도 무시하고 pipeline_id 에 따라 강제한다.
-    row.branch_role = "release" if row.pipeline_id == "manual" else "dev"
+    # 브랜치 역할은 스케줄이 직접 갖는다 (decision-schedule-per-source):
+    # "같은 저장소라도 dev 문서와 release 문서는 실행 대상 브랜치가 다르다" —
+    # 예: dev 정적 문서 자동화는 평일 20:00, release 점검은 토요일 06:45.
+    # 따라서 payload 의 branch_role(dev|release)을 존중한다. 단 manual 파이프라인은
+    # 관측이 릴리스 아티팩트 대상이므로 release 로 강제한다.
+    if row.pipeline_id == "manual":
+        row.branch_role = "release"
+    else:
+        role = str(payload.get("branch_role") or row.branch_role or "dev").lower()
+        row.branch_role = role if role in ("dev", "release") else "dev"
     row.cron = normalize_schedule_payload(payload, row.cron)
     if "enabled" in payload:
         row.enabled = bool(payload["enabled"])
@@ -1125,7 +1153,6 @@ def _apply_schedule_payload(row: SourceSchedule, payload: dict) -> SourceSchedul
         raise ValueError(f"매뉴얼 파이프라인은 mode 'auto' 만 지원 (got: {row.mode})")
     if row.pipeline_id == "static" and row.mode not in ("auto", "init", "diff"):
         raise ValueError(f"지원하지 않는 mode: {row.mode}")
-    # branch_role 은 pipeline_id 에 의해 강제되므로 별도 검증 불필요.
     return row
 
 
@@ -1640,7 +1667,7 @@ async def ws_channel(websocket: WebSocket, verbose: int = Query(0)):
         except Exception:  # noqa: BLE001
             pass
 
-    state.broadcaster.register_overflow_callback(_on_overflow)
+    state.broadcaster.register_overflow_callback(_on_overflow, key=q)
 
     async def _pump():
         while True:
@@ -1658,6 +1685,8 @@ async def ws_channel(websocket: WebSocket, verbose: int = Query(0)):
     finally:
         sender.cancel()
         state.broadcaster.unregister(q)
+        # 콜백도 반드시 제거 — 안 그러면 죽은 소켓을 가리키는 클로저가 누적된다.
+        state.broadcaster.unregister_overflow_callback(q)
 
 
 # ── VNC WebSocket Gateway (§6.8) ──────────────────────────────
@@ -2136,9 +2165,15 @@ def costs(request: Request, db=Depends(_db)) -> dict:
     service = _state(request).run_service
     rows = service.list_runs(db, limit=1000)
     model_rows = service.list_model_usage(db, limit=5000)
+    # source_id → label 맵 — 비용 표가 raw id 대신 사람이 읽는 이름을 쓰도록.
+    from .models import Source as _Source
+    label_map = {s.id: (s.label or s.id)
+                 for s in db.scalars(select(_Source)).all()}
     by_source: dict[str, dict[str, Any]] = {}
     for r in rows:
-        agg = by_source.setdefault(r["source_id"] or "(unknown)", {
+        sid = r["source_id"] or "(unknown)"
+        agg = by_source.setdefault(sid, {
+            "label": label_map.get(sid, sid),
             "runs": 0, "input_tokens": 0, "output_tokens": 0, "failed": 0,
         })
         agg["runs"] += 1

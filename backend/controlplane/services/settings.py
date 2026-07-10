@@ -50,7 +50,7 @@ class SettingsService:
     _LLM_KEYS = [
         "llm.provider", "llm.base_url", "llm.api_key", "llm.model",
         "llm.max_tokens", "llm.temperature", "llm.timeout_sec",
-        "llm.retry_attempts",
+        "llm.retry_attempts", "llm.max_concurrency",
     ]
 
     def _merge_llm(self, db: Session, env: dict[str, str]) -> tuple[dict[str, Any], str]:
@@ -63,6 +63,8 @@ class SettingsService:
             "temperature": float(env.get("LLM_TEMPERATURE", "0.2")),
             "timeout_sec": float(env.get("LLM_TIMEOUT", "180")),
             "retry_attempts": int(env.get("LLM_RETRY_ATTEMPTS", "4")),
+            # 공급자 동시 요청 한도(예: Z.AI=3). 0=무제한. 러너 concurrency 게이트가 강제.
+            "max_concurrency": int(env.get("LLM_MAX_CONCURRENCY", "0")),
         }
         # DB 에 저장된 값으로 덮어쓰기 (있는 키만)
         db_values: dict[str, Any] = {}
@@ -79,6 +81,7 @@ class SettingsService:
             ("llm.temperature", "temperature", float),
             ("llm.timeout_sec", "timeout_sec", float),
             ("llm.retry_attempts", "retry_attempts", int),
+            ("llm.max_concurrency", "max_concurrency", int),
         ]:
             v = self.get(db, db_key)
             if v is not None and v != "":
@@ -115,6 +118,7 @@ class SettingsService:
             "temperature": merged["temperature"],
             "timeout_sec": merged["timeout_sec"],
             "retry_attempts": merged["retry_attempts"],
+            "max_concurrency": merged["max_concurrency"],
             "source": source,
         }
 
@@ -134,6 +138,7 @@ class SettingsService:
             "LLM_TEMPERATURE": str(float(merged["temperature"])),
             "LLM_TIMEOUT": str(float(merged["timeout_sec"])),
             "LLM_RETRY_ATTEMPTS": str(int(merged["retry_attempts"])),
+            "LLM_MAX_CONCURRENCY": str(int(merged["max_concurrency"])),
         }
 
     def set_llm(self, db: Session, payload: dict[str, Any], *, actor: str = "") -> dict[str, Any]:
@@ -160,6 +165,7 @@ class SettingsService:
             ("temperature", "llm.temperature", float),
             ("timeout_sec", "llm.timeout_sec", float),
             ("retry_attempts", "llm.retry_attempts", int),
+            ("max_concurrency", "llm.max_concurrency", int),
         ]:
             if env_key in payload:
                 v = payload[env_key]
@@ -184,6 +190,7 @@ class SettingsService:
             "LLM_TEMPERATURE": os.getenv("LLM_TEMPERATURE", "0.2"),
             "LLM_TIMEOUT": os.getenv("LLM_TIMEOUT", "180"),
             "LLM_RETRY_ATTEMPTS": os.getenv("LLM_RETRY_ATTEMPTS", "4"),
+            "LLM_MAX_CONCURRENCY": os.getenv("LLM_MAX_CONCURRENCY", "0"),
         }
         return self.get_llm_effective(db, env_dict)
 
