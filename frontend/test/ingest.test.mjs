@@ -3,10 +3,11 @@
 
 import {strict as assert} from 'node:assert';
 import {
-  emptyState, ingest, stateFromRunSummary, statusBadge, qualityBadge,
+  AGENT_TRACE_MAX, emptyState, ingest, stateFromRunSummary, statusBadge, qualityBadge,
   publishStateBadge, mergeRunState, RUN_STATUS_VALUES, QUALITY_STATUS_VALUES,
   PUBLISH_STATE_VALUES,
 } from '../src/lib/ingest.js';
+import {agentLabel, buildAgentTraces} from '../src/lib/agentTrace.js';
 
 function test(name, fn) {
   try {
@@ -159,4 +160,37 @@ test('mergeRunState preserves seenEventIds and bumps snapshotVersion', () => {
   assert.equal(merged.snapshotVersion, 8);
   assert.ok(merged.seenEventIds.has('evt-1'));
   assert.equal(merged.qualityStatus, 'pass');
+});
+
+test('buildAgentTraces groups reasoning, tools, retry, and token usage by agent stage', () => {
+  const traces = buildAgentTraces([
+    {layer: 'agent_step', stage: 'search:api', ts: '2026-07-10T01:00:00Z', detail: {kind: 'thinking', summary: '도구 사용을 결정: read_file'}},
+    {layer: 'agent_step', stage: 'search:api', ts: '2026-07-10T01:00:01Z', detail: {kind: 'tool_use', tool: 'read_file', input: {path: 'x.py'}}},
+    {layer: 'agent_step', stage: 'search:api', ts: '2026-07-10T01:00:02Z', detail: {kind: 'tool_result', ok: true, preview: 'ok'}},
+    {layer: 'agent_step', stage: 'search:api', ts: '2026-07-10T01:00:03Z', detail: {kind: 'usage', input_tokens: 12, output_tokens: 4}},
+    {layer: 'agent_step', stage: 'search:api', ts: '2026-07-10T01:00:04Z', detail: {kind: 'llm_retry', attempt: 1, error: 'RateLimitError'}},
+  ]);
+  assert.equal(traces.length, 1);
+  assert.equal(traces[0].label, '탐색 · api');
+  assert.equal(traces[0].toolCalls, 1);
+  assert.equal(traces[0].llmCalls, 1);
+  assert.equal(traces[0].inputTokens, 12);
+  assert.equal(traces[0].retries, 1);
+  assert.equal(agentLabel('critic:intro'), '품질 검토 · intro');
+});
+
+test('ingest retains a larger agent trace buffer than the compact live feed', () => {
+  let s = emptyState();
+  for (let i = 0; i < 120; i++) {
+    s = ingest(s, {
+      event_id: `agent-${i}`,
+      layer: 'agent_step',
+      stage: `search:unit-${i}`,
+      ts: `2026-07-10T01:00:${String(i % 60).padStart(2, '0')}Z`,
+      detail: {kind: 'thinking', summary: '도구 사용을 결정'},
+    });
+  }
+  assert.equal(s.feed.length, 90);
+  assert.equal(s.agentFeed.length, 120);
+  assert.ok(AGENT_TRACE_MAX > s.feed.length);
 });

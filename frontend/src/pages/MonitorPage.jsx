@@ -9,6 +9,7 @@ import {CoveragePanel} from '../components/CoveragePanel.jsx';
 import {ArtifactSelectorPanel} from '../components/ArtifactSelectorPanel.jsx';
 import {RemoteVncMonitor} from '../components/RemoteVncMonitor.jsx';
 import {AgentQualityTimeline} from '../components/AgentQualityTimeline.jsx';
+import {AgentTracePanel} from '../components/AgentTracePanel.jsx';
 import {RunQualityBadge} from '../components/RunQualityBadge.jsx';
 import {MrReadinessPanel} from '../components/MrReadinessPanel.jsx';
 import {ChangeImpactPanel} from '../components/ChangeImpactPanel.jsx';
@@ -28,6 +29,7 @@ const SUB_TABS = [
   {id: 'quality', label: '품질'},
   {id: 'evidence', label: '근거'},
   {id: 'stages', label: '스테이지'},
+  {id: 'agents', label: '에이전트'},
   {id: 'coverage', label: '커버리지'},
   {id: 'artifacts', label: '산출물'},
   {id: 'remote', label: '원격 모니터'},
@@ -144,6 +146,7 @@ export function MonitorPage({
     {monitorView === 'quality' && runId && <QualityTab runId={runId} runSummary={runSummary} S={S} />}
     {monitorView === 'evidence' && runId && <EvidenceTab runId={runId} />}
     {monitorView === 'stages' && <StagesPage S={S} live={live} />}
+    {monitorView === 'agents' && <section className="panel"><AgentTracePanel feed={S.agentFeed} /></section>}
     {monitorView === 'coverage' && runId && <CoverageTab
       runId={runId} isManual={isManualPipeline} pipelineId={pipelineId} />}
     {monitorView === 'artifacts' && runId && <ArtifactsTab

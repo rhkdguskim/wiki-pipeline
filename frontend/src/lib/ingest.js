@@ -2,6 +2,7 @@
 // 2026-07-08: quality/coverage/artifact/VNC/seq dedupe/gap-detection 추가.
 
 export const FEED_MAX = 90;
+export const AGENT_TRACE_MAX = 600;
 
 export const RUN_STATUS_VALUES = [
   'pending', 'running',
@@ -31,6 +32,7 @@ export const emptyState = () => ({
   stages: new Map(),
   series: [],
   feed: [],
+  agentFeed: [],
   qualityStatus: 'not_evaluated',
   qualityScore: null,
   publishable: false,
@@ -102,6 +104,9 @@ export function stateFromRunSummary(summary) {
     row,
   ]));
   next.feed = (summary.timeline || []).slice(-FEED_MAX);
+  next.agentFeed = (summary.timeline || [])
+    .filter(event => event?.layer === 'agent_step')
+    .slice(-AGENT_TRACE_MAX);
 
   const quality = summary.quality || {};
   const qualityStatus = quality.status || summary.quality_status || 'not_evaluated';
@@ -176,6 +181,7 @@ export function ingest(S, e) {
     modelUsage: new Map(S.modelUsage || []),
     series: [...(S.series || [])],
     feed: [...(S.feed || [])],
+    agentFeed: [...(S.agentFeed || [])],
     seenEventIds: new Set(S.seenEventIds || []),
   };
   const t = Date.parse(e.ts);
@@ -284,14 +290,29 @@ export function ingest(S, e) {
     next.stages.set(e.stage, patched);
     next.feed.push(e);
     if (next.feed.length > FEED_MAX) next.feed.splice(0, next.feed.length - FEED_MAX);
+    next.agentFeed.push(e);
+    if (next.agentFeed.length > AGENT_TRACE_MAX) {
+      next.agentFeed.splice(0, next.agentFeed.length - AGENT_TRACE_MAX);
+    }
   }
   return next;
 }
 
 export function mergeRunState(S, runSummary) {
   if (!runSummary) return S;
+  const summaryState = stateFromRunSummary(runSummary);
+  const agentEvents = [...(summaryState.agentFeed || []), ...(S.agentFeed || [])];
+  const seen = new Set();
+  const agentFeed = agentEvents.filter((event) => {
+    const detail = event?.detail || {};
+    const key = event?.event_id || `${event?.ts}|${event?.stage}|${detail.kind || ''}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(-AGENT_TRACE_MAX);
   return {
-    ...stateFromRunSummary(runSummary),
+    ...summaryState,
+    agentFeed,
     seenEventIds: new Set(S.seenEventIds || []),
     lastSeq: S.lastSeq || 0,
     eventGapDetected: S.eventGapDetected || false,

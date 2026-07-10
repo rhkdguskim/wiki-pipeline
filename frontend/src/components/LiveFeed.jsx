@@ -1,7 +1,7 @@
 import {fmtClock, nf} from '../lib/format.js';
 
 const kindLabel = {
-  thinking: '생각', tool_use: '도구', tool_result: '결과', usage: '토큰', llm_retry: '재시도',
+  thinking: '판단', tool_use: '도구', tool_result: '결과', usage: '토큰', llm_retry: '재시도',
   quality_gate_completed: '품질게이트', quality_gate_failed: '품질실패',
   evidence_collected: '근거', evidence_unsupported_claim: '근거부족',
   coverage_updated: '커버리지',

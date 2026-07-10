@@ -15,7 +15,7 @@ function clearTimer(id) {
 
 // UI 전용 상태(서버 상태 아님) — 페이지 라우팅/선택/토스트
 export const useUiStore = create((set, get) => ({
-  // 최상위 페이지: home | repositories | pipelines | costs | audit | settings
+  // 최상위 페이지: home | repositories | scheduler | pipelines | costs | audit | settings
   page: 'home',
   setPage: (page) => set({page}),
 
@@ -29,11 +29,11 @@ export const useUiStore = create((set, get) => ({
   monitorView: 'overview',
   setMonitorView: (monitorView) => set({monitorView}),
 
-  // WS 이벤트 verbose 토글 — false(기본)=thinking 이벤트 제외, true=모든 이벤트 수신.
-  // 디버그 모드로 전환하면 LiveFeed/AgentConversation 이 에이전트 사고까지 표시.
+  // 에이전트 판단 요약·도구 사용은 실행 관측의 기본 데이터다. 명시적으로 끈 사용자만
+  // 이를 제외한다. 원문 사고 과정은 백엔드가 이벤트에 기록하지 않는다.
   // 값은 localStorage 에 보존해서 새로고침 후에도 유지.
   wsVerbose: (() => {
-    try { return localStorage.getItem('cp_ws_verbose') === '1'; } catch { return false; }
+    try { return localStorage.getItem('cp_ws_verbose') !== '0'; } catch { return true; }
   })(),
   setWsVerbose: (v) => {
     try { localStorage.setItem('cp_ws_verbose', v ? '1' : '0'); } catch { /* ignore */ }
