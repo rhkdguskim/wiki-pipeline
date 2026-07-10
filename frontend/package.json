@@ -4,7 +4,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "node test/ingest.test.mjs && node test/components.test.mjs"
+    "test": "node test/ingest.test.mjs && node test/components.test.mjs && node test/humanizeError.test.mjs"
   },
   "dependencies": {
     "@astryxdesign/core": "^0.1.3",

@@ -2,6 +2,7 @@ import {useState, Suspense, lazy} from 'react';
 import {AlertTriangle, CheckCircle2, Eye, FileText, GitPullRequest, Radio, XCircle} from 'lucide-react';
 import {narrateStage} from '../lib/stageNarrative.js';
 import {fmtDur, fmtNum} from '../lib/format.js';
+import {humanizeError} from '../lib/humanizeError.js';
 import {RunQualityBadge} from './RunQualityBadge.jsx';
 import {VncSessionBadge} from './VncSessionBadge.jsx';
 import {ChangeImpactPanel} from './ChangeImpactPanel.jsx';
@@ -30,12 +31,17 @@ function currentSentence({state, S, runSummary, activeRun}) {
     return {tone: 'partial', text: '일부 산출물만 유효해요', detail: activeRun?.blocked_reason || ''};
   }
   if (state === 'stale') {
-    return {tone: 'failed', text: 'stale complete — sha pointer 가 달라 전진하지 않았어요', detail: activeRun?.error || ''};
+    return {tone: 'failed', text: 'stale complete — sha pointer 가 달라 전진하지 않았어요', detail: runSummary?.error || activeRun?.error || ''};
   }
   if (state === 'failed' || state === 'timeout') {
     const lastError = runSummary?.errors?.at(-1);
-    const cause = lastError?.message || activeRun?.error || '';
-    return {tone: 'failed', text: '문제가 발생해 중단됐어요 — 담당자에게 알림이 발송됩니다', detail: cause};
+    // 폴백 우선순위: 구조화된 errors[] → run-summary.error(단수) → activeRun.error.
+    // run-summary.error 는 /api/runs 에 없고 DB 에만 있는 오래된 실패 run 을 열었을 때
+    // detail 이 빈칸이 되는 것을 막는다 (activeRun 이 없어도 원인을 보여준다).
+    const cause = lastError?.message || runSummary?.error || activeRun?.error || '';
+    // raw 원문 대신 사람 언어 제목을 메인 문장으로 — 원문은 rawDetail 로 접어둔다.
+    const e = humanizeError(cause, activeRun?.error_kind || runSummary?.error_kind);
+    return {tone: 'failed', text: e.title, detail: e.fix, rawDetail: e.raw};
   }
   const runningEntry = [...S.stages.entries()].reverse().find(([, s]) => s.status === 'running');
   const stageName = runSummary?.current_stage || runningEntry?.[0] || [...S.stages.keys()].at(-1) || '';
@@ -101,6 +107,12 @@ export function OverviewNarrative({S, live, state, stages, activeRun, runSummary
       <div>
         <strong>{sentence.text}</strong>
         {sentence.detail && <p className="narrativeDetail">{sentence.detail}</p>}
+        {sentence.rawDetail && (
+          <details className="rawDetail">
+            <summary>원문 오류 보기</summary>
+            <pre>{sentence.rawDetail}</pre>
+          </details>
+        )}
         {(runSummary?.quality || runSummary?.vnc) && (
           <div className="narrative__badges">
             {runSummary?.quality && <RunQualityBadge summary={runSummary} compact />}

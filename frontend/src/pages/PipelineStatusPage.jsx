@@ -4,6 +4,7 @@ import {RunsTable} from '../components/RunsTable.jsx';
 import {ErrorBanner, LoadingBlock} from '../components/QueryState.jsx';
 import {usePipelineStatusQuery} from '../hooks/queries.js';
 import {fmtClock, fmtDur, fmtNum, nf} from '../lib/format.js';
+import {humanizeError} from '../lib/humanizeError.js';
 import {MonitorPage} from './MonitorPage.jsx';
 
 const STATUS_PILL = {
@@ -23,14 +24,6 @@ function fmtRelative(iso) {
   if (ms < 3600000) return `${Math.floor(ms / 60000)}분 전`;
   if (ms < 86400000) return `${Math.floor(ms / 3600000)}시간 전`;
   return `${Math.floor(ms / 86400000)}일 전`;
-}
-
-function fmtErrKind(kind) {
-  if (!kind) return '';
-  if (kind === 'not_found') return '404';
-  if (kind === 'auth') return '인증';
-  if (kind === 'rate_limited') return 'rate limit';
-  return kind;
 }
 
 export function PipelineStatusPage({
@@ -238,16 +231,16 @@ export function PipelineStatusPage({
                       </div>
                     ) : <span className="muted">-</span>}
                   </td>
-                  <td className="auditDetail" title={p.last_error}>
+                  <td className="auditDetail">
                     {p.last_error
-                      ? <>
-                          <span className={`pill small ${p.last_error_kind === 'not_found' ? 'bad' : 'warn'}`}>
-                            {fmtErrKind(p.last_error_kind) || '오류'}
-                          </span>
-                          <div className="muted" style={{fontSize: 11, marginTop: 2, maxWidth: 220}}>
-                            {String(p.last_error).slice(0, 80)}
-                          </div>
-                        </>
+                      ? (() => {
+                          // raw 에러 원문(파이썬 dict·HTTP 코드)을 사람 언어로. 원문은 title 툴팁에만.
+                          const e = humanizeError(p.last_error, p.last_error_kind);
+                          return <div title={e.raw}>
+                            <span className={`pill small ${e.tone === 'danger' ? 'bad' : 'warn'}`}>{e.title}</span>
+                            {e.fix && <div className="metaFine">{e.fix}</div>}
+                          </div>;
+                        })()
                       : <span className="muted">-</span>}
                   </td>
                 </tr>;
