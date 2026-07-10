@@ -28,6 +28,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
 from .api import router
@@ -54,6 +55,23 @@ from .vnc_gateway import VncGateway
 from .ws import Broadcaster
 
 log = logging.getLogger("controlplane")
+
+
+class SafeJSONResponse(JSONResponse):
+    """surrogate(\\udcXX)가 섞인 문자열이 있어도 500 없이 직렬화하는 응답.
+
+    운영 PostgreSQL 이 UTF-8 이 아니거나 과거에 손상 저장된 한글 label 이 있으면
+    JSON 직렬화가 UnicodeEncodeError 로 응답 전체를 500 시킨다(스케줄/저장소 페이지
+    통째로 다운). db.py 의 client_encoding=utf8 로 신규 손상은 막지만, 이미 저장된
+    행에 대한 최후 방어로 surrogate 를 �(U+FFFD)로 치환해 항상 응답을 완성한다.
+    """
+
+    def render(self, content) -> bytes:
+        import json
+        text = json.dumps(content, ensure_ascii=False, allow_nan=False,
+                          separators=(",", ":"))
+        # surrogate 를 안전 문자로 치환 — encode 가 던지지 않도록.
+        return text.encode("utf-8", errors="replace")
 
 
 def _seed_from_env(app: FastAPI) -> None:
@@ -109,6 +127,20 @@ def create_app(settings: ControlPlaneSettings | None = None, *,
         if not app.state.box.enabled:
             log.warning("CONTROL_SECRET_KEY unset — tokens stored as plaintext.")
         _seed_from_env(app)
+        # ── 재기동 회수 (crash recovery) ──
+        # Control Plane 이 재기동되면 이전에 pending/running 이던 run 들의 러너
+        # subprocess 는 부모(CP)와 함께 죽었거나 고아로 남는다. 그 run 들을 회수하지
+        # 않으면 프런트 "실시간 작업"에 유령으로 영구 잔류한다. startup 에서 즉시
+        # reap 한다 — pid 생존 확인이 있으므로 아직 살아있는 러너는 건드리지 않고,
+        # 죽은 것만 terminal 로 수렴시킨다.
+        try:
+            with session_scope(app.state.session_factory) as db:
+                reaped = app.state.run_service.reap_stuck_runs(
+                    db, require_dead_pid=True)
+            if reaped:
+                log.info("재기동 회수: 죽은 러너 run %d건을 terminal 로 정리", reaped)
+        except Exception as e:  # noqa: BLE001 — 회수 실패가 기동을 막으면 안 된다
+            log.error("재기동 stuck run 회수 실패: %s: %s", type(e).__name__, e)
         app.state.scheduler.start()
         # 초기 메트릭 갱신 — Prometheus 가 first scrape 시 0 값이라도 받게.
         try:
@@ -167,6 +199,7 @@ def create_app(settings: ControlPlaneSettings | None = None, *,
             {"name": "system", "description": "Health, metrics, webhooks."},
         ],
         lifespan=lifespan,
+        default_response_class=SafeJSONResponse,
     )
 
     # ── Middleware: 가장 바깥(먼저 등록한 것)이 가장 안쪽에서 실행 ──
@@ -184,12 +217,11 @@ def create_app(settings: ControlPlaneSettings | None = None, *,
 
     # 기존 대시보드 계약 호환: 에러 응답에 FastAPI 기본 "detail"과 함께 "error" 키 제공.
     from fastapi import HTTPException as _HTTPException
-    from fastapi.responses import JSONResponse
 
     @app.exception_handler(_HTTPException)
     async def _http_error(request, exc: _HTTPException):
-        return JSONResponse(status_code=exc.status_code,
-                            content={"error": str(exc.detail), "detail": exc.detail})
+        return SafeJSONResponse(status_code=exc.status_code,
+                                content={"error": str(exc.detail), "detail": exc.detail})
 
     # ── Wire service objects ──
     engine = make_engine(settings.db_url)

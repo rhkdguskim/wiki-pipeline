@@ -66,11 +66,46 @@ class ControlPlaneClient:
             return None
 
     def complete(self, run_id: str, report: dict) -> dict:
-        resp = with_retry(lambda: self._client.post(
-            f"{self.base}/api/webhook/complete",
-            json={"run_id": run_id, **report}), attempts=3)
-        resp.raise_for_status()
-        return resp.json()
+        """완료 보고 — run 결과(status/sha/mr) 를 Control Plane 에 확정 전달.
+
+        이것이 실패하면 성공한 run 이 유실되므로(다음 배치가 같은 구간 재처리),
+        전송 실패 시 로컬에 리포트를 남긴다(감사·수동 재전송용). 재시도 횟수를
+        heartbeat 보다 넉넉히(6회) 줘서 Control Plane 의 짧은 재기동을 흡수한다.
+        """
+        try:
+            resp = with_retry(lambda: self._client.post(
+                f"{self.base}/api/webhook/complete",
+                json={"run_id": run_id, **report}), attempts=6)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:  # noqa: BLE001 — 유실 방지: 로컬에 남기고 재발생
+            self._dump_pending_complete(run_id, report, e)
+            raise
+
+    def _dump_pending_complete(self, run_id: str, report: dict,
+                               exc: BaseException) -> None:
+        """complete 전송 실패 시 리포트를 out/pending_completes/ 에 JSON 으로 남긴다.
+
+        운영자가 이 파일로 유실된 run 결과를 확인하고 수동 재전송할 수 있다.
+        디렉터리 생성/쓰기 자체가 실패해도 조용히 넘어간다(로그만).
+        """
+        try:
+            import json
+            from pathlib import Path
+            out_root = Path(os.environ.get("OUT_DIR", "out"))
+            pending_dir = out_root / "pending_completes"
+            pending_dir.mkdir(parents=True, exist_ok=True)
+            payload = {"run_id": run_id, "report": report,
+                       "error": f"{type(exc).__name__}: {exc}",
+                       "ts": datetime.now(timezone.utc).isoformat()}
+            (pending_dir / f"{run_id}.json").write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8")
+            log.error("complete 전송 실패 — 리포트를 %s 에 보존. run=%s: %s: %s",
+                      pending_dir, run_id, type(exc).__name__, exc)
+        except Exception as dump_exc:  # noqa: BLE001
+            log.error("complete 실패 + 로컬 보존도 실패 run=%s: %s / %s",
+                      run_id, exc, dump_exc)
 
     def close(self) -> None:
         self._client.close()

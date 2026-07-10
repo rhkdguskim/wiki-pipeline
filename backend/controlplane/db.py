@@ -37,6 +37,12 @@ def make_engine(db_url: str):
     if db_url.startswith("sqlite"):
         # 단일 파일 SQLite: FastAPI 스레드풀에서 접근하므로 check_same_thread 해제
         kwargs["connect_args"] = {"check_same_thread": False}
+    elif db_url.startswith(("postgresql", "postgres")):
+        # client_encoding 을 UTF-8 로 고정한다. 미설정 시 드라이버가 서버/로케일
+        # 인코딩(cp949·latin1 등)으로 디코드해, 한글 label(스케줄·소스)이
+        # surrogateescape(\udcXX)로 깨진 채 읽힌다. 그 문자열을 JSONResponse 가
+        # 직렬화할 때 500 이 나거나 프런트에 mojibake 로 전달된다(스케줄/저장소 페이지).
+        kwargs["connect_args"] = {"client_encoding": "utf8"}
     return create_engine(db_url, **kwargs)
 
 

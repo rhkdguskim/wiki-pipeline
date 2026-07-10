@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from .timeutil import isoformat_z
@@ -79,8 +80,13 @@ def health_live() -> dict:
 
 
 @router.get("/health/ready")
-def health_ready(request: Request) -> dict:
-    """트래픽 수신 가능 — DB/스케줄러/브로드캐스터 검사."""
+def health_ready(request: Request):
+    """트래픽 수신 가능 — DB/스케줄러/브로드캐스터 검사.
+
+    down 이면 HTTP 503 을 반환한다. k8s readinessProbe 는 기본적으로 HTTP 코드로
+    판정하므로, 예전처럼 body 만 down 이고 200 을 주면 DB 가 죽어도 ready 로
+    오판돼 트래픽이 계속 라우팅된다.
+    """
     timeout = request.app.state.settings.deep_healthcheck_timeout_sec
     checks = {
         "db": _check_db(request, timeout),
@@ -88,18 +94,23 @@ def health_ready(request: Request) -> dict:
         "broadcaster": _check_broadcaster(request),
     }
     overall = "ok" if all(c["ok"] for c in checks.values()) else "down"
-    return {"status": overall, "checks": checks, "ts": _now_iso()}
+    body = {"status": overall, "checks": checks, "ts": _now_iso()}
+    return JSONResponse(body, status_code=200 if overall == "ok" else 503)
 
 
 @router.get("/health/startup")
-def health_startup(request: Request) -> dict:
-    """기동 시 1회 통과용 — 시드/APScheduler 등 결정성 확인."""
+def health_startup(request: Request):
+    """기동 시 1회 통과용 — 시드/APScheduler 등 결정성 확인.
+
+    degraded(DB 미준비 등)면 503 — startupProbe 가 아직 통과하면 안 됨을 알린다.
+    """
     checks = {
         "db": _check_db(request, request.app.state.settings.deep_healthcheck_timeout_sec),
         "secretbox": _check_secretbox(request),
     }
     overall = "ok" if all(c["ok"] for c in checks.values()) else "degraded"
-    return {"status": overall, "checks": checks, "ts": _now_iso()}
+    body = {"status": overall, "checks": checks, "ts": _now_iso()}
+    return JSONResponse(body, status_code=200 if overall == "ok" else 503)
 
 
 @router.get("/health")

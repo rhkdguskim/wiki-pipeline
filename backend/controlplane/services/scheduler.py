@@ -61,6 +61,16 @@ class SourceScheduler:
                 id="maintenance-warn-stale-tokens", replace_existing=True,
                 misfire_grace_time=3600, coalesce=True,
             )
+        # stuck/stalled run reaper (매 5분). 예전엔 /api/internal/reap-stuck 수동
+        # 호출로만 돌아, 러너가 급사하면 프런트 "실시간 작업"에 유령 run 이 계속
+        # 남았다. 주기 잡으로 등록해 자동 회수한다. pid 생존 확인이 있어 살아있는
+        # 러너는 건드리지 않는다.
+        self._scheduler.add_job(
+            self._reap_stuck_runs,
+            CronTrigger.from_crontab("*/5 * * * *", timezone="Asia/Seoul"),
+            id="maintenance-reap-stuck", replace_existing=True,
+            misfire_grace_time=300, coalesce=True,
+        )
         # 매뉴얼 파이프라인 릴리스 태그 폴링 (decision-release-tag-trigger)
         if self.tag_poller is not None and self.settings.manual_tag_poll_enabled:
             cron = (self.settings.manual_tag_poll_cron.strip()
@@ -226,6 +236,16 @@ class SourceScheduler:
         except Exception as e:  # noqa: BLE001
             log.error("이벤트 정리 실패: %s: %s", type(e).__name__, e)
 
+    def _reap_stuck_runs(self) -> None:
+        """주기 reaper 잡 — 급사/행 걸린 run 을 terminal 로 회수."""
+        try:
+            with session_scope(self.session_factory) as db:
+                n = self.run_service.reap_stuck_runs(db)
+            if n:
+                log.info("주기 reaper: stuck run %d건 회수", n)
+        except Exception as e:  # noqa: BLE001 — reaper 실패가 스케줄러를 죽이면 안 된다
+            log.error("stuck run 회수 실패: %s: %s", type(e).__name__, e)
+
     def _run_batch(self, source_id: str, pipeline_id: str = "static",
                    mode: str = "auto", branch_role: str = "dev") -> None:
         """야간 배치 1건 — run 생성 + 러너 기동. (mode=auto: 상태 기반 init/diff 분기)"""
@@ -239,6 +259,14 @@ class SourceScheduler:
             with session_scope(self.session_factory) as db:
                 run = db.get(Run, run_id)
                 if run is not None:
-                    self.run_service.launch_runner(run)
+                    proc = self.run_service.launch_runner(run)
+                    if proc is None:
+                        # Popen 실패 — 러너가 안 떴다. run 이 pending 으로 방치되면
+                        # 프런트에 유령으로 남으므로 즉시 failed 로 마킹한다.
+                        run.status = "failed"
+                        run.error = "러너 프로세스 기동 실패 (Popen)"
+                        run.status_reason = run.error
+                        from ..timeutil import now_utc
+                        run.terminal_at = now_utc()
         except Exception as e:  # noqa: BLE001 — 한 소스의 실패가 스케줄러를 죽이면 안 된다
             log.error("배치 트리거 실패 source=%s: %s: %s", source_id, type(e).__name__, e)

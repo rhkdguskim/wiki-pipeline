@@ -84,7 +84,8 @@ class Broadcaster:
     def __init__(self):
         self._loop: asyncio.AbstractEventLoop | None = None
         self._clients: set[_Client] = set()
-        self._overflow_callbacks: list[Callable[[dict], None]] = []
+        # (key, callback) 튜플 목록 — key 는 보통 클라이언트 큐(연결 종료 시 제거용).
+        self._overflow_callbacks: list[tuple[object | None, Callable[[dict], None]]] = []
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
@@ -115,9 +116,22 @@ class Broadcaster:
         except RuntimeError:
             pass   # 루프 종료 중 — 관측 push 실패는 치명 아님
 
-    def register_overflow_callback(self, fn: Callable[[dict], None]) -> None:
-        """WS 라우트에서 overflow 시 호출할 콜백 — ws_channel close 처리 위임."""
-        self._overflow_callbacks.append(fn)
+    def register_overflow_callback(self, fn: Callable[[dict], None],
+                                   *, key: object | None = None) -> None:
+        """WS 라우트에서 overflow 시 호출할 콜백 — ws_channel close 처리 위임.
+
+        key(보통 그 클라이언트의 큐)를 함께 넘기면 unregister_overflow_callback 으로
+        연결 종료 시 정확히 제거할 수 있다. 예전엔 append 만 하고 제거 경로가 없어,
+        탭이 열렸다 닫힐 때마다 죽은 소켓을 가리키는 클로저가 무한 누적됐다
+        (메모리 누수 + overflow 시 죽은 소켓 전부에 close 시도 → 예외 폭증).
+        """
+        self._overflow_callbacks.append((key, fn))
+
+    def unregister_overflow_callback(self, key: object) -> None:
+        """key(큐)로 등록된 overflow 콜백을 제거한다 — 연결 종료 시 호출."""
+        self._overflow_callbacks = [
+            (k, f) for (k, f) in self._overflow_callbacks if k is not key
+        ]
 
     def _fanout(self, message: dict[str, Any]) -> None:
         dead = []
@@ -134,7 +148,7 @@ class Broadcaster:
                 dead.append(client)   # 소비를 멈춘 클라이언트 — 큐 정리 유도
                 # overflow 신호도 큐에 못 들어간다 — ws_channel close 콜백으로
                 # frontend 가 reconnect / snapshot refetch 하도록 유도.
-                for cb in self._overflow_callbacks:
+                for _key, cb in self._overflow_callbacks:
                     try:
                         cb({"type": "overflow", "run_id": message.get("run_id", "")})
                     except Exception:  # noqa: BLE001
