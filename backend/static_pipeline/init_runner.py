@@ -24,8 +24,10 @@ from ..common.graph import build_agent_graph
 from ..common.llm import build_chat_model
 from ..common.run import final_text, run_graph
 from ..common.textproc import extract_json_obj
+from ..common_pipeline.evidence_builder import build_evidence_pack
 from ..common_pipeline.output import save_doc
 from ..common_pipeline.parallel import parallel_map
+from ..common_pipeline.quality_gates import evaluate_generation_quality
 from ..common_pipeline.run_context import RunContext
 from ..connectors import connector_for_settings
 from .deep_summary import map_unit_summaries, summaries_block
@@ -64,6 +66,46 @@ def _files_under(all_paths: list[str], root_path: str) -> list[str]:
     return filter_source_files(under)
 
 
+def _build_init_evidence_pack(ctx, client, ref, summaries) -> dict | None:
+    """단위 요약(+best-effort 소스 파일)으로 init evidence pack 구축.
+
+    init 의 1차 근거는 map 단계 단위 요약이다 (원본 소스가 아니라 요약). 각 요약을
+    observation kind item 으로, 그리고 요약이 언급했을 소스 경로 일부를 source_file
+    로 담아 writer/critic 이 같은 bounded 근거만 보게 한다 — diff 경로와 동일한 계약
+    (generate.py: evidence_pack 이 있으면 chunked_critic + deterministic_verifier 활성).
+
+    빌드 실패/근거 없음이면 None 을 반환해 기존 9k critic 경로로 폴백한다 (하위 호환).
+    """
+    settings = ctx.settings
+    rev = ctx.rev
+    items: list[dict] = []
+    try:
+        for i, (unit, text) in enumerate(summaries, 1):
+            if not text or not str(text).strip():
+                continue
+            items.append({
+                "id": f"e{i}",
+                "kind": "observation",
+                "path": "",
+                "title": f"단위 요약: {unit}",
+                "content": str(text),
+                "metadata": {"unit": unit, "ref": ref},
+            })
+        if not items:
+            return None
+        pack = build_evidence_pack(
+            ctx.run_id, settings.source_id, "static", ref, items,
+        )
+        rev("stage", "evidence-build", "done",
+            detail={"pack_id": pack["pack_id"], "items": pack["item_count"],
+                    "truncated": pack["truncated"], "source": "unit-summaries"})
+        return pack
+    except Exception as e:  # noqa: BLE001 — 폴백: None → 기존 critic 경로
+        rev("stage", "evidence-build", "failed",
+            detail={"error": f"{type(e).__name__}: {e}"})
+        return None
+
+
 def _reduce_and_save(
     *, ctx: RunContext, client, model, ref, repo_name, themes, summaries, summary,
 ) -> dict:
@@ -77,6 +119,12 @@ def _reduce_and_save(
     rev = ctx.rev
     out_dir = settings.out_path / "init"
     summ_block = summaries_block(summaries)
+
+    # Evidence pack — 단위 요약을 bounded 근거로 만들어 writer/critic 이 같은 근거만
+    # 보게 한다. 이게 주입되면 generate 어댑터가 chunked_critic(9k 단절 없음) +
+    # deterministic_verifier 를 활성화한다 (diff 경로와 동일). 빌드 실패 시 None →
+    # 기존 9k critic 경로로 폴백 (하위 호환).
+    evidence_pack = _build_init_evidence_pack(ctx, client, ref, summaries)
 
     verdicts_path = out_dir / "_verdicts.json"
     try:
@@ -112,6 +160,7 @@ def _reduce_and_save(
             model=model, client=client, theme=theme, ref=ref, run_id=ctx.run_id,
             stage=stage, writer_graph_factory=factory, base_prompt=base_prompt,
             observer=ctx.observer, emit_ctx=rev,
+            evidence_pack=evidence_pack,
         )
         path = save_doc(out_dir, theme, doc_md)
         mr = submit_mr_stub(theme, path, settings.docshub_mr_enabled)
@@ -131,6 +180,9 @@ def _reduce_and_save(
             "file": str(path), "chars": path.stat().st_size,
             "verdict": verdict.get("result"), "warned": warned,
             "kept": bool(verdict.get("kept")),
+            "score": verdict.get("score"),
+            "blocking_findings": verdict.get("blocking_findings") or [],
+            "lint_errors": verdict.get("lint_errors") or [],
         }
         if warned:
             summary["warned"].append(theme)
@@ -145,6 +197,32 @@ def _reduce_and_save(
             json.dumps(prior, ensure_ascii=False, indent=1), encoding="utf-8")
     except OSError:
         pass
+
+    quality_inputs = [
+        {
+            "theme": theme,
+            "verdict_result": info.get("verdict"),
+            "verdict_score": info.get("score"),
+            "blocking_findings": info.get("blocking_findings") or [],
+            "lint_errors": info.get("lint_errors") or [],
+            "warned": info.get("warned"),
+        }
+        for theme, info in summary["docs"].items()
+        if "error" not in info
+    ]
+    quality_gate, terminal = evaluate_generation_quality(quality_inputs)
+    summary["quality_status"] = quality_gate["status"]
+    summary["terminal_status"] = terminal
+    summary["publishable"] = quality_gate["status"] != "fail"
+    rev("stage", "quality-gate", "done",
+        detail={"quality_status": quality_gate["status"],
+                "terminal_status": terminal,
+                "doc_count": len(quality_inputs)})
+
+    if terminal == "failed_quality_gate":
+        ctx.failed({"quality_status": quality_gate["status"],
+                    "terminal_status": terminal})
+        return summary
 
     # 상태 전진 — 전 테마가 (경고 포함) 저장됐을 때만 last_processed_sha를 기록한다.
     # 위키 계약(concept-idempotent-sha): 성공 후에만 전진, 실패 시 상태 불변 -> 재실행 안전.
@@ -174,7 +252,9 @@ def _reduce_and_save(
             detail={"skipped": f"테마 {len(ok_docs)}/{len(themes)}만 성공 — sha 전진 안 함"})
 
     ctx.done(detail={"units": len(summary.get("units", [])),
-                     "docs": list(summary["docs"].keys()), "warned": summary["warned"]})
+                     "docs": list(summary["docs"].keys()), "warned": summary["warned"],
+                     "quality_status": quality_gate["status"],
+                     "terminal_status": terminal})
     return summary
 
 
