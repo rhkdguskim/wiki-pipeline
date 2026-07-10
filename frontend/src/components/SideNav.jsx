@@ -1,12 +1,13 @@
-import {Bot, Coins, LayoutGrid, Server, Settings, ShieldCheck, Workflow} from 'lucide-react';
+import {Bot, CalendarClock, Coins, LayoutGrid, Server, Settings, ShieldCheck, Workflow} from 'lucide-react';
 
 const NAV = [
   {id: 'home', label: '홈', icon: LayoutGrid, key: '01'},
   {id: 'repositories', label: '저장소', icon: Server, key: '02'},
-  {id: 'pipelines', label: '파이프라인', icon: Workflow, key: '03'},
-  {id: 'costs', label: '비용', icon: Coins, key: '04'},
-  {id: 'audit', label: '감사', icon: ShieldCheck, key: '05'},
-  {id: 'settings', label: '설정', icon: Settings, key: '06'},
+  {id: 'scheduler', label: '스케줄러', icon: CalendarClock, key: '03'},
+  {id: 'pipelines', label: '파이프라인', icon: Workflow, key: '04'},
+  {id: 'costs', label: '비용', icon: Coins, key: '05'},
+  {id: 'audit', label: '감사', icon: ShieldCheck, key: '06'},
+  {id: 'settings', label: '설정', icon: Settings, key: '07'},
 ];
 
 export function SideNav({page, onNavigate}) {

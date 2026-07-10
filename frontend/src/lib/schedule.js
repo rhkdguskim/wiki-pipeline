@@ -10,6 +10,52 @@ export const WEEKDAYS = [
 
 const DEFAULT_WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri'];
 
+// 수동 파이프라인은 backend 가 mode=auto / branch_role=release 만 허용 (api.py:1073-1074).
+// UI 에서도 잘못된 모드가 저장되지 않도록 강제한다.
+export const STATIC_MODES = ['auto', 'init', 'diff'];
+
+// 새 스케줄 초안 기본값.
+export const blankSchedule = {
+  label: '정적 문서 자동화',
+  pipeline_id: 'static',
+  mode: 'auto',
+  branch_role: 'dev',
+  schedule_time: '20:00',
+  schedule_weekdays: ['mon', 'tue', 'wed', 'thu', 'fri'],
+  enabled: true,
+};
+
+export function defaultLabelFor(pipelineId) {
+  return pipelineId === 'manual' ? '매뉴얼 자동화' : '정적 문서 자동화';
+}
+
+// 서버에서 온 스케줄 행 → 편집용 draft.
+export function draftFromSchedule(row) {
+  const schedule = scheduleFromSource(row);
+  const pipelineId = row?.pipeline_id || 'static';
+  return {
+    label: row?.label || defaultLabelFor(pipelineId),
+    pipeline_id: pipelineId,
+    mode: pipelineId === 'manual' ? 'auto' : (row?.mode || 'auto'),
+    branch_role: row?.branch_role || (pipelineId === 'manual' ? 'release' : 'dev'),
+    schedule_time: schedule.time,
+    schedule_weekdays: schedule.weekdays,
+    enabled: row?.enabled !== false,
+  };
+}
+
+// 편집 draft → 저장 payload. 매뉴얼이면 mode/branch_role 을 강제 정규화하고 cron 을 합성.
+export function schedulePayload(draft) {
+  const mode = draft.pipeline_id === 'manual' ? 'auto' : draft.mode;
+  const branch_role = draft.pipeline_id === 'manual' ? 'release' : draft.branch_role;
+  return {
+    ...draft,
+    mode,
+    branch_role,
+    schedule_cron: buildCron(draft.schedule_time, draft.schedule_weekdays),
+  };
+}
+
 export function scheduleFromSource(source = {}) {
   const schedule = source.schedule || parseCron(source.schedule_cron);
   return {

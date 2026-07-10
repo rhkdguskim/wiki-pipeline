@@ -24,6 +24,7 @@ import {Toasts} from './components/Toasts.jsx';
 import {HomePage} from './pages/HomePage.jsx';
 import {RepositoriesPage} from './pages/RepositoriesPage.jsx';
 import {SourceDetailPage} from './pages/SourceDetailPage.jsx';
+import {SchedulerPage} from './pages/SchedulerPage.jsx';
 import {CostsPage} from './pages/CostsPage.jsx';
 import {SettingsPage} from './pages/SettingsPage.jsx';
 import {PipelineStatusPage} from './pages/PipelineStatusPage.jsx';
@@ -261,30 +262,32 @@ export function App() {
     }
   };
 
-  const createSourceSchedule = async (schedule) => {
-    if (!sourceDetailId) return;
+  // 스케줄 핸들러는 sourceId 를 명시적으로 받는다 — 스케줄러 페이지는 여러 소스를
+  // 한 화면에서 다루므로 sourceDetailId 전역 상태에 의존할 수 없다.
+  const createSourceSchedule = async (sourceId, schedule) => {
+    if (!sourceId) return;
     try {
-      await createScheduleMutation.mutateAsync({sourceId: sourceDetailId, schedule});
+      await createScheduleMutation.mutateAsync({sourceId, schedule});
       pushToast('스케줄이 추가되었습니다', 'success');
     } catch (e) {
       pushToast(e.message, 'error');
     }
   };
 
-  const updateSourceSchedule = async (scheduleId, schedule) => {
-    if (!sourceDetailId) return;
+  const updateSourceSchedule = async (sourceId, scheduleId, schedule) => {
+    if (!sourceId) return;
     try {
-      await updateScheduleMutation.mutateAsync({sourceId: sourceDetailId, scheduleId, schedule});
+      await updateScheduleMutation.mutateAsync({sourceId, scheduleId, schedule});
       pushToast('스케줄이 저장되었습니다', 'success');
     } catch (e) {
       pushToast(e.message, 'error');
     }
   };
 
-  const deleteSourceSchedule = async (scheduleId) => {
-    if (!sourceDetailId) return;
+  const deleteSourceSchedule = async (sourceId, scheduleId) => {
+    if (!sourceId) return;
     try {
-      await deleteScheduleMutation.mutateAsync({sourceId: sourceDetailId, scheduleId});
+      await deleteScheduleMutation.mutateAsync({sourceId, scheduleId});
       pushToast('스케줄이 삭제되었습니다', 'success');
     } catch (e) {
       pushToast(e.message, 'error');
@@ -336,10 +339,7 @@ export function App() {
             onSaveEdit={saveSource}
             saveBusy={saveSourceMutation.isPending}
             saveMessage=""
-            onCreateSchedule={createSourceSchedule}
-            onUpdateSchedule={updateSourceSchedule}
-            onDeleteSchedule={deleteSourceSchedule}
-            scheduleBusy={createScheduleMutation.isPending || updateScheduleMutation.isPending || deleteScheduleMutation.isPending}
+            onOpenScheduler={() => setPage('scheduler')}
           />
           : <RepositoriesPage
             instances={instances}
@@ -367,6 +367,18 @@ export function App() {
             onRetry={() => { sourcesQuery.refetch(); instancesQuery.refetch(); }}
           />
         )}
+
+        {page === 'scheduler' && <SchedulerPage
+          sources={sources}
+          onCreate={createSourceSchedule}
+          onUpdate={updateSourceSchedule}
+          onDelete={deleteSourceSchedule}
+          scheduleBusy={createScheduleMutation.isPending || updateScheduleMutation.isPending || deleteScheduleMutation.isPending}
+          isLoading={sourcesQuery.isLoading}
+          isError={sourcesQuery.isError}
+          error={sourcesQuery.error}
+          onRetry={() => sourcesQuery.refetch()}
+        />}
 
         {page === 'costs' && <CostsPage
           costs={costsQuery.data} overview={overviewQuery.data}
