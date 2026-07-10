@@ -39,6 +39,8 @@ status: active
 ## 관련
 
 - [[decision-dwh-shape-kimball-medallion]] — 우리가 Kimball+Medallion을 택한 결정
+- [[concept-karpathy-llm-wiki-storage]] — 같은 layering discipline의 LLM Wiki 언어 버전
+- [[decision-dwh-as-karpathy-llm-wiki]] — 이 물리 계층을 Karpathy 3동작으로 재조직한 결정
 - [[decision-dwh-storage-postgres-single]] — PG 단일 클러스터 다른 스키마 결정
 - [[entity-data-warehouse]] — 이 패턴으로 구축되는 저장소
 - [[concept-monday-column-value-modeling]] — Bronze→Silver의 반정형 처리

@@ -51,11 +51,11 @@
 
 ### 데이터 웨어하우스 (2026-07-09 — 설계 확정 전 사용자 결정 필요)
 
-- [[question-monday-plan-tier]] — Monday.com plan tier와 activity log 보존기간 (보존기간 < 동기화 주기면 full refresh 강제 → [[decision-monday-ingest-hybrid]])
+- [[question-monday-plan-tier]] — Monday.com plan tier와 activity log 보존기간 (보존기간 < 동기화 주기면 full refresh 강제 → [[decision-monday-ingest-polling-only]])
 - [[question-monday-user-mapping]] — Monday 사용자와 wiki_pipeline 사용자의 SSO 일치 여부 (dim_user 단일 통합 가능성)
 - [[question-monday-item-source-key]] — Monday item ↔ wiki_pipeline source(repo)를 잇는 키 (브릿지 팩트 fact_item_documentation의 핵심)
 - [[question-dwh-data-volume]] — DWH 예상 데이터 볼륨 (분할·읽기 복제본 이관 시점 → [[decision-dwh-storage-postgres-single]])
-- [[question-dwh-latency-target]] — DWH 지연 목표 일 배치/시간/실시간 (webhook 레인 도입 시기·폴맴스 주기 → [[decision-monday-ingest-hybrid]])
+- [[question-dwh-latency-target]] ✅ — DWH 지연 목표 일 배치/시간/실시간 (answered: **일 배치 확정** → webhook 삭제, 폴링 단일 레인 → [[decision-monday-ingest-polling-only]])
 - [[question-dwh-multi-tenancy]] — DWH 다부서 확장 가능성과 RLS 도입 시기 (→ [[decision-dwh-storage-postgres-single]])
 
 ### 향후 기능 후보 (Phase 3+)

@@ -13,7 +13,7 @@ status: open
 
 ## 맥락
 
-Monday.com activity log는 [[decision-monday-ingest-hybrid]]의 야간 전수 폴링에서 증분(incremental) 동기화의 핵심 신호다 — 어떤 item이 변경됐는지 activity log 이벤트로 식별해 변경된 item만 재추출한다.
+Monday.com activity log는 [[decision-monday-ingest-polling-only]]의 야간 전수 폴링에서 증분(incremental) 동기화의 핵심 신호다 — 어떤 item이 변경됐는지 activity log 이벤트로 식별해 변경된 item만 재추출한다.
 
 **Airbyte Monday 커넥터 문서가 명시적으로 경고**: *"If the time between syncs exceeds the activity log retention period for your Monday.com plan, some changes may not be captured during incremental syncs."*
 
@@ -30,4 +30,4 @@ Monday plan tier별 activity log 보존:
 
 ## 답
 
-<!-- answered로 전환 시: 답이 된 내용 + 관련 decision 링크. 보존기간에 따라 decision-monday-ingest-hybrid의 폴링 주기·full refresh 필요 여부가 확정됨 -->
+<!-- answered로 전환 시: 답이 된 내용 + 관련 decision 링크. 보존기간에 따라 decision-monday-ingest-polling-only의 폴링 주기·full refresh 필요 여부가 확정됨 -->

@@ -9,7 +9,9 @@ status: active
 
 ## 정의
 
-**쓰기가 없는(read-only) SaaS 소스**에서 변경 데이터를 포착(CDC, Change Data Capture)하기 위한 패턴. 데이터베이스의 logical replication 같은 네이티브 CDC가 불가능하고, SaaS 제공자의 webhook도 **유실 가능성을 공식적으로 인정**하는 경우가 많아, **webhook(실시간 근사) + 야간 전수 폴링(진실 보정)**의 하이브리드가 정석이다.
+**쓰기가 없는(read-only) SaaS 소스**에서 변경 데이터를 포착(CDC, Change Data Capture)하기 위한 패턴. 데이터베이스의 logical replication 같은 네이티브 CDC가 불가능하고, SaaS 제공자의 webhook도 **유실 가능성을 공식적으로 인정**하는 경우가 많다.
+
+> **정정 노트 (2026-07-10)**: 원래 이 개념은 "**webhook(실시간 근사) + 야간 전수 폴링(진실 보정)** 하이브리드가 정석"이라 서술했다. 그러나 **정확성은 항상 폴링이 전담**하고 webhook은 오직 지연(latency)만 줄이므로, 지연 목표가 **일 배치면 폴링 단일 레인이 기본**이고 webhook은 지연 목표가 근실시간일 때만 더하는 **옵션 레인**이다. 즉 축은 두 개다 — *정확성*(폴링이 항상 담당)과 *지연*(webhook이 근실시간 요구 시 단축). 우리 프로젝트는 일 배치라 폴링 단일 레인을 택했다 → [[decision-monday-ingest-polling-only]]. 아래 "작동 원리"의 webhook 레인은 근실시간 요구 시에만 켜지는 옵션으로 읽는다.
 
 ## 작동 원리
 
@@ -32,8 +34,8 @@ status: active
 ## 왜 중요한가
 
 - **webhook만으로는 부족하다**: Monday 문서는 webhook 한계를 명시적으로 인정(재시도 30분만 보장). 다른 SaaS도 대부분 비슷. 단독 사용은 조용한 데이터 유실로 이어진다.
-- **폴링만으로는 부족하다**: 지연이 커지고(일 배치), API 호출 비용·rate limit 한도 소모가 크다.
-- **하이브리드가 양쪽 단점 보완**: webhook으로 근실시간 근사치를 제공하고, nightly 폴링이 진실의 보정 계층이 돼 유실을 복구. SLA는 "야간 1회 보정 후 정확"으로 선언 가능.
+- **폴링만의 단점은 지연뿐**: 폴링은 전수를 보므로 정확성엔 문제가 없고, 단점은 지연(일 배치)과 API 호출 비용·rate limit 소모다. **지연이 허용되면(일 배치 SLA) 폴링 단일 레인으로 충분** — 이 경우 webhook은 불필요한 운영 표면이다.
+- **webhook은 지연 단축 옵션**: 지연 목표가 근실시간일 때만 webhook을 더해 근실시간 근사치를 제공한다. 이때도 nightly 폴링이 진실의 보정 계층으로 유실을 복구한다. SLA는 "야간 1회 보정 후 정확".
 - **idempotency가 필수**: 두 레인이 같은 이벤트를 중복 전달할 수 있으므로, event_id(또는 (item_id, updated_at)) 기반 idempotent upsert가 없으면 더블 카운팅 발생.
 - **PSA(원본 불변)와 결합**: bronze가 원본을 그대로 보존하므로, 보정 로직이 틀려도 언제든 재생 가능(→ [[concept-medallion-dwh-on-postgres]]).
 
@@ -45,7 +47,9 @@ status: active
 
 ## 관련
 
-- [[decision-monday-ingest-hybrid]] — 이 패턴을 Monday에 적용한 결정
+- [[decision-monday-ingest-polling-only]] — 이 패턴 중 **폴링 단일 레인**을 Monday에 적용한 현행 결정(일 배치 지연 목표)
+- [[decision-monday-ingest-hybrid]] — ⛔ superseded: 원래 하이브리드를 적용했던 결정
+- [[question-dwh-latency-target]] — 폴링 단일 vs 하이브리드를 가르는 지연 목표
 - [[entity-monday-com]] — webhook 30분 재시도 한계의 원천
 - [[concept-medallion-dwh-on-postgres]] — bronze PSA가 재생 가능성의 기반
 - [[decision-dwh-transform-dbt]] — 보정 로직을 dbt로 구현

@@ -23,7 +23,10 @@ status: active
 
 ## 이 위키에서의 실체화
 
-- [[decision-scm-connector-abstraction]] — SCM 커넥터: GitLab·GitHub를 compare/submit/auth 뒤로
+- [[decision-scm-connector-abstraction]] — SCM 커넥터: GitLab·GitHub를 compare/submit/auth 뒤로 (코드 축)
+- [[concept-ingestion-connector]] — 데이터 수집 커넥터: Monday·Jira·… 를 extract/적재 뒤로 (데이터 축, SCM과 형제 포트)
+- [[decision-dwh-md-document-store]] — 문서 저장: md 원문을 `DocumentStore` 포트 뒤로, PG → 향후 VectorStore(LLM WIKI) 어댑터 교체
+- [[decision-monday-readonly-client-wrapper]] — Monday 접근: `MondayReadOnlyClient` 래퍼(포트)로 은닉, 토큰 교체 = 어댑터 교체
 - [[decision-code-index-provider-abstraction]] — 코드 인덱스 프로바이더 (superseded — 코드 인덱스가
   파이프라인 범위에서 제외되며 실체화 취소 → [[decision-code-index-out-of-pipeline]])
 - [[question-engine-runtime]] — 생성 엔진 인터페이스: 같은 패턴의 다른 실체화 (검토 중)

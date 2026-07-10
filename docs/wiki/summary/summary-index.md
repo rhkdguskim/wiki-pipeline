@@ -35,6 +35,8 @@
 ### 데이터 웨어하우스 · 분석 통합 (2026-07-09)
 
 - [[summary-dwh-design-plan]] — DataWarehouse 설계 계획 요약: Monday.com + wiki_pipeline → PostgreSQL (Kimball+Medallion · webhook+폴맨스 하이브리드 · typed long+JSONB · dbt+cron-first · SCD 혼합)
+- [[summary-dwh-monday-ingestion-refinements]] — Monday 적재·저장소 설계 정정 요약(2026-07-10): 토큰 read/write→래퍼로 읽기전용 강제 · 스케줄러+LangGraph 자동 수집 · md 표준 포맷+DocumentStore 어댑터로 DB 교체(LLM WIKI 대비)
+- [[summary-ingestion-connector-architecture]] — 데이터 수집 커넥터 아키텍처 요약(2026-07-10): Monday=수집 커넥터 첫 구현체(SCM과 형제 포트) · 스케줄러가 커넥터로 DWH 적재 · 파이프라인이 DWH를 AI로 쿼리 · DocumentStore가 RunDocOutput 흡수+문서 run 분리
 
 ### 사내 환경 실측
 

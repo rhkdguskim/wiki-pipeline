@@ -158,7 +158,7 @@ flowchart LR
 ```
 
 - **형태** = Kimball 차원 모델링 + Medallion(Bronze/Silver/Gold) layering on PostgreSQL → [[decision-dwh-shape-kimball-medallion]] · [[concept-medallion-dwh-on-postgres]]
-- **적재** = Monday webhook(실시간 근사) + 야간 전수 폴링(보정) 하이브리드 · pipeline은 direct read → [[decision-monday-ingest-hybrid]] · [[concept-readonly-saas-cdc]]
+- **적재** = Monday 스케줄러 폴링 단일 레인(야간 전수, webhook 삭제 — 지연 목표=일 배치) · pipeline은 direct read → [[decision-monday-ingest-polling-only]] · [[concept-readonly-saas-cdc]]
 - **반정형 처리** = typed long table + JSONB 폴백 + GIN 인덱스 (Monday column value 타입별 JSON 상이) → [[decision-dwh-column-value-hybrid]] · [[concept-monday-column-value-modeling]]
 - **SCD** = items/users/boards SCD2 · statuses SCD1 · run/step append-only → [[decision-dwh-scd-strategy]]
 - **변환·오케스트레이션** = dbt-postgres + cron-first (→ Airflow 10+ 태스크 시) → [[decision-dwh-transform-dbt]]

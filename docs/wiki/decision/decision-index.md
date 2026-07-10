@@ -62,12 +62,21 @@
 
 ### 데이터 웨어하우스 · 분석 통합 (2026-07-09 — Monday.com + wiki_pipeline → PostgreSQL)
 
+- [[decision-dwh-as-karpathy-llm-wiki]] — **DWH 저장 = Karpathy LLM Wiki 3동작(축적·기록·정리)으로 재조직** (저장의 1차 언어를 BI→LLM Wiki로; medallion은 그 아래 물리 계층으로 유지; hybrid 저장방식 부분 정정) ⭐ 저장 철학 상위 축
 - [[decision-dwh-shape-kimball-medallion]] — **DWH 전체 형태 = Kimball 차원 모델링 + Medallion layering** (소스 2개·BI 지향; Inmon/Data Vault/Lakehouse 기각 — 오버스펙)
 - [[decision-dwh-storage-postgres-single]] — **저장소 = PostgreSQL 단일 클러스터, 다른 스키마** (이미 쓰는 PG 재사용·별도 클러스터/클라우드 DW 기각; 읽기 복제본으로 점진 확장)
-- [[decision-monday-ingest-hybrid]] — **Monday 적재 = webhook(실시간 근사) + 야간 전수 폴링(보정) 하이브리드** (webhook만/폴링만 기각 — 30분 재시도 한계/지연)
+- [[decision-monday-ingest-polling-only]] — **Monday 적재 = 스케줄러 폴링 단일 레인** (webhook 삭제 — 지연 목표=일 배치 확정으로 실시간 근사 불필요; 근실시간 요구 시 webhook 옵션 복귀)
+- [[decision-monday-ingest-hybrid]] — ⛔ superseded — Monday 적재 = webhook + 야간 전수 폴링 하이브리드 (지연 목표 일 배치 확정으로 webhook 레인 삭제, 위 polling-only가 계승)
 - [[decision-dwh-column-value-hybrid]] — **반정형 = typed long table + JSONB 폴백 + GIN 인덱스** (pure JSONB/exploded/EAV 기각 — 드리프트/쿼리성능/안티패턴)
+- [[decision-bronze-single-jsonb-table]] — **bronze 착륙 = 소스 구분 없는 단일 JSONB 테이블(raw_records) + 재수집 append(sha256 동일 시 skip)** (커넥터만 추가하면 소스 확장·스키마 변경 0; append 로그가 silver SCD2 입력; 소스별 전용 테이블/bronze 생략/upsert 기각. `bronze` 스키마에 위치)
 - [[decision-dwh-scd-strategy]] — **SCD = entity별 0/1/2/append 혼합** (items/users/boards SCD2·statuses SCD1·run/step append-only fact; dbt snapshot + merge)
 - [[decision-dwh-transform-dbt]] — **변환·오케스트레이션 = dbt-postgres + cron-first** (순수 SQL/데이터프레임/처음부터 Airflow 기각; Airflow는 10+ 태스크 시 이관)
+- [[decision-monday-readonly-client-wrapper]] — **Monday 읽기 전용 = 앱 계층 래퍼(MondayReadOnlyClient)로 mutation 차단** (2026-07-10 정정 — 발급 토큰이 read/write라 코드적 강제; 토큰 신뢰/정적검사만/네트워크차단 기각)
+- [[decision-monday-collector-langgraph-scheduled]] — **Monday 자동 수집 = 스케줄러 트리거 + LangGraph 에이전트 루프** (엔진 LangGraph 재사용·폴링 레인 실행체; 순수 스크립트/webhook만/Airbyte 단독 기각)
+- [[decision-dwh-md-document-store]] — **문서 저장 = md 표준 포맷 + DocumentStore 포트/어댑터** (DB 교체 가능; PG 초기 → 향후 VectorStore(LLM WIKI); PG 직결·파일만·처음부터 벡터 기각)
+- [[decision-ingestion-connector-architecture]] — **데이터 수집 아키텍처 = IngestionConnector → DWH → 파이프라인 AI 쿼리** (Monday=첫 구현체, SCM과 형제 포트; 스크립트/ScmConnector 욱여넣기/BI 전용 기각) ⭐ 상위 축
+- [[decision-document-identity-run-separation]] — **문서 정체성을 run에서 분리** (Document=오래 사는 엔티티·run_id nullable; RunDocOutput 흡수; 모든 문서 run 강제/종류별 테이블 기각)
+- [[decision-connector-settings-system-settings]] — **커넥터 설정 = 시스템 설정 페이지** (SystemSetting `connector.*` 네임스페이스·기존 llm.* 패턴 재사용; .env만/전용테이블/Source등록 기각. 토큰 암호화는 열린 항목)
 
 ### 코드 인덱스 파이프라인 (2026-07-05 도입 → 2026-07-06 범위 제외)
 

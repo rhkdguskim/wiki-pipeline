@@ -8,5 +8,7 @@
 - [[concept-port-adapter]] — 포트/어댑터: 구현 은닉 인터페이스, 기술 교체 = 어댑터 교체
 - [[concept-observability-contract]] — 파이프라인 관측성 계약: 이기종 워커 공통 진행 보고·중앙 집계
 - [[concept-medallion-dwh-on-postgres]] — Medallion DWH on PostgreSQL: Bronze/Silver/Gold layering을 PG 스키마로 실체화 (layering discipline, substrate 무관)
+- [[concept-karpathy-llm-wiki-storage]] — Karpathy LLM Wiki 저장 철학: 축적(raw 불변)·기록(log append-only)·정리(증류)로 복리 축적 (medallion과 같은 discipline의 LLM Wiki 언어)
 - [[concept-monday-column-value-modeling]] — Monday column value 정규화: 타입별 상이한 JSON의 typed long table + JSONB 폴백 하이브리드
 - [[concept-readonly-saas-cdc]] — Read-only SaaS CDC: webhook(근사) + 야간 전수 폴링(보정) 하이브리드 (SaaS webhook 유실 한계 대응)
+- [[concept-ingestion-connector]] — 데이터 수집 커넥터(IngestionConnector): SaaS·외부 소스를 extract→DWH 적재 뒤로 (SCM 커넥터와 형제 포트, Monday가 첫 구현체)
