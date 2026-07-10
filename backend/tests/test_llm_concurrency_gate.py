@@ -19,6 +19,9 @@ from backend.common import llm_gate, retry
 
 
 def test_gate_caps_inflight_calls(monkeypatch):
+    # 비-Z.AI provider 명시 — .env 폴백이 z.ai면 is_zai_runtime()이 1로 강제하므로.
+    monkeypatch.setenv("LLM_PROVIDER", "openai-compatible")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.openai.com/v1")
     monkeypatch.setenv("LLM_MAX_CONCURRENCY", "3")
     llm_gate.reset_for_test()
     assert llm_gate.current_limit() == 3
@@ -45,12 +48,26 @@ def test_gate_caps_inflight_calls(monkeypatch):
 
 
 def test_gate_unlimited_when_zero(monkeypatch):
+    # 비-Z.AI provider 명시 — .env 폴백이 z.ai면 is_zai_runtime()이 1로 강제하므로.
+    monkeypatch.setenv("LLM_PROVIDER", "openai-compatible")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.openai.com/v1")
     monkeypatch.setenv("LLM_MAX_CONCURRENCY", "0")
     llm_gate.reset_for_test()
     assert llm_gate.current_limit() == 0
     # 무제한이면 슬롯 진입이 즉시 통과해야 한다 (블록 없음).
     with llm_gate.llm_slot():
         pass
+
+
+def test_zai_runtime_forces_serial_gate_and_parallel_workers(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "openai-compatible")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.z.ai/api/paas/v4")
+    monkeypatch.setenv("LLM_MAX_CONCURRENCY", "6")
+    llm_gate.reset_for_test()
+
+    assert llm_gate.is_zai_runtime() is True
+    assert llm_gate.current_limit() == 1
+    assert llm_gate.effective_parallelism(6) == 1
 
 
 def test_gate_releases_slot_on_exception(monkeypatch):
