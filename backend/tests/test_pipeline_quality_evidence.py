@@ -253,6 +253,11 @@ def test_complete_run_normalizes_quality_fail(client):
         assert r.publishable is False
         assert r.publish_state == "blocked"
         assert "grounding" in (r.blocked_reason or "")
+        branch = db.scalars(select(SourceBranch).where(
+            SourceBranch.source_id == "src1", SourceBranch.role == "dev",
+        )).first()
+        assert branch is not None
+        assert branch.last_processed_sha != "abc"
 
 
 def test_complete_run_normalizes_warning(client):

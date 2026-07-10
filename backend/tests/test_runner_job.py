@@ -129,8 +129,12 @@ def fake_submit_connector(monkeypatch):
     return fake
 
 
-def _patch_pipeline(monkeypatch, tmp_path, *, fail=False, calls: dict | None = None):
-    """LLM 없이 도는 가짜 run_static/run_init — 문서 1건 생성 + sha 전진."""
+def _patch_pipeline(monkeypatch, tmp_path, *, fail=False, no_sha=False, calls: dict | None = None):
+    """LLM 없이 도는 가짜 run_static/run_init — 문서 1건 생성 + sha 전진.
+
+    no_sha=True 면 summary 에 last_processed_sha 를 채우지 않는다 —
+    "run 은 돌았는데 SHA 포인터를 못 넘긴" 케이스를 재현(사용자가 겪은 SHA 미전진 버그).
+    """
     def fake_run_static(settings, from_sha, to_sha, themes=None, run_id=None):
         if calls is not None:
             calls["mode"] = "diff"
@@ -140,7 +144,7 @@ def _patch_pipeline(monkeypatch, tmp_path, *, fail=False, calls: dict | None = N
         doc = settings.out_path / "intro.md"
         doc.write_text("# intro\n", encoding="utf-8")
         return {"run_id": run_id, "themes": {"intro": {"file": str(doc)}},
-                "last_processed_sha": HEAD_SHA}
+                "last_processed_sha": "" if no_sha else HEAD_SHA}
 
     def fake_run_init(settings, *, ref=None, themes=None, max_units=None,
                       reuse_summaries=False, run_id=None):
@@ -197,6 +201,23 @@ def test_execute_failure_reports_error_kind(monkeypatch, tmp_path):
     assert cp.completed["status"] == "failed"
     assert cp.completed["error_kind"] == "not_found"   # -> 소스 자동 비활성화 경로
     assert "last_processed_sha" not in cp.completed     # 실패는 sha를 건드리지 않는다
+
+
+def test_static_run_without_sha_downgrades_to_failed(monkeypatch, tmp_path, fake_submit_connector):
+    """회귀 방지: static run 이 돌았는데 summary 가 last_processed_sha 를 안 채우면
+    'done' 이 아니라 'failed' 로 강등되고 SHA 포인터도 전진하지 않아야 한다.
+
+    이 가드가 없던 구버전에서는 done 인데 SHA 가 빈 채로 남아, 소스 상세의
+    'last sha' 가 계속 '-' 로 표시되는 모순 상태가 발생했다(사용자 보고 버그)."""
+    _patch_pipeline(monkeypatch, tmp_path, no_sha=True)
+    cp = FakeControlPlane(_context(last_processed_sha=OLD_SHA))
+    client = ControlPlaneClient("http://cp.local", "rtok", transport=cp.transport)
+    job.execute("static-demo-12345678", "auto", client)
+    client.close()
+    assert cp.completed["status"] == "failed"           # done 으로 조용히 넘어가지 않는다
+    # SHA 를 못 넘겼으므로 to_sha/last_processed_sha 는 빈 값 — 포인터 전진 금지
+    assert not cp.completed.get("to_sha")
+    assert not cp.completed.get("last_processed_sha")
 
 
 def test_execute_no_targets_still_advances(monkeypatch, tmp_path):
@@ -533,3 +554,63 @@ def test_static_warned_reports_done_with_warnings(monkeypatch, tmp_path,
     client.close()
 
     assert cp.completed["status"] == "done_with_warnings"
+
+
+def test_quality_gate_failure_blocks_submission_and_sha_advance(
+        monkeypatch, tmp_path, fake_submit_connector):
+    def fake_run_static(settings, from_sha, to_sha, themes=None, run_id=None):
+        doc = settings.out_path / "intro.md"
+        doc.write_text("# rejected\n", encoding="utf-8")
+        return {
+            "run_id": run_id,
+            "themes": {"intro": {"file": str(doc), "warned": True,
+                                  "verdict": "fail"}},
+            "quality_status": "fail",
+            "terminal_status": "failed_quality_gate",
+            "publishable": False,
+            "last_processed_sha": HEAD_SHA,
+        }
+
+    monkeypatch.setattr(static_runner_mod, "run_static", fake_run_static)
+    monkeypatch.setattr(init_runner_mod, "run_init", fake_run_static)
+    monkeypatch.setattr(job, "load_settings",
+                        lambda: Settings(_env_file=None, out_dir=str(tmp_path)))
+    cp = FakeControlPlane(_context(last_processed_sha=OLD_SHA))
+    client = ControlPlaneClient("http://cp.local", "rtok", transport=cp.transport)
+    job.execute("static-demo-12345678", "auto", client)
+    client.close()
+
+    assert cp.completed["status"] == "failed_quality_gate"
+    assert cp.completed["last_processed_sha"] == ""
+    assert cp.completed["doc_count"] == 0
+    assert fake_submit_connector.state.change_requests == []
+
+
+def test_manual_coverage_failure_blocks_submission(monkeypatch, tmp_path, fake_submit_connector):
+    doc = tmp_path / "manual.md"
+    doc.write_text("# incomplete\n", encoding="utf-8")
+    summary = {
+        "themes": {"user-manual": {"file": str(doc)}},
+        "coverage_status": "fail",
+        "publishable": False,
+        "coverage": {
+            "assessment": {"status": "fail", "reached": ["home"],
+                           "unreached": ["settings"], "expected_count": 2},
+            "scenarios": {"completed": ["home"], "failed": []},
+            "explore": {"visited": ["home"], "unreached": ["settings"]},
+        },
+    }
+    monkeypatch.setattr(job, "_run_manual_pipeline",
+                        lambda settings, ctx, *, run_id: summary)
+    monkeypatch.setattr(job, "load_settings",
+                        lambda: Settings(_env_file=None, out_dir=str(tmp_path),
+                                         mcp_endpoint_url="http://mcp.local"))
+    cp = FakeControlPlane(_manual_context())
+    client = ControlPlaneClient("http://cp.local", "rtok", transport=cp.transport)
+    job.execute("manual-demo-abcdef01", "auto", client)
+    client.close()
+
+    assert cp.completed["status"] == "failed_quality_gate"
+    assert cp.completed["doc_count"] == 0
+    assert cp.coverage_reports[0]["status"] == "fail"
+    assert fake_submit_connector.state.change_requests == []

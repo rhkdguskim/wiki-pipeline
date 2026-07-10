@@ -8,6 +8,7 @@ GitLab과 동일한 정규화 계약을 지킨다 (base.ScmConnector 참조):
 from __future__ import annotations
 
 import base64
+import logging
 from urllib.parse import quote
 
 import httpx
@@ -23,6 +24,8 @@ from .base import (
     ScmRateLimitError,
     TagRef,
 )
+
+log = logging.getLogger("connectors.github")
 
 _API_VERSION = "2022-11-28"
 # compare API는 페이지당 최대 300개 파일을 돌려준다 — 페이지네이션으로 끝까지 수집.
@@ -163,7 +166,12 @@ class GitHubConnector(ScmConnector):
         return self._get(f"{self._repo}/commits/{enc}").json()["sha"]
 
     def default_branch(self) -> str:
-        return self._get(self._repo).json().get("default_branch", "main")
+        db = self._get(self._repo).json().get("default_branch")
+        if not db:
+            log.warning("GitHub 레포 %s 응답에 default_branch 없음 — 'main' 폴백. "
+                        "권한/응답을 확인하세요.", self._repo)
+            return "main"
+        return db
 
     def list_branches(self) -> list[str]:
         out: list[str] = []

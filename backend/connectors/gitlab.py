@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import logging
 from urllib.parse import quote
 
 import httpx
@@ -20,6 +21,8 @@ from .base import (
     ScmRateLimitError,
     TagRef,
 )
+
+log = logging.getLogger("connectors.gitlab")
 
 
 def _is_rate_limited(resp: httpx.Response) -> bool:
@@ -138,7 +141,16 @@ class GitLabConnector(ScmConnector):
         return self._get(f"{self._proj}/repository/commits/{enc}").json()["id"]
 
     def default_branch(self) -> str:
-        return self._get(self._proj).json().get("default_branch", "master")
+        data = self._get(self._proj).json()
+        db = data.get("default_branch")
+        if not db:
+            # 응답에 default_branch 가 없다 = 프로젝트 조회가 비정상(권한상 필드
+            # 누락 등). "master" 로 폴백하면 존재하지 않는 브랜치를 참조해 404 →
+            # branch-loss 정책이 소스를 자동 비활성화할 수 있으므로 경고를 남긴다.
+            log.warning("GitLab 프로젝트 %s 응답에 default_branch 없음 — 'master' 폴백. "
+                        "권한/응답을 확인하세요.", self._proj)
+            return "master"
+        return db
 
     def list_branches(self) -> list[str]:
         out: list[str] = []

@@ -29,6 +29,7 @@ from backend.common_pipeline.grounding_critic import (
 from backend.common_pipeline.quality_gates import (
     DEFAULT_THRESHOLDS,
     determine_terminal_status,
+    evaluate_generation_quality,
     evaluate_quality_gate,
     to_webhook_payload,
 )
@@ -488,6 +489,18 @@ class TestGroundingCritic:
 # ── quality_gates ────────────────────────────────────────────
 
 class TestQualityGates:
+
+    def test_generation_quality_preserves_final_lint_failure(self):
+        gate, terminal = evaluate_generation_quality([{
+            "verdict_result": "pass",
+            "verdict_score": 0.95,
+            "blocking_findings": [],
+            "lint_errors": ["[evidence_ids] unknown citation"],
+            "warned": True,
+        }])
+        assert gate["status"] == "fail"
+        assert gate["failed_gate"] == "deterministic_verifier"
+        assert terminal == "failed_quality_gate"
 
     def test_pass_all_clear(self):
         gate = evaluate_quality_gate(

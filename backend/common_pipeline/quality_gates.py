@@ -190,6 +190,57 @@ def determine_terminal_status(
     return "done_with_warnings"
 
 
+def evaluate_generation_quality(results: list[dict]) -> tuple[dict, str]:
+    """Aggregate writer verification results without losing deterministic failures.
+
+    ``verified_generate`` returns the final critic verdict plus any deterministic
+    lint errors that survived its repair attempts.  Those lint errors are gate
+    failures, not merely display warnings, and must remain visible to the run
+    status and submission policy.
+    """
+    if not results:
+        gate = {
+            "status": "not_evaluated",
+            "score": 0.0,
+            "verifier_status": "pass",
+            "critic_status": "pass",
+            "severity_counts": {"blocker": 0, "major": 0, "minor": 0},
+            "failed_gate": "",
+            "failed_reason": "",
+            "thresholds": DEFAULT_THRESHOLDS,
+        }
+        return gate, "done_with_warnings"
+
+    worst_score = 1.0
+    all_blocking: list[dict] = []
+    lint_errors: list[object] = []
+    critic_failed = False
+    warned_count = 0
+    for result in results:
+        critic_failed = critic_failed or result.get("verdict_result") == "fail"
+        score = result.get("verdict_score")
+        if score is not None:
+            try:
+                worst_score = min(worst_score, float(score))
+            except (TypeError, ValueError):
+                pass
+        all_blocking.extend(result.get("blocking_findings") or [])
+        lint_errors.extend(result.get("lint_errors") or [])
+        warned_count += int(bool(result.get("warned")))
+
+    gate = evaluate_quality_gate(
+        {"result": "fail" if lint_errors else "pass", "errors": lint_errors},
+        {
+            "result": "fail" if critic_failed else "pass",
+            "score": worst_score,
+            "blocking_findings": all_blocking,
+        },
+    )
+    return gate, determine_terminal_status(
+        gate["status"], summary_warnings=warned_count,
+    )
+
+
 def to_webhook_payload(
     gate_result: dict,
     *,

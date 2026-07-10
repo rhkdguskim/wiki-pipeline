@@ -114,6 +114,8 @@ def classify_error(exc: BaseException) -> str:
 
 
 def _summary_has_errors(summary: dict) -> bool:
+    if summary.get("error"):
+        return True
     docs = summary.get("themes") or summary.get("docs") or {}
     return any("error" in v for v in docs.values() if isinstance(v, dict))
 
@@ -123,6 +125,29 @@ def _summary_has_warnings(summary: dict) -> bool:
     if any(v.get("warned") for v in docs.values() if isinstance(v, dict)):
         return True
     return bool(summary.get("warned"))
+
+
+def _summary_status(summary: dict, pipeline_id: str) -> str:
+    """Derive the terminal state before any external document submission."""
+    if _summary_has_errors(summary):
+        return "failed"
+
+    quality_status = str(summary.get("quality_status") or "").lower()
+    coverage_status = str(
+        summary.get("coverage_status")
+        or (summary.get("coverage") or {}).get("assessment", {}).get("status")
+        or ""
+    ).lower()
+    terminal_status = str(summary.get("terminal_status") or "").lower()
+    if quality_status == "fail" or coverage_status == "fail" \
+            or terminal_status == "failed_quality_gate":
+        return "failed_quality_gate"
+    if _summary_has_warnings(summary) or quality_status == "warning" \
+            or coverage_status == "warning" or terminal_status == "done_with_warnings":
+        return "done_with_warnings"
+    if pipeline_id == "static" and not summary.get("last_processed_sha"):
+        return "failed"
+    return "done"
 
 
 def execute(run_id: str, mode: str, cp: ControlPlaneClient) -> dict:
@@ -149,16 +174,17 @@ def execute(run_id: str, mode: str, cp: ControlPlaneClient) -> dict:
 
         report_all(cp, run_id, summary, pipeline_id=pipeline_id)
 
-        submission = submit_to_targets(summary, settings, ctx)
-        last_sha = summary.get("last_processed_sha", "")
-
-        status = "done"
-        if _summary_has_errors(summary):
-            status = "failed"
-        elif _summary_has_warnings(summary):
-            status = "done_with_warnings"
-        elif pipeline_id == "static" and not last_sha:
-            status = "failed"
+        status = _summary_status(summary, pipeline_id)
+        submission_allowed = status in ("done", "done_with_warnings")
+        submission = (submit_to_targets(summary, settings, ctx) if submission_allowed
+                      else {"submitted": False, "mr_url": "", "doc_count": 0})
+        last_sha = summary.get("last_processed_sha", "") if submission_allowed else ""
+        quality_status = str(summary.get("quality_status") or "not_evaluated")
+        coverage_status = str(
+            summary.get("coverage_status")
+            or (summary.get("coverage") or {}).get("assessment", {}).get("status")
+            or "not_applicable"
+        )
 
         report = {
             "status": status,
@@ -167,6 +193,9 @@ def execute(run_id: str, mode: str, cp: ControlPlaneClient) -> dict:
             "last_processed_sha": last_sha,
             "doc_count": submission["doc_count"],
             "mr_url": submission["mr_url"],
+            "quality_status": quality_status,
+            "coverage_status": coverage_status,
+            "publishable": submission_allowed and bool(summary.get("publishable", True)),
         }
         if status == "failed" and _summary_has_errors(summary):
             docs = summary.get("themes") or summary.get("docs") or {}

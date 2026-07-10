@@ -146,6 +146,12 @@ def verified_generate(
             if "도구 호출 텍스트" in invalid:
                 force_no_tools = True
             feedback = [f"[format] {invalid}"]
+            verdict = {
+                "result": "fail",
+                "feedback": feedback,
+                "lint_errors": feedback,
+                "failure_kind": "format",
+            }
             emit_ctx("engine_call", stage, "running",
                      detail={"phase": "format", "verdict": "fail",
                              "reason": invalid, "attempt": attempt + 1})
@@ -160,23 +166,37 @@ def verified_generate(
                              "verdict": "pass" if not lint_errs else "fail",
                              "errors": lint_errs[:3], "attempt": attempt + 1})
 
+        # 결정적 검증이 실패한 draft는 critic 비용을 쓰지 않는다. 형식·인용·시크릿
+        # 문제는 LLM 판정보다 정확한 feedback으로 먼저 고친 뒤 critic에 보낸다.
+        if lint_errs:
+            feedback = [f"[{lint_name}] {e}" for e in lint_errs]
+            verdict = {
+                "result": "fail",
+                "feedback": feedback,
+                "lint_errors": lint_errs,
+                "failure_kind": lint_name,
+            }
+            emit_ctx("engine_call", stage, "running",
+                     detail={"phase": "verify", "verdict": "fail",
+                             "feedback": feedback[:3], "attempt": attempt + 1,
+                             "critic_skipped": True})
+            continue
+
         # 2) LLM critic (frontmatter + 적합성 + grounding — 프롬프트는 파이프라인 소유).
         emit_ctx("engine_call", stage, "running",
                  detail={"phase": "critic", "attempt": attempt + 1})
         verdict = critic(doc_md)
 
-        if verdict.get("result") == "pass" and not lint_errs:
+        if verdict.get("result") == "pass":
             emit_ctx("engine_call", stage, "running",
                      detail={"phase": "verify", "verdict": "pass", "attempt": attempt + 1})
             return strip_end_marker(doc_md, end_marker), verdict, False
 
-        # 실패 사유 합치기: lint 오류 + critic 피드백 -> writer 핀포인트 수정
+        # critic 피드백으로 writer가 직전 유효 draft를 핀포인트 수정한다.
         feedback = list(verdict.get("feedback", []) or [])
-        if lint_errs:
-            feedback = [f"[{lint_name}] {e}" for e in lint_errs] + feedback
         if not feedback:
             feedback = ["검증 실패 (사유 미상)"]
-        verdict["lint_errors"] = lint_errs
+        verdict["lint_errors"] = []
         emit_ctx("engine_call", stage, "running",
                  detail={"phase": "verify", "verdict": "fail",
                          "feedback": feedback[:3], "attempt": attempt + 1})

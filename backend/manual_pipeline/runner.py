@@ -24,6 +24,7 @@ from ..common.docshub import submit_mr_stub
 from ..common.llm import build_chat_model
 from ..common.mcp_bridge import McpBridge
 from ..common_pipeline.output import save_doc
+from ..common_pipeline.quality_gates import evaluate_generation_quality
 from ..common_pipeline.run_context import RunContext
 from .artifact import (
     check_readiness,
@@ -229,9 +230,16 @@ def run_manual(
             "denominator": denom,
             "assessment": coverage_assessment,
         }
-        (out_dir / f"coverage-{ctx.run_id}.json").write_text(
-            json.dumps(coverage, ensure_ascii=False, indent=2), encoding="utf-8")
+        # 커버리지 JSON 저장 — 디스크 풀/권한 오류가 run 전체를 실패시키지 않게
+        # 방어한다. 관측·생성은 이미 끝났고 coverage 는 summary 에도 실린다.
+        try:
+            (out_dir / f"coverage-{ctx.run_id}.json").write_text(
+                json.dumps(coverage, ensure_ascii=False, indent=2), encoding="utf-8")
+        except OSError as e:
+            rev("stage", "coverage", "warning",
+                detail={"error": f"coverage 파일 저장 실패(무시): {type(e).__name__}: {e}"})
         summary["coverage"] = coverage
+        summary["coverage_status"] = coverage_assessment.get("status", "not_evaluated")
         summary["observations"] = len(log.items)
         rev("stage", "coverage", "done",
             detail={"observations": len(log.items),
@@ -241,12 +249,25 @@ def run_manual(
 
         if not log.items:
             ctx.failed({"error": "관측 0건 — 시나리오·탐색 모두 근거를 만들지 못함"})
+            summary["error"] = "관측 0건"
+            return summary
+
+        if summary["coverage_status"] == "fail":
+            summary["quality_status"] = "not_evaluated"
+            summary["terminal_status"] = "failed_quality_gate"
+            summary["publishable"] = False
+            ctx.failed({"error": "manual coverage below threshold",
+                        "coverage": coverage_assessment})
             return summary
 
         # 5) 매뉴얼 생성 + 라이프사이클 (concept-observation-grounding / manual-lifecycle-diff)
         evidence = log.evidence_block()
         scenarios_block = scenarios_summary(scenario_set, sc_result)
-        coverage_block = json.dumps(explore_cov, ensure_ascii=False)
+        coverage_block = json.dumps({
+            "exploration": explore_cov,
+            "assessment": coverage_assessment,
+        }, ensure_ascii=False)
+        quality_summaries: list[dict] = []
         for i, theme in enumerate(themes, 1):
             stage = f"manual:{theme}"
             action = judge_action(out_dir, theme)
@@ -264,13 +285,37 @@ def run_manual(
             summary["themes"][theme] = {
                 "file": str(path), "chars": path.stat().st_size,
                 "verdict": verdict.get("result"), "warned": warned, "lifecycle": action,
+                "score": verdict.get("score"),
+                "lint_errors": verdict.get("lint_errors") or [],
             }
+            quality_summaries.append({
+                "theme": theme,
+                "verdict_result": verdict.get("result"),
+                "verdict_score": verdict.get("score"),
+                "blocking_findings": verdict.get("blocking_findings") or [],
+                "lint_errors": verdict.get("lint_errors") or [],
+                "warned": warned,
+            })
             if warned:
                 summary["warned"].append(theme)
             rev("engine_call", stage, "done",
                 progress={"n": i, "m": len(themes), "unit": "manual"},
                 detail={"saved": path.name, "lifecycle": action,
                         "verdict": verdict.get("result"), "warned": warned, "mr": mr})
+
+        quality_gate, terminal = evaluate_generation_quality(quality_summaries)
+        summary["quality_status"] = quality_gate["status"]
+        summary["terminal_status"] = terminal
+        summary["publishable"] = quality_gate["status"] != "fail"
+        rev("stage", "quality-gate", "done",
+            detail={"quality_status": quality_gate["status"],
+                    "terminal_status": terminal,
+                    "theme_count": len(quality_summaries)})
+
+        if terminal == "failed_quality_gate":
+            ctx.failed({"quality_status": quality_gate["status"],
+                        "terminal_status": terminal})
+            return summary
 
         # DELETE 후보 — 물리 삭제 없이 deprecated 표시만 (decision-manual-delete-grace)
         marked = mark_deprecated_candidates(out_dir, list(summary["themes"]))
@@ -279,6 +324,8 @@ def run_manual(
 
         # 7) 보고 — 버전 포인터 전진은 MR 머지 후에만 (PoC 스텁)
         ctx.done(detail={"themes": list(summary["themes"]), "observations": len(log.items),
+                         "quality_status": quality_gate["status"],
+                         "terminal_status": terminal,
                          "note": "버전 포인터 전진은 MR 머지 후 — PoC 스텁"})
         return summary
 
