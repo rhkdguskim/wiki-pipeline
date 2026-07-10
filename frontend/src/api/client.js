@@ -232,8 +232,13 @@ export const getRunDoc = (runId, path) =>
 
 // run 의 생성된 문서 목록 (DB 기반 — 메타데이터 + 콘텐츠 보유 여부).
 // docu-automation(static) · manual-automation 산출물 모두 포함.
+// 404 는 "이 run 에 아직 문서 레코드가 없음"이라는 정상 상태 — 실패/문서 0건 run
+// 을 열 때마다 발생하므로, 에러로 던지지 않고 빈 목록으로 폴백해 UI 노이즈를 없앤다.
 export const getRunDocs = (runId) =>
-  api(`/api/runs/${encodeURIComponent(runId)}/docs`).then(asJson);
+  api(`/api/runs/${encodeURIComponent(runId)}/docs`).then(async (r) => {
+    if (r.status === 404) return {docs: []};
+    return asJson(r);
+  });
 
 // Audit log (ENT-F) — 관리 작업 이력 조회. action/actor 필터 지원.
 export const getAuditRecent = (params = {}) => {

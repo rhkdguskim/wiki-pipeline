@@ -17,7 +17,7 @@ export function InstancesPanel({instances, form, onChange, onSave, onToggleEnabl
             <td>{i.kind}</td>
             <td>{i.base_url || '(기본 URL)'}</td>
             <td>{i.has_token ? '있음' : '없음'}</td>
-            <td><span className={`stageState ${i.enabled ? 'done' : 'idle'}`}><span />{i.enabled ? '활성' : '비활성'}</span></td>
+            <td><span className={`pill small ${i.enabled ? 'ok' : 'cancelled'}`}>{i.enabled ? '활성' : '비활성'}</span></td>
             <td><button type="button" className="iconTextBtn" onClick={() => onToggleEnabled(i)}>{i.enabled ? '비활성화' : '활성화'}</button></td>
           </tr>) : <tr><td colSpan={6} className="emptyCell">등록된 인스턴스 없음 — 소스 저장 시 자동 생성되거나 여기서 직접 등록</td></tr>}
         </tbody>

@@ -84,7 +84,13 @@ export function HomePage({sources, dbRuns, isLoading, isError, error, onRetry, o
   const scheduledPipelines = sources.reduce((sum, s) => sum + ((s.schedules || []).filter(x => x.enabled).length || (s.schedule_cron ? 1 : 0)), 0);
   const sourceStats = aggregateSources(sources, dbRuns)
     .sort((a, b) => (b.running - a.running) || (b.failed24h - a.failed24h) || (new Date(b.latest?.created_at || 0) - new Date(a.latest?.created_at || 0)));
-  const attention = dbRuns.filter(r => r.status === 'failed' || r.status === 'running').slice(0, 6);
+  // "실시간 작업" — 지금 실제로 진행 중인 것(실행 중/대기)만. 실패는 이미 끝난
+  // 작업이라 "실시간"이 아니다 — 상단 "확인 필요" 배너·"24시간 실패" 카운트·품질
+  // 신호 카드·아래 "실행 이력" 테이블이 담당한다. 실패를 이 패널에 섞으면 실행
+  // 중인 것과 뒤엉켜 "지금 뭐가 돌고 있나"를 한눈에 못 본다.
+  const liveWork = dbRuns.filter(r =>
+    r.status === 'running' || r.status === 'pending'
+  ).slice(0, 6);
   const idleSources = sourceStats.filter(s => s.source.enabled && !s.latest).length;
 
   return <div>
@@ -107,10 +113,10 @@ export function HomePage({sources, dbRuns, isLoading, isError, error, onRetry, o
         <p>{latestRun ? `${latestSource?.label || latestRun.source_id || '최근 소스'} · ${STATUS_LABEL[latestRun.status] || latestRun.status || '-'} · ${timeAgo(latestRun.created_at)}` : '아직 실행 이력이 없습니다.'}</p>
       </div>
       <div className="homeOpsFacts">
-        <span><b>{runningRuns}</b> running</span>
-        <span><b>{pendingRuns}</b> pending</span>
-        <span><b>{failed24h}</b> failed 24h</span>
-        <span><b>{idleSources}</b> idle sources</span>
+        <span><b>{runningRuns}</b> 실행 중</span>
+        <span><b>{pendingRuns}</b> 대기</span>
+        <span><b>{failed24h}</b> 24시간 실패</span>
+        <span><b>{idleSources}</b> 유휴 소스</span>
       </div>
     </section>
 
@@ -146,30 +152,35 @@ export function HomePage({sources, dbRuns, isLoading, isError, error, onRetry, o
       <div className="panel">
         <div className="panelHead">
           <h2><Activity size={14} />실시간 작업</h2>
-          <span>{attention.length} items</span>
+          <span>{liveWork.length ? `${liveWork.length}건 진행 중` : '유휴'}</span>
         </div>
-        {attention.length ? <div className="homeAttentionList">
-          {attention.map(r => <button type="button" key={r.run_id} className={`homeAttentionItem ${r.status || ''}`} onClick={() => onSelectRun(r.run_id)}>
+        {liveWork.length ? <div className="homeAttentionList">
+          {liveWork.map(r => <button type="button" key={r.run_id} className={`homeAttentionItem ${r.status || ''}`} onClick={() => onSelectRun(r.run_id)}>
             <span className={`pill small ${r.status || ''}`}>{STATUS_LABEL[r.status] || r.status || '-'}</span>
             <strong className="mono">{r.run_id}</strong>
             <small>{r.source_id || '-'} · {timeAgo(r.created_at)}</small>
           </button>)}
-        </div> : <div className="emptyPanel compact">진행 중이거나 실패한 run이 없습니다</div>}
+        </div> : <div className="emptyPanel compact">
+          {failed24h ? `지금 진행 중인 작업이 없습니다 · 24시간 내 실패 ${failed24h}건은 아래 실행 이력에서 확인하세요`
+                     : '지금 진행 중인 작업이 없습니다'}
+        </div>}
       </div>
 
       <div className="panel">
         <div className="panelHead">
           <h2><GitBranch size={14} />저장소 상태</h2>
-          <span>{sourceStats.length} sources</span>
+          <span>{sourceStats.length}개</span>
         </div>
         <div className="homeSourceList">
           {sourceStats.slice(0, 7).map(st => {
             const s = st.source;
             const status = st.latest?.status;
+            const tone = st.running ? 'running' : status === 'failed' ? 'failed' : s.enabled ? 'ok' : 'cancelled';
+            const label = st.running ? '실행 중' : status === 'failed' ? '실패' : s.enabled ? '활성' : '비활성';
             return <button type="button" key={s.id} className="homeSourceRow" onClick={() => st.latest ? onSelectRun(st.latest.run_id) : onOpenRepositories()}>
-              <span className={`stageState ${st.running ? 'running' : status === 'failed' ? 'failed' : s.enabled ? 'done' : 'idle'}`}><span />{st.running ? '실행 중' : status === 'failed' ? '실패' : s.enabled ? '활성' : '비활성'}</span>
+              <span className={`pill small ${tone}`}>{label}</span>
               <strong>{s.label || s.id}</strong>
-              <small>{st.total24h} runs · {st.failed24h} failed · {timeAgo(st.latest?.created_at)}</small>
+              <small>run {st.total24h} · 실패 {st.failed24h} · {timeAgo(st.latest?.created_at)}</small>
             </button>;
           })}
         </div>
@@ -180,19 +191,19 @@ export function HomePage({sources, dbRuns, isLoading, isError, error, onRetry, o
       <div className="panel agentPanel">
         <div className="panelHead">
           <h2><Workflow size={14} />최근 실행</h2>
-          <span>{latestRun ? STATUS_LABEL[latestRun.status] || latestRun.status : 'none'}</span>
+          <span>{latestRun ? STATUS_LABEL[latestRun.status] || latestRun.status : '없음'}</span>
         </div>
         <div className="runStrip">
           <div>
-            <span>Latest</span>
+            <span>최신 run</span>
             <strong className="mono">{latestRun?.run_id || '-'}</strong>
           </div>
           <div>
-            <span>Source</span>
+            <span>소스</span>
             <strong>{latestSource?.label || latestRun?.source_id || '-'}</strong>
           </div>
           <div>
-            <span>Updated</span>
+            <span>갱신</span>
             <strong>{timeAgo(latestRun?.created_at)}</strong>
           </div>
           <div>
@@ -204,12 +215,12 @@ export function HomePage({sources, dbRuns, isLoading, isError, error, onRetry, o
 
       <div className="panel agentPanel">
         <div className="panelHead">
-          <h2><Clock3 size={14} />Run history</h2>
-          <span>{recentRuns.length} items</span>
+          <h2><Clock3 size={14} />실행 이력</h2>
+          <span>{recentRuns.length}건</span>
         </div>
         {recentRuns.length ? <div className="tableScroll">
           <table>
-            <thead><tr><th>run</th><th>source</th><th>상태</th><th>시각</th></tr></thead>
+            <thead><tr><th>run</th><th>소스</th><th>상태</th><th>시각</th></tr></thead>
             <tbody>
               {recentRuns.map(r => <tr key={r.run_id} className="clickable" onClick={() => onSelectRun(r.run_id)}>
                 <td className="mono strong">{r.run_id}</td>

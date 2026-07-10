@@ -43,15 +43,15 @@ export function ManualProfilePanel({sourceId, profile, onSave, onPreflight, pref
 
   return (
     <form className="manual-profile-panel" onSubmit={submit}>
-      <div className="manual-profile-panel__row">
-        <label>
+      <div className="manual-profile-panel__toggles">
+        <label className="manual-profile-panel__toggle">
           <input
             type="checkbox"
             checked={Boolean(form.enabled)}
             onChange={(e) => update('enabled', e.target.checked)}
           /> 활성화
         </label>
-        <label>
+        <label className="manual-profile-panel__toggle">
           <input
             type="checkbox"
             checked={Boolean(form.vnc_enabled)}
@@ -172,9 +172,9 @@ export function ManualProfilePanel({sourceId, profile, onSave, onPreflight, pref
           </select>
         </label>
       </div>
-      <div className="manual-profile-panel__row">
-        <button type="submit" disabled={busy}>저장</button>
-        <button type="button" onClick={runPreflight} disabled={busy}>Preflight</button>
+      <div className="manual-profile-panel__actions">
+        <button type="submit" className="primaryBtn" disabled={busy}>저장</button>
+        <button type="button" className="iconTextBtn" onClick={runPreflight} disabled={busy}>Preflight</button>
       </div>
       {preflightResult && (
         <div className={`manual-profile-panel__preflight ${preflightResult.ok ? 'ok' : 'fail'}`}>

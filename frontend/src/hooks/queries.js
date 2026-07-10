@@ -174,6 +174,9 @@ export function useRunDocsQuery(runId, enabled = true) {
     queryFn: () => getRunDocs(runId),
     enabled: !!runId && enabled,
     staleTime: 30000,
+    // 문서 목록은 404(문서 없음)를 정상 폴백하므로 재시도 불필요 —
+    // 재시도하면 실패 run 을 열 때마다 같은 404 를 3회씩 콘솔에 남긴다.
+    retry: false,
   });
 }
 

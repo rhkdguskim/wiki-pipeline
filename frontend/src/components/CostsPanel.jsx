@@ -15,7 +15,7 @@ export function CostsPanel({costs, overview}) {
         <thead><tr><th>소스</th><th>run 수</th><th>실패</th><th>입력 토큰</th><th>출력 토큰</th><th>합계</th></tr></thead>
         <tbody>
           {bySource.length ? bySource.map(([sid, agg]) => <tr key={sid}>
-            <td className="mono strong">{sid}</td>
+            <td className="strong">{agg.label || sid}</td>
             <td>{agg.runs}</td>
             <td>{agg.failed || '-'}</td>
             <td>{fmtNum(agg.input_tokens)}</td>

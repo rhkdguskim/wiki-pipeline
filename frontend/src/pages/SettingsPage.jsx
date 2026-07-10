@@ -139,8 +139,8 @@ function RuntimeSection() {
   return <div className="runtimeSection">
     <div className="settingRow">
       <div className="settingRowCopy">
-        <strong>WebSocket verbose 이벤트</strong>
-        <p>실시간 모니터에서 <code className="mono">agent_step.thinking</code> 이벤트까지 수신합니다.</p>
+        <strong>에이전트 실행 추적</strong>
+        <p>실시간 모니터에서 판단 요약, 도구 호출, 결과, 재시도를 수신합니다.</p>
       </div>
       <label className={`settingsToggle ${wsVerbose ? 'on' : ''}`} title="상세 디버깅이 필요할 때만 켜세요.">
         <input

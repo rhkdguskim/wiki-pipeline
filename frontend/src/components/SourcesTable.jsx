@@ -21,8 +21,8 @@ export function SourcesTable({sources, onOpenDetail, onVerify, onTrigger, onTogg
           <td className="mono">{s.last_processed_sha ? s.last_processed_sha.slice(0, 10) : '-'}</td>
           <td>{s.schedules?.length > 1 ? `${s.schedules.length}개` : formatSchedule(s.schedules?.[0] || s)}</td>
           <td>
-            <span className={`stageState ${s.enabled ? 'done' : 'idle'}`}><span />{s.enabled ? '활성' : '비활성'}</span>
-            {!s.enabled && s.disabled_reason && <div className="errText">{s.disabled_reason}</div>}
+            <span className={`pill small ${s.enabled ? 'ok' : 'cancelled'}`}>{s.enabled ? '활성' : '비활성'}</span>
+            {!s.enabled && s.disabled_reason && <div className="metaFine">{s.disabled_reason}</div>}
           </td>
           <td onClick={e => e.stopPropagation()}>
             <div className="panelActions">
