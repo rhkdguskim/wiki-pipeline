@@ -176,6 +176,61 @@ def plan_static_docs(
     return plans
 
 
+# init 에서 특정 테마가 근거를 요구할 때 요약 텍스트에서 찾는 신호어.
+# init 은 change_units 가 없고 "전체 스캔"이라 diff 용 plan_static_docs 와 판정이 다르다.
+_API_SIGNALS = (
+    "api", "endpoint", "route", "rest", "grpc", "graphql", "websocket",
+    "protocol", "rpc", "http", "swagger", "openapi",
+    "엔드포인트", "프로토콜", "라우트",
+)
+
+
+def plan_static_init_docs(
+    themes: list[str],
+    summaries: list[tuple[str, str]],
+) -> list[dict]:
+    """init(전체 스캔) 경로의 테마 skip 계획.
+
+    init 은 diff 와 달리 change_units 가 없다 — 근거는 map 단계 단위 요약이다.
+    요약을 근거로 "이 테마를 쓸 재료가 있는가"만 보수적으로 판정한다. 기본은 생성
+    (init 의 목적이 레포 전체 문서화이므로), 아래 경우만 skip:
+
+    - 요약이 하나도 없으면 모든 테마 skip (근거 전무 — 상위에서 이미 걸러지나 방어).
+    - component-diagram: 단위 요약이 2개 미만이면 skip (그릴 컴포넌트 관계가 없다).
+    - api-protocol: 요약 전체에 API/프로토콜 신호어가 없으면 skip (근거 없는
+      API 문서는 hallucination 위험이 크다).
+
+    반환은 plan_static_docs 와 같은 schema — [{"theme","action","reason",
+    "required_evidence","risk","focus"}]. action 은 create|skip.
+    """
+    n_units = len(summaries)
+    blob = "\n".join(s for _u, s in summaries).lower()
+    has_api = any(sig in blob for sig in _API_SIGNALS)
+
+    plans: list[dict] = []
+    for theme in themes:
+        action, reason, risk = "create", "", "low"
+        if n_units == 0:
+            action, reason = "skip", "단위 요약 없음 — 문서화 근거 전무"
+        elif theme == "component-diagram" and n_units < 2:
+            action, reason = ("skip",
+                              f"단위 요약이 {n_units}개뿐 — 컴포넌트 간 관계를 그릴 근거 부족")
+        elif theme == "api-protocol" and not has_api:
+            action, reason = ("skip",
+                              "요약에서 API·프로토콜 신호를 찾지 못함 — 근거 없는 API 문서 회피")
+        else:
+            reason = f"단위 요약 {n_units}건을 근거로 생성"
+        plans.append({
+            "theme": theme,
+            "action": action,
+            "reason": reason,
+            "required_evidence": [],
+            "risk": risk,
+            "focus": [],
+        })
+    return plans
+
+
 def theme_to_max_risk_per_theme(theme: str, mapping: dict[str, str]) -> str:
     """theme 의 현재 risk 등급을 반환 (기본 'low')."""
     return mapping.get(theme, "low")

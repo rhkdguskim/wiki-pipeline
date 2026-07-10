@@ -20,11 +20,42 @@ from ..common.config import cached_settings
 from ..common.graph import build_agent_graph
 from ..common.run import final_text, run_graph
 from ..common.textproc import strip_reasoning
+from ..common_pipeline.deterministic_verifier import FORBIDDEN_WORDS
 from ..common_pipeline.parallel import parallel_map
 from .tools import make_tools
 
+# 요약이 반드시 담아야 하는 항목 (프롬프트의 출력 계약과 일치).
+_REQUIRED_SUMMARY_FIELDS = ("역할", "주요 컴포넌트", "의존", "기술")
+_SUMMARY_MIN_CHARS = 120   # 이보다 짧으면 스캔 실패로 본다 (프롬프트는 400~900자 요구)
+_SUMMARY_MAX_CHARS = 4000  # 이보다 길면 요약이 아니라 원문 나열일 가능성
+
+
 def _max_concurrency() -> int:
     return cached_settings().static_map_concurrency  # 단위 요약 동시 실행 상한
+
+
+def summary_quality_issue(summary: str) -> str | None:
+    """단위 요약의 결정적 품질 검증. 문제가 있으면 사유, 정상이면 None.
+
+    요약은 reduce(레포 문서 합성)의 유일한 근거라 여기서 걸러야 나쁜 요약이
+    문서로 증폭되지 않는다. 검증은 LLM 없이 기계적으로: 필수 항목 존재·최소 길이·
+    도구 호출 텍스트 유출·추측어. (사실성은 여기서 못 잡지만 형식·완결성은 잡는다.)
+    """
+    if not summary or not summary.strip():
+        return "요약이 비었다 — 스캔 실패"
+    text = summary.strip()
+    if len(text) < _SUMMARY_MIN_CHARS:
+        return f"요약이 너무 짧다 ({len(text)}자) — 스캔이 제대로 안 됨"
+    if any(m in text for m in ("<tool_call>", "<invoke name=", "</invoke>")):
+        return "요약에 도구 호출 텍스트가 섞였다 — 도구를 흉내내지 말 것"
+    missing = [f for f in _REQUIRED_SUMMARY_FIELDS if f not in text]
+    if missing:
+        return f"필수 항목 누락: {', '.join(missing)} — 출력 계약의 항목을 모두 채울 것"
+    for _lang, words in FORBIDDEN_WORDS.items():
+        for w in words:
+            if w in text:
+                return f"추측어 '{w}' 사용 — 코드에서 관측한 사실만 쓸 것"
+    return None
 
 
 def _summary_prompt(unit_name: str, kind: str, root_path: str, files: list[str]) -> str:
@@ -56,21 +87,52 @@ def _summary_prompt(unit_name: str, kind: str, root_path: str, files: list[str])
 """
 
 
-def _summarize_unit(model, client, ref, run_id, unit: dict, observer):
+def _summarize_unit(model, client, ref, run_id, unit: dict, observer, *,
+                    emit_ctx=None):
+    """단위 1개를 스캔해 요약을 만든다. 결정적 품질 검증 실패 시 1회 재시도.
+
+    요약은 reduce 의 유일 근거라 형식/완결성을 여기서 거른다. 재시도해도 실패하면
+    가장 나은(검증 통과했거나 마지막) 요약을 반환한다 — 요약 전멸을 막고 evidence
+    pack + critic 이 2차로 방어한다. 반환은 (name, summary) 로 기존 계약 유지.
+    """
     name = unit.get("name") or unit["root_path"]
-    spec = AgentSpec(
-        pipeline_id="static",
-        system_prompt=_summary_prompt(name, unit.get("kind", ""), unit["root_path"], unit["_files"]),
-        tools=make_tools(client, ref=ref),
-        run_id=run_id, stage=f"map:{name}", max_steps=8,
+    sys_prompt = _summary_prompt(name, unit.get("kind", ""), unit["root_path"], unit["_files"])
+    ask = f"단위 '{name}'을 스캔해 구조적 요약을 출력하라."
+
+    def _run(extra: str = "") -> str:
+        spec = AgentSpec(
+            pipeline_id="static",
+            system_prompt=sys_prompt + extra,
+            tools=make_tools(client, ref=ref),
+            run_id=run_id, stage=f"map:{name}", max_steps=8,
+        )
+        graph = build_agent_graph(spec, model)
+        final = run_graph(
+            graph, {"messages": [HumanMessage(content=ask)]},
+            observer, config={"recursion_limit": 30},
+        )
+        return strip_reasoning(final_text(final))
+
+    summary = _run()
+    issue = summary_quality_issue(summary)
+    if issue is None:
+        return name, summary
+
+    # 검증 실패 — 지적 사항을 붙여 1회 재시도.
+    if emit_ctx:
+        emit_ctx("stage", "map", "running",
+                 detail={"unit_retry": name, "reason": issue})
+    retry_hint = (
+        f"\n\n## 재작성 지시\n직전 요약이 검증에 실패했다: {issue}\n"
+        "출력 계약(역할·주요 컴포넌트·의존·통신·기술·플랫폼·실행·설정)의 모든 항목을 "
+        "채우고, 코드에서 관측한 사실만 400~900자로 요약하라."
     )
-    graph = build_agent_graph(spec, model)
-    final = run_graph(
-        graph,
-        {"messages": [HumanMessage(content=f"단위 '{name}'을 스캔해 구조적 요약을 출력하라.")]},
-        observer, config={"recursion_limit": 30},
-    )
-    return name, strip_reasoning(final_text(final))
+    retry_summary = _run(retry_hint)
+    # 재시도본이 검증을 통과하면 그것, 아니면 더 긴 쪽(정보량이 많은 쪽)을 택한다.
+    if summary_quality_issue(retry_summary) is None:
+        return name, retry_summary
+    best = retry_summary if len(retry_summary or "") > len(summary or "") else summary
+    return name, best
 
 
 def map_unit_summaries(
@@ -95,7 +157,9 @@ def map_unit_summaries(
     results: list[tuple[str, str]] = []
     done = 0
     for u, res, exc in parallel_map(
-            units, lambda u: _summarize_unit(model, client, ref, run_id, u, observer),
+            units,
+            lambda u: _summarize_unit(model, client, ref, run_id, u, observer,
+                                      emit_ctx=emit_ctx),
             max_workers=_max_concurrency()):
         uname = u.get("name") or u["root_path"]
         done += 1

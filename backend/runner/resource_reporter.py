@@ -13,6 +13,20 @@ from .client import ControlPlaneClient
 
 log = logging.getLogger("runner.resource_reporter")
 
+_QUALITY_STATUSES = {"pass", "warning", "fail", "not_evaluated"}
+
+
+def _summary_quality_status(summary: dict) -> str:
+    status = str(summary.get("quality_status") or "").lower()
+    if status in _QUALITY_STATUSES:
+        return status
+    docs = summary.get("themes") or summary.get("docs") or {}
+    if any(isinstance(info, dict) and "error" in info for info in docs.values()):
+        return "fail"
+    if any(isinstance(info, dict) and info.get("warned") for info in docs.values()):
+        return "warning"
+    return "pass"
+
 
 def _doc_quality_from_summary(summary: dict) -> list[dict]:
     docs = summary.get("themes") or summary.get("docs") or {}
@@ -24,8 +38,13 @@ def _doc_quality_from_summary(summary: dict) -> list[dict]:
         # file 경로가 없으면 theme 기반 경로 생성 (최소한 path 는 채워야 upsert 됨)
         if not file_path:
             file_path = f"init/{theme}.md"
-        has_error = "error" in info
+        has_error = "error" in info or info.get("quality_status") == "fail"
         warned = bool(info.get("warned"))
+        # unsupported_claim_count 되채움 — critic 이 evidence 로 지지 못한다고 판정한
+        # blocking_findings(hallucination·미지지 주장) 개수. MR checklist·품질 리포트가
+        # 이 값을 소비해 "review 전 확인" 신호를 낸다 (api.py). skip 문서는 0.
+        blocking = info.get("blocking_findings") or []
+        unsupported = len(blocking) if isinstance(blocking, list) else 0
         # 파일 원문을 읽어 content 로 포함 — DB 기반 서빙의 핵심.
         # 파일이 없거나 읽기 실패 시 빈 문자열 (메타데이터라도 저장).
         content = ""
@@ -47,6 +66,7 @@ def _doc_quality_from_summary(summary: dict) -> list[dict]:
             "publishable": not has_error,
             "warning_count": 1 if warned else 0,
             "error_count": 1 if has_error else 0,
+            "unsupported_claim_count": unsupported,
             "content": content,
             "content_size": content_size,
         })
@@ -62,14 +82,11 @@ def emit_quality(cp: ControlPlaneClient, run_id: str, summary: dict,
                         if isinstance(v, dict) and v.get("warned"))
     warned_themes = summary.get("warned") or []
 
-    if error_count > 0:
-        status = "fail"
-    elif warning_count > 0 or warned_themes:
+    status = _summary_quality_status(summary)
+    if status == "pass" and (warning_count > 0 or warned_themes):
         status = "warning"
-    else:
-        status = "pass"
 
-    publishable = error_count == 0
+    publishable = bool(summary.get("publishable", status != "fail")) and status != "fail"
     payload: dict = {
         "run_id": run_id,
         "status": status,
@@ -136,17 +153,24 @@ def emit_evidence(cp: ControlPlaneClient, run_id: str, summary: dict,
 
 def emit_coverage(cp: ControlPlaneClient, run_id: str, summary: dict) -> None:
     coverage = summary.get("coverage") or {}
+    assessment = coverage.get("assessment") or {}
     scenarios = coverage.get("scenarios") or {}
     explore = coverage.get("explore") or {}
-    reached = len(scenarios.get("completed", [])) + len(explore.get("visited", []))
-    expected = (len(scenarios.get("completed", [])) +
-                len(scenarios.get("failed", [])) +
-                len(scenarios.get("skipped", [])))
-    unreached = explore.get("unreached", [])
+    status = str(summary.get("coverage_status") or assessment.get("status") or "").lower()
+    if status not in {"pass", "warning", "fail"}:
+        status = "pass" if not scenarios.get("failed") else "warning"
+    reached_items = assessment.get("reached") or []
+    unreached = assessment.get("unreached") or explore.get("unreached", [])
+    reached = len(reached_items) if isinstance(reached_items, list) else 0
+    expected = int(assessment.get("expected_count") or 0)
+    if not expected:
+        expected = (len(scenarios.get("completed", [])) +
+                    len(scenarios.get("failed", [])) +
+                    len(scenarios.get("skipped", [])))
     missed_count = len(unreached) if isinstance(unreached, list) else 0
     payload: dict = {
         "run_id": run_id,
-        "status": "pass" if missed_count == 0 and not scenarios.get("failed") else "warning",
+        "status": status,
         "reached": reached,
         "expected": expected,
         "missed_count": missed_count,
@@ -200,6 +224,9 @@ def report_all(cp: ControlPlaneClient, run_id: str, summary: dict,
     emit_quality(cp, run_id, summary, pipeline_id=pipeline_id)
     emit_evidence(cp, run_id, summary, pipeline_id=pipeline_id)
     emit_doc_outputs(cp, run_id, summary, pipeline_id=pipeline_id)
-    if pipeline_id == "manual":
+    # coverage 는 static(문서 생성 커버리지) · manual(시나리오 커버리지) 양쪽에서 보고한다.
+    # summary["coverage"] 가 있을 때만 — 없으면 webhook 을 건너뛴다.
+    if pipeline_id == "manual" or summary.get("coverage"):
         emit_coverage(cp, run_id, summary)
+    if pipeline_id == "manual":
         emit_artifact(cp, run_id, summary)
