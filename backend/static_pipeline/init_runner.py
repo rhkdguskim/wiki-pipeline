@@ -6,7 +6,9 @@ component-diagram)를 만든다 — 특정 레포 가정 없이 어떤 저장소
 
 오케스트레이션 (구간별 에이전트 분배):
   1) 계획   — 에이전트가 레포 구조를 파악해 스캔 단위(구간)를 결정 (레포 구조 무관 적응)
-  2) map    — 단위마다 요약 에이전트 1개, 병렬 실행 (deep_summary.py, 캐시 지원)
+  2) search — 단위를 청크로 쪼개 청크마다 SearchAgent 1개(독립 context)가 **모든 파일을
+              전수 read** 후 청크 요약, 여러 청크면 SummaryComposer 가 단위 요약으로 합성
+              (deep_summary.py, 캐시 지원). init 은 샘플링이 아니라 전수 스캔이 원칙.
   3) reduce — 테마마다 writer가 전체 단위 요약을 종합해 레포 수준 문서 합성 (테마도 병렬)
               write -> mermaid-lint + critic(grounding) -> 재시도
 init은 등록 시 1회만 도는 별도 작업(정기 야간 diff 배치와 분리).
@@ -21,6 +23,7 @@ from ..common.agent_spec import AgentSpec
 from ..common.config import Settings
 from ..common.docshub import submit_mr_stub
 from ..common.graph import build_agent_graph
+from ..common.llm_gate import effective_parallelism
 from ..common.llm import build_chat_model
 from ..common.run import final_text, run_graph
 from ..common.textproc import extract_json_obj
@@ -31,12 +34,14 @@ from ..common_pipeline.quality_gates import evaluate_generation_quality
 from ..common_pipeline.run_context import RunContext
 from ..common_pipeline.scope_planner import plan_static_init_docs
 from ..connectors import connector_for_settings
-from .deep_summary import map_unit_summaries, summaries_block
+from .deep_summary import search_unit_summaries, summaries_block
 from .generate import generate_with_critic
 from .graph import build_repo_writer_graph
 from .pipeline_state import save_state
 from .prompts import plan_system_prompt
-from .theme_mapping import filter_source_files, is_vendored
+from .theme_mapping import (
+    filter_source_files, is_vendored, parse_submodule_paths, under_any,
+)
 from .tools import make_tools
 
 # init 기본 4테마 (레포 무관 공통 축). --themes 로 dev-guide 등 확장 가능.
@@ -227,7 +232,9 @@ def _reduce_and_save(
                     "verdict": verdict.get("result"), "warned": warned, "mr": mr})
         return path, verdict, warned
 
-    for theme, res, exc in parallel_map(active_themes, _gen_theme, max_workers=settings.static_reduce_concurrency):
+    for theme, res, exc in parallel_map(
+            active_themes, _gen_theme,
+            max_workers=effective_parallelism(settings.static_reduce_concurrency)):
         if exc is not None:
             summary["docs"][theme] = {"error": f"{type(exc).__name__}: {exc}"}
             rev("engine_call", f"repo:{theme}", "failed",
@@ -407,8 +414,22 @@ def run_init(
         # 전체 트리를 한 번 확보해 단위에 실제 파일을 붙이고, 매칭 0(경로 추정 오류)은 제외.
         rev("stage", "list-tree", "running")
         tree = client.list_tree_all(ref=ref, recursive=True)
-        all_paths = [e["path"] for e in tree if e.get("type") == "blob"]
-        rev("stage", "list-tree", "done", detail={"blobs": len(all_paths)})
+        # 서브모듈은 참고하지 않는다 (사용자 요구). git 트리에서 서브모듈은
+        # gitlink(type=commit)이라 blob 필터로 대부분 걸러지지만, .gitmodules 로
+        # 경로를 명시 파악해 그 하위를 확실히 배제한다. 서브모듈 내부 파일은 애초에
+        # 부모 트리에 안 나타나므로(다른 레포) 이 배제는 방어적 이중 안전장치다.
+        submodule_paths: list[str] = []
+        try:
+            gm = client.raw_file(".gitmodules", ref)
+            submodule_paths = parse_submodule_paths(gm)
+        except Exception:  # noqa: BLE001 — .gitmodules 없으면 서브모듈 없음
+            submodule_paths = []
+        all_paths = [e["path"] for e in tree
+                     if e.get("type") == "blob"
+                     and not under_any(e["path"], submodule_paths)]
+        rev("stage", "list-tree", "done",
+            detail={"blobs": len(all_paths),
+                    "submodules_excluded": submodule_paths})
 
         units, dropped = [], []
         for u in planned:
@@ -430,8 +451,9 @@ def run_init(
             ctx.done(detail={"note": "매칭되는 계획 단위 없음"})
             return summary
 
-        # 2) map — 단위별 요약 에이전트 병렬 분배 (캐시 지원)
-        summaries = map_unit_summaries(
+        # 2) search — 단위별 SearchAgent 전수 스캔 병렬 분배 (캐시 지원).
+        #    큰 단위는 청크로 쪼개 각 청크를 독립 SearchAgent 로 전수 읽는다.
+        summaries = search_unit_summaries(
             model=model, client=client, ref=ref, run_id=ctx.run_id, units=units,
             observer=ctx.observer, emit_ctx=rev,
             cache_path=cache_path, reuse=reuse_summaries,

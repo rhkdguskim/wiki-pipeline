@@ -27,7 +27,8 @@ const EXACT = {
 };
 
 // 실측 스테이지명 예: critic:repo:intro, critic:dev-guide, reduce:dev-guide,
-// repo:intro, theme:architecture-overview, unit:parser, summary:parser, write:theme, map:name.
+// repo:intro, theme:architecture-overview, unit:parser, summary:parser, write:theme,
+// search:parser, search:parser#2 (청크), compose:parser, map:name(구).
 // 더 구체적인(콜론이 많은) 패턴을 먼저 검사해야 한다.
 const PREFIX_RULES = [
   [/^critic:repo:(.+)$/, (_, name) => `'${name}' 문서를 검증하고 있어요`],
@@ -41,6 +42,8 @@ const PREFIX_RULES = [
   [/^repo:(.+)$/, (_, name) => `'${name}' 문서를 작성하고 있어요`],
   [/^unit:(.+)$/, (_, name) => `'${name}' 코드를 요약하고 있어요`],
   [/^summary:(.+)$/, (_, name) => `'${name}' 코드를 요약하고 있어요`],
+  [/^search:(.+)$/, (_, name) => `'${lastSegment(name).split('#')[0]}' 코드를 전수 읽고 있어요`],
+  [/^compose:(.+)$/, (_, name) => `'${lastSegment(name)}' 요약을 종합하고 있어요`],
   [/^map:(.+)$/, (_, name) => `'${lastSegment(name)}' 코드를 읽고 요약하고 있어요`],
 ];
 

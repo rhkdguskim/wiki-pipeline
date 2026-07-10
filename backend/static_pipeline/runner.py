@@ -16,13 +16,15 @@ from ..common.docshub import submit_mr_stub
 from ..common.llm import build_chat_model
 from ..common_pipeline.evidence_builder import build_evidence_pack
 from ..common_pipeline.output import save_doc
-from ..common_pipeline.quality_gates import determine_terminal_status, evaluate_quality_gate
+from ..common_pipeline.quality_gates import evaluate_generation_quality
 from ..common_pipeline.run_context import RunContext
 from ..connectors import connector_for_settings
 from .generate import generate_with_critic
 from .graph import build_diff_writer_graph
 from .pipeline_state import save_state
-from .theme_mapping import filter_source_files, themes_for_changes
+from .theme_mapping import (
+    filter_source_files, parse_submodule_paths, themes_for_changes, under_any,
+)
 from .themes import DEFAULT_THEMES
 
 
@@ -49,10 +51,23 @@ def run_static(settings: Settings, from_sha: str, to_sha: str | None,
         rev("stage", "compare", "running")
         diffs = client.compare(from_sha, to_sha)
         changed = [d.get("new_path") for d in diffs if d.get("new_path")]
+        # 서브모듈은 참고하지 않는다 (사용자 요구) — .gitmodules 경로 하위 변경 배제.
+        submodule_paths: list[str] = []
+        try:
+            submodule_paths = parse_submodule_paths(client.raw_file(".gitmodules", to_sha))
+        except Exception:  # noqa: BLE001 — 서브모듈 없음
+            submodule_paths = []
+        if submodule_paths:
+            changed = [c for c in changed if not under_any(c, submodule_paths)]
+            diffs = [d for d in diffs
+                     if not under_any(d.get("new_path") or d.get("old_path") or "",
+                                      submodule_paths)]
         sources = filter_source_files(changed)
         summary["changed"] = len(changed)
         summary["sources"] = len(sources)
-        rev("stage", "compare", "done", detail={"changed": len(changed), "sources": len(sources)})
+        rev("stage", "compare", "done",
+            detail={"changed": len(changed), "sources": len(sources),
+                    "submodules_excluded": submodule_paths})
 
         if not sources:
             # 변경 없음도 성공 — "여기까지 봤다"로 sha 전진 (재실행 시 같은 구간 재검사 방지).
@@ -102,6 +117,7 @@ def run_static(settings: Settings, from_sha: str, to_sha: str | None,
                 "verdict_result": verdict.get("result"),
                 "verdict_score": verdict.get("score"),
                 "blocking_findings": verdict.get("blocking_findings") or [],
+                "lint_errors": verdict.get("lint_errors") or [],
                 "warned": warned,
             })
 
@@ -109,6 +125,7 @@ def run_static(settings: Settings, from_sha: str, to_sha: str | None,
                 "file": str(path), "chars": path.stat().st_size,
                 "verdict": verdict.get("result"), "warned": warned,
                 "score": verdict.get("score"),
+                "lint_errors": verdict.get("lint_errors") or [],
             }
             if warned:
                 summary["warned"].append(theme)
@@ -120,9 +137,15 @@ def run_static(settings: Settings, from_sha: str, to_sha: str | None,
         quality_status, terminal = _evaluate_run_quality(quality_summaries, summary)
         summary["quality_status"] = quality_status
         summary["terminal_status"] = terminal
+        summary["publishable"] = quality_status != "fail"
         rev("stage", "quality-gate", "done",
             detail={"quality_status": quality_status, "terminal_status": terminal,
                     "theme_count": len(quality_summaries)})
+
+        if terminal == "failed_quality_gate":
+            ctx.failed(detail={"quality_status": quality_status,
+                               "terminal_status": terminal})
+            return summary
 
         # 상태 전진 — 성공 후에만 (concept-idempotent-sha). 실패 시 상태 불변.
         _advance(settings, client, to_sha, summary, rev)
@@ -216,34 +239,5 @@ def _evaluate_run_quality(quality_summaries: list[dict], summary: dict) -> tuple
     가장 약한 테마의 verdict 가 run 전체 품질을 대표한다 — 한 테마라도 fail 이면
     run 도 fail 에 가깝게 본다 (raw 설계서 §5 통과 기준).
     """
-    if not quality_summaries:
-        return "not_evaluated", "done"
-
-    worst_score = 1.0
-    all_blocking: list[dict] = []
-    any_fail = False
-    for qs in quality_summaries:
-        if qs.get("verdict_result") == "fail":
-            any_fail = True
-        score = qs.get("verdict_score")
-        if score is not None:
-            try:
-                worst_score = min(worst_score, float(score))
-            except (TypeError, ValueError):
-                pass
-        all_blocking.extend(qs.get("blocking_findings") or [])
-
-    critic_result = {
-        "result": "fail" if any_fail else "pass",
-        "score": worst_score,
-        "blocking_findings": all_blocking,
-    }
-    verifier_result = {"result": "pass", "errors": []}
-
-    gate = evaluate_quality_gate(verifier_result, critic_result)
-    warned_count = sum(1 for s in quality_summaries if s.get("warned"))
-    error_count = sum(1 for s in quality_summaries if s.get("verdict_result") == "fail")
-    terminal = determine_terminal_status(
-        gate["status"], summary_errors=error_count, summary_warnings=warned_count,
-    )
+    gate, terminal = evaluate_generation_quality(quality_summaries)
     return gate["status"], terminal

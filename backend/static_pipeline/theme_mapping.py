@@ -6,6 +6,8 @@ PoC 단순화: 판정 불가하면 전 파일 -> 전 테마 fallback.
 """
 from __future__ import annotations
 
+import re
+
 # 빌드 산출물·바이너리는 문서화 대상에서 제외 (실측: prebuilt/*.lib 등).
 _SKIP_SUFFIX = (".lib", ".dll", ".exe", ".obj", ".pdb", ".png", ".jpg", ".ico", ".zip")
 _SKIP_DIR_HINT = ("_prebuilt", "/bin/", "/obj/", "node_modules")
@@ -23,6 +25,33 @@ def is_vendored(path: str) -> bool:
     """경로에 서드파티/외부 라이브러리 디렉터리 세그먼트가 있으면 True."""
     segs = [s.lower() for s in path.replace("\\", "/").split("/")]
     return any(s in _VENDORED_SEGMENTS for s in segs)
+
+
+# .gitmodules 의 `path = <dir>` 라인에서 서브모듈 경로를 뽑는다.
+_SUBMODULE_PATH_RE = re.compile(r"(?m)^\s*path\s*=\s*(.+?)\s*$")
+
+
+def parse_submodule_paths(gitmodules_text: str) -> list[str]:
+    """.gitmodules 원문에서 서브모듈 경로 목록을 파싱한다 (없으면 빈 리스트).
+
+    서브모듈은 우리 코드가 아니므로 문서화 대상에서 제외한다 (사용자 요구:
+    "서브모듈은 참고하지 않는다"). git 트리에서 서브모듈은 gitlink(type=commit)라
+    blob 필터로 대부분 걸러지지만, .gitmodules 로 경로를 명시적으로 배제해 확실히 한다.
+    """
+    if not gitmodules_text:
+        return []
+    return [m.strip().replace("\\", "/").rstrip("/")
+            for m in _SUBMODULE_PATH_RE.findall(gitmodules_text) if m.strip()]
+
+
+def under_any(path: str, roots: list[str]) -> bool:
+    """path 가 roots 중 하나와 같거나 그 하위이면 True (서브모듈 경로 배제용)."""
+    p = path.replace("\\", "/")
+    for r in roots:
+        r = r.replace("\\", "/").rstrip("/")
+        if r and (p == r or p.startswith(r + "/")):
+            return True
+    return False
 
 
 def filter_source_files(changed: list[str]) -> list[str]:

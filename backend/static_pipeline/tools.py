@@ -14,8 +14,12 @@ def _max_chars() -> int:
     return cached_settings().static_read_max_chars  # 파일 원문 잘라내기 상한
 
 
-def make_tools(client: ScmConnector, ref: str) -> list:
-    """read_file / list_dir 도구를 ref(=to_sha)에 바인딩해 생성."""
+def make_tools(client: ScmConnector, ref: str, *, read_log: set | None = None) -> list:
+    """read_file / list_dir 도구를 ref(=to_sha)에 바인딩해 생성.
+
+    read_log 를 주면 read_file 이 성공적으로 읽은 경로를 그 집합에 기록한다 —
+    SearchAgent 가 청크의 모든 파일을 전수로 읽었는지 결정적으로 검증하는 데 쓴다.
+    """
 
     def read_file(path: str) -> str:
         """저장소의 파일 원문을 읽는다. path는 레포 루트 기준 상대경로."""
@@ -23,6 +27,8 @@ def make_tools(client: ScmConnector, ref: str) -> list:
             text = client.raw_file(path, ref)
         except Exception as e:  # noqa: BLE001
             return f"[read_file 실패] {path}: {type(e).__name__}: {e}"
+        if read_log is not None:
+            read_log.add(path)
         if len(text) > _max_chars():
             return (text[:_max_chars()] +
                     f"\n\n[...{len(text)-_max_chars()}자 생략. 재요청하지 말 것 — 앞부분만으로 판단하라...]")

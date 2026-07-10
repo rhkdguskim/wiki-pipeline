@@ -79,9 +79,9 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 65536
     llm_temperature: float = 0.2
     llm_timeout: float = 180.0
-    # 공급자 동시 요청 한도. Z.AI(GLM) 등은 계정 concurrency가 낮아(예: 3)
-    # 병렬 map/reduce가 이를 넘으면 429가 난다. 0=무제한(제한 안 함).
-    # 실제 in-flight LLM invoke 수를 이 값 이하로 강제한다 (common.llm_gate).
+    # 공급자 동시 요청 한도. 병렬 map/reduce가 이를 넘으면 429가 날 수 있다.
+    # 0=무제한(제한 안 함). 실제 in-flight LLM invoke 수를 이 값 이하로 강제한다
+    # (common.llm_gate). Z.AI/z.ai 런타임은 rate-limit 정책상 항상 1로 직렬화된다.
     llm_max_concurrency: int = 0
 
     # ── 정적: GitLab (대상 인스턴스·프로젝트는 전부 .env로 — 코드에 특정 레포 가정 없음) ──
@@ -133,7 +133,11 @@ class Settings(BaseSettings):
     llm_retry_attempts: int = 4          # LLM 호출 일시 오류 재시도
     writer_max_retry: int = 2            # write→critic 재시도 상한 (원본 Docu-Automatic hard cap)
     static_reduce_concurrency: int = 4   # init 테마 병렬 생성 상한
-    static_map_concurrency: int = 6      # init 단위 요약 동시 실행 상한 (API rate 고려)
+    static_map_concurrency: int = 6      # init SearchAgent 동시 실행 상한 (API rate 고려)
+    # init 전수 스캔: 한 SearchAgent가 맡는 파일 수 상한. 단위가 이보다 많은 파일을
+    # 가지면 여러 청크로 쪼개 각각 독립 에이전트(독립 context)로 전수 읽는다.
+    # 샘플링이 아니라 모든 파일을 커버하는 것이 목표 — 청크 요약을 다시 합성한다.
+    static_search_chunk_files: int = 12
     static_read_max_chars: int = 40000   # read_file 도구 원문 상한
     mcp_max_tool_chars: int = 20000      # MCP 도구 결과 텍스트 상한
     mcp_b64_min: int = 50000             # 이 길이 이상 base64는 파일로 분리

@@ -21,13 +21,23 @@ from .retry import with_retry
 
 
 def _summarize_ai(msg: AIMessage) -> str:
-    """AI 응답에서 사고/의도 요약을 뽑는다 (API가 원문 사고 전체를 안 주므로 요약 수준)."""
-    if isinstance(msg.content, str) and msg.content.strip():
-        return msg.content.strip()[:200]
+    """관측 UI에 보낼 안전한 판단 요약을 만든다.
+
+    모델 응답 원문은 문서 본문 또는 provider별 reasoning 블록일 수 있다. 운영 UI에는
+    원문 사고 과정을 내보내지 않고, 에이전트가 내린 도구 선택/응답 종류만 기록한다.
+    """
     if msg.tool_calls:
         names = ", ".join(tc["name"] for tc in msg.tool_calls)
-        return f"(도구 호출 결정: {names})"
-    return "(응답)"
+        return f"도구 사용을 결정: {names}"
+    content = msg.content.strip() if isinstance(msg.content, str) else ""
+    if not content:
+        return "응답을 생성함"
+    compact = content.lstrip()
+    if compact.startswith("{") or compact.startswith("["):
+        return "구조화된 검토 결과를 생성함"
+    if compact.startswith("#") or "\n#" in compact or "```" in compact:
+        return "문서 초안을 생성함"
+    return "텍스트 응답을 생성함"
 
 
 def _extract_usage(msg: AIMessage) -> tuple[int, int]:
