@@ -9,49 +9,21 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
-import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from ..common.redaction import redact_data, redact_text
+
 _PREVIEW_CHARS = 1500   # 관측 1건당 결과 미리보기 상한 (근거 블록용)
 
-_SECRET_VALUE_RE = re.compile(
-    r"((?:password|passwd|pwd|token|access_token|refresh_token|"
-    r"api[_-]?key|apikey|secret|authorization)\s*[=:]\s*)"
-    r"(?:bearer\s+)?(\S+)",
-    re.IGNORECASE,
-)
-
-_CREDENTIAL_KEYS = frozenset({
-    "password", "passwd", "pwd", "token", "access_token",
-    "refresh_token", "api_key", "apikey", "secret", "authorization",
-})
-
-
 def _redact(value: str) -> str:
-    """credential-like 패턴을 마스킹한다. 비밀번호·토큰·API 키 등."""
-    if not value or not isinstance(value, str):
-        return value
-    return _SECRET_VALUE_RE.sub(lambda m: m.group(1) + "***REDACTED***", value)
+    """Compatibility wrapper for the shared event/observation redactor."""
+    return redact_text(value)
 
 
 def _redact_args(args: dict) -> dict:
-    """args dict 의 값 중 credential-like 문자열을 마스킹한다.
-
-    키가 credential 이름(password, token 등)이면 값을 직접 마스킹한다.
-    값이 문자열이면 내부의 credential 패턴도 마스킹한다.
-    """
-    redacted: dict = {}
-    for k, v in args.items():
-        if isinstance(k, str) and k.lower() in _CREDENTIAL_KEYS:
-            redacted[k] = "***REDACTED***"
-        elif isinstance(v, str):
-            redacted[k] = _redact(v)
-        elif isinstance(v, dict):
-            redacted[k] = _redact_args(v)
-        else:
-            redacted[k] = v
-    return redacted
+    """Compatibility wrapper for recursively redacting tool arguments."""
+    return redact_data(args)
 
 
 @dataclass
@@ -102,9 +74,23 @@ class ObservationLog:
         return obs
 
     def scenario_ran(self, scenario_id: str) -> bool:
-        """이 시나리오의 관측 기록이 이미 있는가 (resume 시 결정적 재실행 회피)."""
+        """완료 marker가 있는 시나리오만 resume에서 건너뛴다."""
         tag = f"scenario:{scenario_id}"
-        return any(o.phase == tag for o in self.items)
+        return any(o.phase == tag and o.tool == "__scenario_complete__" for o in self.items)
+
+    def mark_scenario_completed(self, scenario_id: str) -> None:
+        """Persist an explicit scenario completion marker for crash-safe resume."""
+        previous_phase = self.phase
+        try:
+            self.phase = f"scenario:{scenario_id}"
+            self.record(
+                tool="__scenario_complete__",
+                args={"scenario_id": scenario_id},
+                ok=True,
+                preview="scenario completed",
+            )
+        finally:
+            self.phase = previous_phase
 
     def evidence_block(self, max_chars: int = 80000) -> str:
         """writer/critic 프롬프트에 넣을 근거 블록. [oN|phase] tool(args) -> OK/ERR + 결과."""

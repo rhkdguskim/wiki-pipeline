@@ -12,6 +12,8 @@ from typing import Any, Literal, TypedDict
 
 from langgraph.config import get_stream_writer
 
+from .redaction import redact_data, redact_text
+
 Layer = Literal["run", "stage", "engine_call", "agent_step"]
 Status = Literal["running", "done", "failed"]
 
@@ -80,6 +82,7 @@ def feedback(title: str, body: str = "", severity: str = "info") -> dict:
 
 
 def thinking(summary: str) -> dict:
+    summary = redact_text(summary)
     return {
         "kind": "thinking",
         "summary": summary,
@@ -91,12 +94,13 @@ def tool_use(tool: str, tool_input: Any) -> dict:
     return {
         "kind": "tool_use",
         "tool": tool,
-        "input": tool_input,
+        "input": redact_data(tool_input),
         "feedback": feedback("Tool call", f"{tool} 실행"),
     }
 
 
 def tool_result(ok: bool, preview: str = "") -> dict:
+    preview = redact_text(preview)
     return {
         "kind": "tool_result",
         "ok": ok,

@@ -144,8 +144,8 @@ class McpBridge:
                    strict: bool = False) -> list[BaseTool]:
         """에이전트 바인딩용 — async MCP 도구를 동기 StructuredTool로 랩핑.
 
-        allowlist(소문자 토큰): 항목이 도구 이름과 같거나 이름에 포함되면 노출.
-        비우면 전체 노출 (Manager 서버는 60+ 도구라 allowlist 권장).
+        allowlist는 정확한 도구 이름으로만 매칭한다. 부분 문자열 매칭은 넓은
+        토큰(예: file)이 파괴적 도구(file_delete)를 우연히 허용할 수 있어 금지한다.
 
         strict=True 면 allowlist 가 비어 있을 때 ValueError 를 발생시킨다
         (production manual run 은 allowlist 필수 — preflight 실패).
@@ -155,15 +155,18 @@ class McpBridge:
         """
         names = self.tool_names()
         if allowlist:
-            allow_lower = [a.lower() for a in allowlist]
-            names = [n for n in names
-                     if any(a == n.lower() or a in n.lower() for a in allow_lower)]
+            allow_lower = {a.lower() for a in allowlist}
+            names = [n for n in names if n.lower() in allow_lower]
         elif strict:
             raise ValueError(
                 "tool_allowlist 가 비어 있습니다 — production manual run 은 "
                 "allowlist 가 필수입니다. 소스의 manual profile 을 확인하세요."
             )
         names = [n for n in names if not self._is_destructive(n, allowlist)]
+        if strict and not names:
+            raise ValueError(
+                "tool_allowlist 에 현재 MCP 서버가 제공하는 안전한 도구가 없습니다"
+            )
         return [self._wrap(self._raw_tools[n]) for n in names]
 
     @staticmethod
@@ -171,10 +174,8 @@ class McpBridge:
         """파괴적 도구를 판별 — allowlist 에 명시적 포함 시 허용."""
         if allowlist:
             name_lower = name.lower()
-            for a in allowlist:
-                a_lower = a.lower()
-                if a_lower == name_lower or a_lower in name_lower:
-                    return False
+            if name_lower in {a.lower() for a in allowlist}:
+                return False
         name_lower = name.lower()
         return any(kw in name_lower for kw in _DESTRUCTIVE_TOOL_KEYWORDS)
 
