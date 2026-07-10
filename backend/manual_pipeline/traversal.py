@@ -61,6 +61,8 @@ def run_scenarios(bridge: McpBridge, scenario_set: ScenarioSet,
                 if not sc.continue_on_failure:
                     break
         (result["completed"] if ok_all else result["failed"]).append(sc.id)
+        if ok_all:
+            log.mark_scenario_completed(sc.id)
         rev("engine_call", stage, "done" if ok_all else "failed",
             detail={"ok": ok_all, "required": sc.required})
         if not ok_all and sc.required:
@@ -79,7 +81,18 @@ def run_exploration(
     max_steps = settings.manual_explore_steps
     conn = sqlite3.connect(str(out_dir / "checkpoints.sqlite"), check_same_thread=False)
     try:
-        checkpointer = SqliteSaver(conn) if SqliteSaver is not None else None
+        if SqliteSaver is None:
+            raise RuntimeError("LangGraph SQLite checkpoint support is unavailable")
+        checkpointer = SqliteSaver(conn)
+        checkpointer.setup()
+        thread_id = f"{run_id}:explore"
+        checkpoint_config = {"configurable": {"thread_id": thread_id}}
+        if resume:
+            if checkpointer.get_tuple(checkpoint_config) is None:
+                raise ValueError(f"resume checkpoint not found for {thread_id}")
+        else:
+            # An explicitly new run with a reused run_id must not merge prior state.
+            checkpointer.delete_thread(thread_id)
         graph = build_explorer_graph(
             model=model, tools=bridge.sync_tools(settings.manual_allowlist,
                                                  strict=strict_allowlist),
@@ -87,7 +100,7 @@ def run_exploration(
             scenario_titles=[s.title for s in scenario_set.scenarios],
             checkpointer=checkpointer,
         )
-        config = {"configurable": {"thread_id": f"{run_id}:explore"},
+        config = {"configurable": {"thread_id": thread_id},
                   "recursion_limit": max_steps * 2 + 8}
         # resume이면 입력 None — 체크포인트의 마지막 상태에서 루프를 이어간다.
         initial = None if resume else {

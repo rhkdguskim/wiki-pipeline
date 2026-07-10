@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -20,6 +21,7 @@ from backend.manual_pipeline.scenarios import (
     scenarios_from_dict,
 )
 from backend.manual_pipeline.traversal import run_scenarios
+from backend.common import events
 
 
 # ── scenario required / continue_on_failure ──────────────────────
@@ -141,6 +143,27 @@ def test_continue_on_failure_false_stops_within_scenario(tmp_path):
     assert bridge.call.call_count == 2
 
 
+def test_resume_retries_scenario_with_only_partial_observations(tmp_path):
+    """A crash after one tool call must not mark the entire scenario complete."""
+    log = ObservationLog(tmp_path / "obs.jsonl")
+    log.set_phase("scenario:s1")
+    log.record(tool="t1", args={}, ok=True, preview="first step completed")
+    bridge = MagicMock()
+    bridge.call.return_value = (True, "ok")
+    from backend.manual_pipeline.scenarios import ScenarioStep
+    result = run_scenarios(
+        bridge,
+        ScenarioSet(app="Test", scenarios=[
+            Scenario(id="s1", title="resume", steps=[ScenarioStep(tool="t1")]),
+        ]),
+        log,
+        MagicMock(),
+    )
+    assert result["completed"] == ["s1"]
+    bridge.call.assert_called_once()
+    assert log.scenario_ran("s1") is True
+
+
 # ── tool allowlist enforcement ───────────────────────────────────
 
 
@@ -199,6 +222,24 @@ def test_sync_tools_allowlist_explicit_allows_destructive():
     tools = bridge.sync_tools(allowlist=["screen_info", "delete_file"])
     names = {t.name for t in tools}
     assert "delete_file" in names  # explicitly allowed
+
+
+def test_sync_tools_does_not_allow_destructive_partial_match():
+    from backend.common.mcp_bridge import McpBridge
+    from langchain_core.tools import BaseTool
+
+    class FakeTool(BaseTool):
+        name: str = ""
+        description: str = ""
+
+        def _run(self, **kwargs):
+            return "ok"
+
+    bridge = McpBridge.__new__(McpBridge)
+    bridge._raw_tools = {"file_delete": FakeTool(name="file_delete")}
+    assert bridge.sync_tools(allowlist=["file"]) == []
+    with pytest.raises(ValueError, match="안전한 도구"):
+        bridge.sync_tools(allowlist=["file"], strict=True)
 
 
 def test_sync_tools_strict_empty_allowlist_raises():
@@ -287,6 +328,34 @@ def test_observation_jsonl_file_contains_redacted(tmp_path):
     content = p.read_text(encoding="utf-8")
     assert "sk-real-key" not in content
     assert "***REDACTED***" in content
+
+
+def test_agent_step_events_redact_nested_secrets():
+    event = events.tool_use("login", {
+        "headers": [{"Authorization": "Bearer nested-secret"}],
+        "token": "top-secret",
+    })
+    assert "nested-secret" not in json.dumps(event)
+    assert "top-secret" not in json.dumps(event)
+    result = events.tool_result(True, '{"api_key": "result-secret"}')
+    assert "result-secret" not in json.dumps(result)
+
+
+def test_resume_without_checkpoint_fails_fast(tmp_path):
+    from backend.manual_pipeline.traversal import run_exploration
+
+    with pytest.raises(ValueError, match="checkpoint not found"):
+        run_exploration(
+            model=None,
+            bridge=MagicMock(),
+            settings=SimpleNamespace(manual_explore_steps=1, manual_allowlist=[]),
+            run_id="missing-checkpoint",
+            observer=MagicMock(),
+            log=ObservationLog(tmp_path / "obs.jsonl"),
+            scenario_set=ScenarioSet(app="Test"),
+            resume=True,
+            out_dir=tmp_path,
+        )
 
 
 def test_evidence_block_redacts_secrets(tmp_path):
