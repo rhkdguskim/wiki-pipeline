@@ -51,7 +51,7 @@ def is_zai_runtime() -> bool:
         except Exception:  # noqa: BLE001 - gate detection must not block a run
             return False
 
-    provider_key = provider.lower().replace("-", "").replace("_", "")
+    provider_key = provider.lower().replace("-", "").replace("_", "").replace(".", "")
     return provider_key in {"zai", "zhipu", "zhipuai"} or "z.ai" in base_url.lower()
 
 
