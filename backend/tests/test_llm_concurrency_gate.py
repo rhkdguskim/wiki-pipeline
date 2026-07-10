@@ -70,6 +70,14 @@ def test_zai_runtime_forces_serial_gate_and_parallel_workers(monkeypatch):
     assert llm_gate.effective_parallelism(6) == 1
 
 
+def test_zai_provider_name_without_base_url_is_detected(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "z.ai")
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
+    llm_gate.reset_for_test()
+
+    assert llm_gate.is_zai_runtime() is True
+
+
 def test_gate_releases_slot_on_exception(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "openai-compatible")
     monkeypatch.setenv("LLM_BASE_URL", "https://api.openai.com/v1")
